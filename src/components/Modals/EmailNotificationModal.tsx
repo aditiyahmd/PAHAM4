@@ -77,7 +77,7 @@ export const EmailNotificationModal: React.FC<EmailNotificationModalProps> = ({
                   </p>
 
                   <div className="flex items-center justify-between mt-1 text-[11px] text-slate-500">
-                    <span className="line-clamp-1">{log.to}</span>
+                    <span className="line-clamp-1">{log.to || log.recipient}</span>
                     <span className="text-emerald-700 font-bold shrink-0">Terkirim</span>
                   </div>
                 </button>
@@ -91,16 +91,16 @@ export const EmailNotificationModal: React.FC<EmailNotificationModalProps> = ({
               <div className="space-y-3">
                 <div className="pb-3 border-b border-slate-200 text-xs space-y-1">
                   <p><strong>Subjek:</strong> {selectedLog.subject}</p>
-                  <p><strong>Kepada:</strong> {selectedLog.recipientName} &lt;{selectedLog.to}&gt;</p>
-                  <p><strong>ID Tiket:</strong> {selectedLog.ticketId}</p>
+                  <p><strong>Kepada:</strong> {selectedLog.recipientName || selectedLog.recipient} &lt;{selectedLog.to || selectedLog.recipient}&gt;</p>
+                  <p><strong>ID Tiket:</strong> {selectedLog.ticketId || '-'}</p>
                   <p className="text-slate-400">
                     <strong>Waktu:</strong> {new Date(selectedLog.timestamp).toLocaleString('id-ID')}
                   </p>
                 </div>
 
                 <div
-                  className="bg-white rounded-lg p-3 text-xs border border-slate-200"
-                  dangerouslySetInnerHTML={{ __html: selectedLog.bodyHtml }}
+                  className="bg-white rounded-lg p-3 text-xs border border-slate-200 whitespace-pre-wrap font-sans"
+                  dangerouslySetInnerHTML={{ __html: selectedLog.bodyHtml || selectedLog.body || '' }}
                 />
               </div>
             ) : (

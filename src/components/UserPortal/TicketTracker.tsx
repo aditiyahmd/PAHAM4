@@ -333,12 +333,12 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
 
                     <div className="flex items-center gap-2">
                       <span className={`px-3 py-1 text-xs font-bold rounded-full ${
-                        dmg.status === 'Closed' || dmg.status === 'Selesai' ? 'bg-emerald-100 text-emerald-800' :
-                        dmg.status === 'In Progress' || dmg.status === 'Perbaikan' ? 'bg-blue-100 text-blue-800' :
-                        dmg.status === 'Pending Procurement' || dmg.status === 'Menunggu Suku Cadang' ? 'bg-amber-100 text-amber-800' :
-                        dmg.status === 'Assigned' || dmg.status === 'Diterima' ? 'bg-purple-100 text-purple-800' :
-                        dmg.status === 'Rusak Total' ? 'bg-rose-100 text-rose-800' :
-                        'bg-red-100 text-red-800'
+                        dmg.status === 'Resolved' || dmg.status === 'Closed – Auto' || dmg.status === 'Closed – Manual' ? 'bg-emerald-100 text-emerald-800' :
+                        dmg.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                        dmg.status === 'Pending – Menunggu Suku Cadang' ? 'bg-amber-100 text-amber-800' :
+                        dmg.status === 'Assigned' ? 'bg-purple-100 text-purple-800' :
+                        dmg.status === 'Re-opened' ? 'bg-rose-100 text-rose-800' :
+                        'bg-slate-100 text-slate-800'
                       }`}>
                         {dmg.status}
                       </span>
@@ -462,6 +462,52 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                         <p className="p-3 bg-blue-50/70 rounded-lg border border-blue-200 text-blue-900 leading-relaxed">
                           {dmg.catatanAdmin}
                         </p>
+                      </div>
+                    )}
+
+                    {/* BR-008: Mekanisme Konfirmasi 2 Hari Kerja & Re-open */}
+                    {dmg.status === 'Resolved' && (
+                      <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl space-y-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                          <span className="font-bold text-emerald-900 text-sm">
+                            Konfirmasi Penyelesaian dari Pelapor (BR-008)
+                          </span>
+                        </div>
+                        <p className="text-slate-600 text-xs">
+                          Teknisi telah menyelesaikan perbaikan tiket ini. Anda memiliki masa konfirmasi <strong>2 hari kerja</strong>. Jika perangkat sudah berfungsi normal, Anda dapat menutup tiket ini sekarang, atau membuka kembali tiket jika kendala masih berulang.
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const res = AppDatabase.processDamageTicket(dmg.id, 'tutup-manual', {
+                                catatan: 'Pelapor mengonfirmasi masalah selesai via Portal Civitas.'
+                              });
+                              alert(res.message);
+                              handleSearch();
+                            }}
+                            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Konfirmasi Selesai (Closed – Manual)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const reason = prompt('Sebutkan kendala yang masih terjadi:') || 'Kendala masih berulang';
+                              const res = AppDatabase.processDamageTicket(dmg.id, 're-open', {
+                                catatan: reason
+                              });
+                              alert(res.message);
+                              handleSearch();
+                            }}
+                            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Kendala Masih Ada (Re-opened)
+                          </button>
+                        </div>
                       </div>
                     )}
 

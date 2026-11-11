@@ -31,32 +31,30 @@ export const PicDashboard: React.FC<PicDashboardProps> = ({ onNavigateTab }) => 
     if (!activeTech) return true;
     return (
       t.assignedTechnicianId === activeTech.id ||
-      t.picTeknisi === activeTech.role ||
-      (t.delegasiDari && t.delegasiDari.includes(activeTech.name))
+      t.picTeknisi === activeTech.roleName ||
+      Boolean(activeTech.nama && t.delegasiDari && t.delegasiDari.includes(activeTech.nama))
     );
   });
 
   const activeAssigned = myTickets.filter(
     t =>
-      t.status === 'Open' ||
-      t.status === 'Baru' ||
+      t.status === 'Open/Unassigned' ||
       t.status === 'Assigned' ||
-      t.status === 'Diterima' ||
       t.status === 'In Progress' ||
-      t.status === 'Perbaikan'
+      t.status === 'Re-opened'
   );
   const waitingSpareParts = myTickets.filter(
-    t => t.status === 'Pending Procurement' || t.status === 'Menunggu Suku Cadang'
+    t => t.status === 'Pending – Menunggu Suku Cadang'
   );
   const finishedTickets = myTickets.filter(
-    t => t.status === 'Closed' || t.status === 'Selesai' || t.status === 'Rusak Total'
+    t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual'
   );
   const criticalTickets = myTickets.filter(
     t =>
-      (t.urgensi === 'Kritis' || t.urgensi === 'Tinggi') &&
-      t.status !== 'Closed' &&
-      t.status !== 'Selesai' &&
-      t.status !== 'Rusak Total'
+      (t.urgensi === 'Kritis' || t.prioritas === 'Kritis' || t.urgensi === 'Tinggi' || t.prioritas === 'Tinggi') &&
+      t.status !== 'Resolved' &&
+      t.status !== 'Closed – Auto' &&
+      t.status !== 'Closed – Manual'
   );
   const delegatedTickets = myTickets.filter(t => !!t.delegasiDari);
 
@@ -108,10 +106,10 @@ export const PicDashboard: React.FC<PicDashboardProps> = ({ onNavigateTab }) => 
               )}
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-              Selamat Bertugas, {activeTech?.name || 'Petugas PUSDATIN'}
+              Selamat Bertugas, {activeTech?.nama || activeTech?.name || 'Petugas PUSDATIN'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
-              Spesialisasi: <strong className="text-white">{activeTech?.role}</strong> &bull; {activeTech?.specialty}
+              Spesialisasi: <strong className="text-white">{activeTech?.roleName || activeTech?.role}</strong> &bull; {activeTech?.specialty}
             </p>
           </div>
 
@@ -220,7 +218,11 @@ export const PicDashboard: React.FC<PicDashboardProps> = ({ onNavigateTab }) => 
       </div>
 
       {/* Delegation Notice for Programmer */}
-      {(activeTech?.role === 'Programmer' || activeTech?.role === 'Junior Programmer') && (
+      {((activeTech?.roleName as string) === 'Programmer' ||
+        (activeTech?.roleName as string) === 'Junior Programmer' ||
+        activeTech?.role === 'ACT-06' ||
+        activeTech?.role === 'ACT-07' ||
+        activeTech?.role === 'ACT-08') && (
         <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-2xl p-4.5">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-violet-600 text-white flex items-center justify-center shrink-0">
@@ -231,9 +233,9 @@ export const PicDashboard: React.FC<PicDashboardProps> = ({ onNavigateTab }) => 
                 Fitur Delegasi Tim Programmer PUSDATIN UMC
               </h4>
               <p className="text-xs text-violet-800 leading-relaxed">
-                {activeTech?.role === 'Programmer'
-                  ? 'Sebagai Programmer Senior, Anda dapat mendelegasikan tiket kerusakan (seperti perbaikan modul aplikasi, query SQL, atau bug frontend) kepada Junior Programmer melalui menu "Kelola Tiket Rusak Anda" dengan memilih aksi Delegasi.'
-                  : 'Sebagai Junior Programmer, Anda menerima tiket yang didelegasikan oleh Programmer Senior. Anda dapat memperbarui progress pekerjaan dan mencatat catatan perbaikan teknis.'}
+                {(activeTech?.roleName as string) === 'Programmer' || activeTech?.role === 'ACT-06'
+                  ? 'Sebagai Lead / Senior Programmer, Anda dapat mendelegasikan tiket kerusakan (seperti perbaikan modul aplikasi, query SQL, atau bug frontend) kepada Junior Programmer melalui menu "Kelola Tiket Rusak Anda" dengan memilih aksi Delegasi.'
+                  : 'Sebagai Frontend/Backend Programmer, Anda menerima tiket yang didelegasikan oleh Lead Dev. Anda dapat memperbarui progress pekerjaan dan mencatat catatan perbaikan teknis.'}
               </p>
             </div>
           </div>

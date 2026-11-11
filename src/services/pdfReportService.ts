@@ -1,9 +1,25 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { LoanTicket, MonthlyReportParams, SparePartItem, PicPerformanceReport } from '../types';
+import { Asset, DamageTicket, LoanTicket, SparePartItem, PicPerformanceReport } from '../types';
 import { KOP_OFFICIAL_BASE64 } from './kopBase64';
 
-export type { MonthlyReportParams };
+export interface MonthlyReportParams {
+  bulan: string;
+  tahun: string;
+  tipeLaporan: string;
+  kategoriFilter?: string;
+  lokasiFilter?: string;
+  assets: Asset[];
+  loans: LoanTicket[];
+  damages: DamageTicket[];
+  spareParts?: any[];
+  logs?: any[];
+  picReports?: PicPerformanceReport[];
+  picPerformance?: PicPerformanceReport[];
+  kepalaPusdatin?: string;
+  nipKepala?: string;
+  petugas?: string;
+}
 
 export class PdfReportService {
   /**
@@ -196,18 +212,18 @@ export class PdfReportService {
 
     // Helper to print summary KPI cards in PDF
     const totalAssets = params.assets.length;
-    const assetsTersedia = params.assets.filter(a => a.status === 'Tersedia').length;
-    const assetsDipinjam = params.assets.filter(a => a.status === 'Dipinjam').length;
-    const assetsRusak = params.assets.filter(a => a.status === 'Rusak' || a.status === 'Diperbaiki' || a.status === 'Rusak Total').length;
+    const assetsTersedia = params.assets.filter((a: Asset) => a.status === 'Tersedia').length;
+    const assetsDipinjam = params.assets.filter((a: Asset) => a.status === 'Dipinjam').length;
+    const assetsRusak = params.assets.filter((a: Asset) => a.status === 'Maintenance' || a.status === 'Rusak' || a.status === 'Diperbaiki' || a.status === 'Tidak Layak').length;
 
     const totalLoans = params.loans.length;
-    const loansAktif = params.loans.filter(l => l.status === 'Disetujui').length;
-    const loansKembali = params.loans.filter(l => l.status === 'Dikembalikan').length;
-    const loansTerlambat = params.loans.filter(l => l.status === 'Terlambat').length;
+    const loansAktif = params.loans.filter((l: LoanTicket) => l.status === 'Diserahkan' || l.status === 'Dikonfirmasi').length;
+    const loansKembali = params.loans.filter((l: LoanTicket) => l.status === 'Dikembalikan').length;
+    const loansTerlambat = params.loans.filter((l: LoanTicket) => l.status === 'Terlambat').length;
 
     const totalDamages = params.damages.length;
-    const damagesKritis = params.damages.filter(d => d.urgensi === 'Kritis').length;
-    const damagesSelesai = params.damages.filter(d => d.status === 'Selesai').length;
+    const damagesKritis = params.damages.filter((d: DamageTicket) => d.urgensi === 'Kritis' || d.prioritas === 'Kritis').length;
+    const damagesSelesai = params.damages.filter((d: DamageTicket) => d.status === 'Resolved' || d.status === 'Closed – Auto' || d.status === 'Closed – Manual').length;
 
     // SECTION 1: RINGKASAN JUMLAH ASET & STATISTIK EKSEKUTIF
     autoTable(doc, {
@@ -355,7 +371,7 @@ export class PdfReportService {
         startY: currentY + 2,
         theme: 'grid',
         head: [['No', 'ID Tiket', 'Perangkat / Aset', 'Barcode', 'Lokasi', 'Pelapor', 'Urgensi', 'PIC Teknisi', 'Status', 'Tgl Lapor']],
-        body: params.damages.map((d, idx) => [
+        body: params.damages.map((d: DamageTicket, idx: number) => [
           (idx + 1).toString(),
           d.id,
           d.namaBarang,
@@ -407,7 +423,7 @@ export class PdfReportService {
         startY: currentY + 2,
         theme: 'grid',
         head: [['No', 'ID Tiket', 'Peminjam', 'Unit Kerja / Prodi', 'Kontak/WA', 'Barang Pinjaman', 'Barcode', 'Tgl Pinjam', 'Tgl Kembali', 'Status']],
-        body: params.loans.map((l, i) => [
+        body: params.loans.map((l: LoanTicket, i: number) => [
           (i + 1).toString(),
           l.id,
           l.peminjam,
@@ -453,7 +469,7 @@ export class PdfReportService {
         startY: currentY + 2,
         theme: 'grid',
         head: [['No', 'Barcode', 'Nama Barang / Perangkat', 'Kategori', 'Status', 'Lokasi Penempatan', 'Tgl Masuk']],
-        body: params.assets.map((a, i) => [
+        body: params.assets.map((a: Asset, i: number) => [
           (i + 1).toString(),
           a.barcode,
           a.nama,

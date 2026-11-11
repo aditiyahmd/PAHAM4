@@ -69,10 +69,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
 
   // Technician performance computation (Enhancement B.11)
   const technicianStats = technicians.map(tech => {
-    const assigned = damageTickets.filter(t => t.picTeknisi === tech.role);
-    const inProgress = assigned.filter(t => t.status === 'Perbaikan' || t.status === 'Menunggu Suku Cadang');
-    const waiting = assigned.filter(t => t.status === 'Baru' || t.status === 'Diterima');
-    const completed = assigned.filter(t => t.status === 'Selesai');
+    const assigned = damageTickets.filter(t => t.assignedTechnicianId === tech.id || t.picTeknisi === tech.roleName || Boolean(tech.nama && t.namaPicTeknisi === tech.nama));
+    const inProgress = assigned.filter(t => t.status === 'In Progress' || t.status === 'Pending – Menunggu Suku Cadang');
+    const waiting = assigned.filter(t => t.status === 'Open/Unassigned' || t.status === 'Assigned');
+    const completed = assigned.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual');
     return {
       ...tech,
       totalAssigned: assigned.length,
@@ -184,7 +184,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
               </h4>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-extrabold font-mono tracking-tight text-white">
-                  {stats.totalMasukPusdatinBelumDiperbaiki || 0}
+                  {stats.totalAntreanTiket || 0}
                 </span>
                 <span className="text-xs text-amber-100 font-semibold">Unit Perangkat</span>
               </div>
@@ -199,7 +199,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
 
           <div className="mt-4 pt-3 border-t border-white/15 flex items-center justify-between text-xs">
             <span className="text-amber-100">
-              Total Rusak Total (Afkir): <strong>{stats.rusakTotal || 0} unit</strong>
+              Total Rusak Total (Afkir): <strong>{stats.tidakLayak || 0} unit</strong>
             </span>
             <button
               type="button"
@@ -308,10 +308,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
             <Wrench className="w-4 h-4 text-amber-600" />
           </div>
           <p className="text-2xl font-bold font-mono text-amber-600 tabular-nums">
-            {stats.rusak + stats.diperbaiki}
+            {(stats.maintenance || 0) + (stats.totalSedangDiperbaiki || 0)}
           </p>
           <span className="text-[11px] text-amber-700 mt-1 block">
-            {stats.rusak} Rusak · {stats.diperbaiki} Diservis
+            {stats.maintenance || 0} Maintenance · {stats.totalSedangDiperbaiki || 0} Diservis
           </span>
         </div>
       </div>

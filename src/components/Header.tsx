@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, LogOut, Lock, Bell, Menu, LayoutDashboard, UserCheck, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, LogOut, Lock, Bell, Menu, LayoutDashboard, UserCheck, AlertTriangle, Users } from 'lucide-react';
 import { AppDatabase } from '../services/db';
 
 interface HeaderProps {
@@ -10,6 +10,7 @@ interface HeaderProps {
   onLogout: () => void;
   onOpenEmailLogs: () => void;
   onToggleMobileSidebar: () => void;
+  onOpenActorSwitcher: () => void;
   pendingLoanCount: number;
   overdueCount?: number;
 }
@@ -22,9 +23,12 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onOpenEmailLogs,
   onToggleMobileSidebar,
+  onOpenActorSwitcher,
   pendingLoanCount,
   overdueCount = 0
 }) => {
+  const activeUser = AppDatabase.getActiveUser();
+
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
@@ -55,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
               <span className="text-[11px] text-slate-500 font-medium block">
-                Asset & Helpdesk Assistance Management
+                Sistem Terpadu Inventaris, Helpdesk & Sistem Baru
               </span>
             </div>
           </div>
@@ -66,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={() => onSwitchRole('user')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
               activeRole === 'user'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -85,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onOpenLogin();
               }
             }}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
               activeRole === 'admin'
                 ? 'bg-white text-red-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -107,53 +111,38 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Right: Quick actions & Authentication */}
+        {/* Right: Actor Switcher & Auth */}
         <div className="flex items-center gap-2">
-          {/* Email Log Trigger */}
+          {/* 10 Actor Switcher Button (Testing & RBAC Demonstration) */}
+          <button
+            type="button"
+            onClick={onOpenActorSwitcher}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold border border-slate-200 shadow-2xs cursor-pointer transition-all"
+            title="Ganti Peran Aktor (ACT-01 s/d ACT-10)"
+          >
+            <Users className="w-3.5 h-3.5 text-cyan-700" />
+            <span className="hidden md:inline">{activeUser.role} - {activeUser.roleName.split(' ')[0]}</span>
+            <span className="md:hidden font-mono text-[10px]">{activeUser.role}</span>
+          </button>
+
+          {/* Email / Notification Log Trigger */}
           <button
             type="button"
             onClick={onOpenEmailLogs}
-            className="p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors relative"
-            title="Lihat Log Notifikasi Email Otomatis"
+            className="p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors relative cursor-pointer"
+            title="Lihat Log Notifikasi WhatsApp & Email"
           >
             <Bell className="w-4 h-4" />
-            <span className="sr-only">Notifikasi Email</span>
+            <span className="sr-only">Notifikasi</span>
           </button>
 
           {/* Admin Auth Status */}
           {isAdmin ? (
             <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-              {(() => {
-                const activeTech = AppDatabase.getActiveTechnician();
-                if (activeTech) {
-                  return (
-                    <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold leading-tight"
-                         style={{
-                           backgroundColor: activeTech.isFullAccess ? '#fef2f2' : '#f0f9ff',
-                           borderColor: activeTech.isFullAccess ? '#fecaca' : '#bae6fd',
-                           color: activeTech.isFullAccess ? '#991b1b' : '#0369a1'
-                         }}>
-                      <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                      <div className="truncate max-w-[190px]">
-                        <span>{activeTech.name.split(',')[0]}</span>
-                        <span className="text-[10px] opacity-80 block font-normal">
-                          {activeTech.isFullAccess ? '👑 Full Access' : `🎯 ${activeTech.role}`}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                }
-                return (
-                  <span className="hidden md:inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
-                    <ShieldCheck className="w-3.5 h-3.5 text-red-600" />
-                    <span>👑 Admin PUSDATIN (Akses Penuh)</span>
-                  </span>
-                );
-              })()}
               <button
                 type="button"
                 onClick={onLogout}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                 title="Keluar dari sesi Admin"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -164,7 +153,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenLogin}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs transition-colors cursor-pointer"
             >
               <Lock className="w-3.5 h-3.5" />
               <span>Login Admin</span>

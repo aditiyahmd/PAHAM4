@@ -136,30 +136,23 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     }
 
     setIsProcessing(true);
-    const now = new Date();
-    const dateCode = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0');
-    const randomCode = Math.floor(100 + Math.random() * 900);
-    const id = `TKT-${dateCode}-${randomCode}`;
-
-    const newTicket: DamageTicket = {
-      id,
+    const asset = internalBarcode.trim() ? AppDatabase.getAssetByBarcodeOrUnique(internalBarcode.trim()) : undefined;
+    const createdTicket = AppDatabase.addDamageTicket({
       barcode: internalBarcode.trim() || 'Tanpa Barcode',
+      kodeUnikAset: asset?.kodeUnikAset || `AST-${internalBarcode.trim() || 'INTERNAL'}`,
       namaBarang: internalNamaBarang.trim(),
       lokasi: internalLokasi.trim() || 'Ruang PUSDATIN Kampus 1',
       lokasiAwal: internalLokasi.trim() || 'Ruang PUSDATIN Kampus 1',
       deskripsi: internalDeskripsi.trim(),
       pelapor: internalPelapor.trim(),
-      tanggalLapor: now.toLocaleString('id-ID'),
-      status: internalStatus,
-      metodePerbaikan: internalMetode,
+      kontakPelapor: '085964531388',
+      prioritas: internalUrgensi,
       urgensi: internalUrgensi,
+      metodePerbaikan: internalMetode,
       kategoriMasalah: 'Hardware',
       jenisAset: 'Fisik'
-    };
-
-    AppDatabase.addDamageTicket(newTicket);
+    });
+    const id = createdTicket.id;
 
     setTimeout(() => {
       setIsProcessing(false);
@@ -176,7 +169,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const activeTech = AppDatabase.getActiveTechnician();
   const isRestrictedPic = activeTech && !activeTech.isFullAccess;
   const techniciansList = AppDatabase.getTechnicians();
-  const availableRoles: TechnicianRole[] = Array.from(new Set(techniciansList.map(t => t.role)));
+  const availableRoles: TechnicianRole[] = Array.from(new Set(techniciansList.map(t => (t.roleName || t.role) as TechnicianRole)));
 
   const handleQuickUpdateUrgency = (ticketId: string, newUrgency: TicketUrgency) => {
     AppDatabase.updateDamageTicketUrgency(ticketId, newUrgency);
@@ -204,8 +197,8 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     if (isRestrictedPic && activeTech) {
       const isMine =
         t.assignedTechnicianId === activeTech.id ||
-        t.picTeknisi === activeTech.role ||
-        (t.delegasiDari && t.delegasiDari.includes(activeTech.name));
+        t.picTeknisi === activeTech.roleName ||
+        (t.delegasiDari && activeTech.nama && t.delegasiDari.includes(activeTech.nama));
       if (!isMine) return false;
     }
 
@@ -228,9 +221,9 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     } else if (statusFilter === 'In Progress') {
       matchesStatus = t.status === 'In Progress' || t.status === 'Perbaikan';
     } else if (statusFilter === 'Pending Procurement') {
-      matchesStatus = t.status === 'Pending Procurement' || t.status === 'Menunggu Suku Cadang';
+      matchesStatus = t.status === 'Pending – Menunggu Suku Cadang' || (t.status as string) === 'Pending Procurement' || (t.status as string) === 'Menunggu Suku Cadang';
     } else if (statusFilter === 'Closed') {
-      matchesStatus = t.status === 'Closed' || t.status === 'Selesai' || t.status === 'Rusak Total';
+      matchesStatus = t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual';
     } else {
       matchesStatus = t.status === statusFilter;
     }
@@ -243,17 +236,14 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
   const urgencyOrder: Record<string, number> = { Kritis: 4, Tinggi: 3, Sedang: 2, Rendah: 1 };
   const statusOrder: Record<string, number> = {
-    Open: 6,
-    Baru: 6,
+    'Open/Unassigned': 6,
     Assigned: 5,
-    Diterima: 5,
     'In Progress': 4,
-    Perbaikan: 4,
-    'Pending Procurement': 3,
-    'Menunggu Suku Cadang': 3,
-    Closed: 2,
-    Selesai: 2,
-    'Rusak Total': 1
+    'Pending – Menunggu Suku Cadang': 3,
+    Resolved: 2,
+    'Closed – Auto': 1,
+    'Closed – Manual': 1,
+    'Re-opened': 5
   };
 
   const sortedTickets = [...filteredTickets].sort((a, b) => {
@@ -275,11 +265,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   // KPI Stage Counts
   const stageCounts = {
     total: tickets.length,
-    open: tickets.filter(t => t.status === 'Open' || t.status === 'Baru').length,
-    assigned: tickets.filter(t => t.status === 'Assigned' || t.status === 'Diterima').length,
-    inProgress: tickets.filter(t => t.status === 'In Progress' || t.status === 'Perbaikan').length,
-    pendingProcurement: tickets.filter(t => t.status === 'Pending Procurement' || t.status === 'Menunggu Suku Cadang').length,
-    closed: tickets.filter(t => t.status === 'Closed' || t.status === 'Selesai' || t.status === 'Rusak Total').length
+    open: tickets.filter(t => t.status === 'Open/Unassigned' || (t.status as string) === 'Open' || (t.status as string) === 'Baru').length,
+    assigned: tickets.filter(t => t.status === 'Assigned' || (t.status as string) === 'Diterima').length,
+    inProgress: tickets.filter(t => t.status === 'In Progress' || (t.status as string) === 'Perbaikan').length,
+    pendingProcurement: tickets.filter(t => t.status === 'Pending – Menunggu Suku Cadang').length,
+    closed: tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual').length
   };
 
   const openProcessModal = (t: DamageTicket, specificAction?: typeof actionType) => {
@@ -458,7 +448,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     document.body.removeChild(link);
   };
 
-  const renderRoleBadge = (role?: TechnicianRole) => {
+  const renderRoleBadge = (role?: TechnicianRole | string) => {
     switch (role) {
       case 'Cloud & Infrastructure Engineer':
         return (
@@ -467,12 +457,22 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
             <span>Cloud & Infra</span>
           </span>
         );
+      case 'Lead Full Stack Developer':
+      case 'Frontend Programmer':
+      case 'Backend Programmer':
       case 'Programmer':
       case 'Junior Programmer':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-50 text-violet-800 border border-violet-200">
             <Laptop className="w-2.5 h-2.5 text-violet-600" />
             <span>{role}</span>
+          </span>
+        );
+      case 'System Analyst & Data Governance Specialist':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+            <Laptop className="w-2.5 h-2.5 text-indigo-600" />
+            <span>System Analyst</span>
           </span>
         );
       case 'Cyber Security Officer':

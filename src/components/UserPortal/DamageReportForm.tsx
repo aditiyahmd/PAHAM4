@@ -84,28 +84,23 @@ export const DamageReportForm: React.FC<DamageReportFormProps> = ({
       return;
     }
 
-    const now = new Date();
-    const dateCode = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0');
-    const randomCode = Math.floor(100 + Math.random() * 900);
-    const newId = `TKT-${dateCode}-${randomCode}`;
+    const matchedAsset = barcode ? AppDatabase.getAssetByBarcodeOrUnique(barcode) : undefined;
 
-    const newTicket: DamageTicket = {
-      id: newId,
+    const newTicket = AppDatabase.addDamageTicket({
       barcode: barcode.trim() || 'Tanpa Barcode',
+      kodeUnikAset: matchedAsset?.kodeUnikAset || (barcode.trim() ? `AST-UMC-${barcode.trim()}` : 'AST-NON-TAG'),
       namaBarang: namaBarang.trim(),
       pelapor: pelapor.trim() || 'Civitas UMC',
-      kontakPelapor: kontak.trim(),
+      kontakPelapor: kontak.trim() || '081234567890',
+      emailPelapor: 'civitas@umc.ac.id',
       lokasi: finalLocation,
       lokasiAwal: finalLocation,
       deskripsi: deskripsi.trim(),
-      tanggalLapor: now.toLocaleString('id-ID'),
-      status: 'Open',
+      kategoriMasalah: detectedPic.role.includes('Cloud') ? 'Jaringan / Server / Cloud' : detectedPic.role.includes('Cyber') ? 'Keamanan / Email' : detectedPic.role.includes('Analyst') ? 'Software / Sistem' : 'Hardware',
+      prioritas: urgensi,
       urgensi: urgensi
-    };
+    });
 
-    AppDatabase.addDamageTicket(newTicket);
     EmailNotificationService.sendDamageReportSubmitted(newTicket);
     setSubmittedTicket(newTicket);
     setShowSuccessModal(true);

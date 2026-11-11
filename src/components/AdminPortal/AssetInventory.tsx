@@ -105,6 +105,7 @@ export const AssetInventory: React.FC<AssetInventoryProps> = ({ onDataChanged })
 
       const newAsset: Asset = {
         barcode: finalBarcode,
+        kodeUnikAset: `AST-UMC-${new Date().getFullYear()}-${finalBarcode}`,
         nama: namaBarang.trim(),
         kategori,
         merekModel: merekModel.trim() || undefined,

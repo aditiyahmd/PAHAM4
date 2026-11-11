@@ -71,7 +71,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigateTab('ajukan-pinjam')}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-xl shadow-xs transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-xl shadow-xs transition-colors cursor-pointer"
             >
               <Handshake className="w-4 h-4" />
               <span>Ajukan Peminjaman Aset</span>
@@ -80,7 +80,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigateTab('lapor-rusak')}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl transition-colors backdrop-blur-xs"
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl transition-colors backdrop-blur-xs cursor-pointer"
             >
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               <span>Lapor Kerusakan Perangkat</span>
@@ -88,8 +88,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
             <button
               type="button"
+              onClick={() => onNavigateTab('pengajuan-sistem-user')}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl transition-colors backdrop-blur-xs cursor-pointer"
+            >
+              <Wrench className="w-4 h-4 text-cyan-400" />
+              <span>Ajukan Sistem Baru (F-DEV-01)</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => onNavigateTab('cek-progres')}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl transition-colors backdrop-blur-xs"
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl transition-colors backdrop-blur-xs cursor-pointer"
             >
               <Search className="w-4 h-4 text-blue-400" />
               <span>Lacak Status Tiket</span>
@@ -162,11 +171,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           {/* Rusak */}
           <div className="bg-white rounded-xl border border-red-200 p-4 shadow-xs bg-red-50/20 hover:border-red-300 transition-all">
             <div className="flex items-center justify-between text-red-700 mb-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Rusak</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider">Maintenance</span>
               <AlertTriangle className="w-4 h-4 text-red-600" />
             </div>
             <p className="text-2xl font-bold font-mono text-red-600 tabular-nums">
-              {stats.rusak}
+              {stats.maintenance ?? stats.rusak ?? 0}
             </p>
             <span className="text-[11px] text-red-700 mt-1 block">Perlu Servis</span>
           </div>
@@ -174,11 +183,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           {/* Perbaikan */}
           <div className="bg-white rounded-xl border border-amber-200 p-4 shadow-xs bg-amber-50/20 hover:border-amber-300 transition-all">
             <div className="flex items-center justify-between text-amber-700 mb-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Perbaikan</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider">Diperbaiki</span>
               <Wrench className="w-4 h-4 text-amber-600" />
             </div>
             <p className="text-2xl font-bold font-mono text-amber-600 tabular-nums">
-              {stats.diperbaiki}
+              {stats.totalSedangDiperbaiki ?? stats.diperbaiki ?? 0}
             </p>
             <span className="text-[11px] text-amber-700 mt-1 block">Sedang Ditangani</span>
           </div>

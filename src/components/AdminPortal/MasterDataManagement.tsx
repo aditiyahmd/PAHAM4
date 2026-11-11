@@ -71,7 +71,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
   const openAddTechModal = () => {
     setEditingTech(null);
     setTechName('');
-    setTechRole('Programmer');
+    setTechRole('IT Support & Helpdesk Specialist');
     setTechEmail('');
     setTechPassword('admin');
     setTechPhone('081234567890');
@@ -83,8 +83,8 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
 
   const openEditTechModal = (tech: TechnicianUser) => {
     setEditingTech(tech);
-    setTechName(tech.name);
-    setTechRole(tech.role);
+    setTechName(tech.nama || tech.name || '');
+    setTechRole(tech.roleName || (tech.role as any));
     setTechEmail(tech.email);
     setTechPassword(tech.password || 'admin');
     setTechPhone(tech.phone || '');
@@ -105,8 +105,9 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
       // Update
       const success = AppDatabase.updateTechnician({
         ...editingTech,
+        nama: techName.trim(),
         name: techName.trim(),
-        role: techRole,
+        roleName: techRole,
         email: techEmail.trim().toLowerCase(),
         password: techPassword.trim(),
         phone: techPhone.trim(),
@@ -126,8 +127,9 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
     } else {
       // Add
       const created = AppDatabase.addTechnician({
+        nama: techName.trim(),
         name: techName.trim(),
-        role: techRole,
+        roleName: techRole,
         email: techEmail.trim().toLowerCase(),
         password: techPassword.trim(),
         phone: techPhone.trim(),
@@ -148,17 +150,18 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
   };
 
   const handleDeleteTechnician = (tech: TechnicianUser) => {
-    if (tech.isFullAccess && (tech.role === 'Kepala PUSDATIN' || tech.id === 'TECH-000')) {
+    if (tech.isFullAccess && (tech.roleName === 'Kepala PUSDATIN' || tech.role === 'ACT-02' || tech.id === 'TECH-000')) {
       alert('Akun Kepala PUSDATIN utama tidak boleh dihapus demi keamanan sistem.');
       return;
     }
 
-    if (confirm(`Apakah Anda yakin ingin menghapus akun PIC "${tech.name}" (${tech.email})?`)) {
+    const displayName = tech.nama || tech.name || tech.email;
+    if (confirm(`Apakah Anda yakin ingin menghapus akun PIC "${displayName}" (${tech.email})?`)) {
       const success = AppDatabase.deleteTechnician(tech.id);
       if (success) {
         setTechnicians(AppDatabase.getTechnicians());
         onDataChanged();
-        showFeedback('success', `Akun PIC "${tech.name}" telah dihapus.`);
+        showFeedback('success', `Akun PIC "${displayName}" telah dihapus.`);
       } else {
         showFeedback('error', 'Akun PIC ini tidak dapat dihapus.');
       }
@@ -375,14 +378,14 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                     return (
                       <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-4 py-3">
-                          <div className="font-bold text-slate-900">{t.name}</div>
+                          <div className="font-bold text-slate-900">{t.nama || t.name}</div>
                           <div className="font-mono text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                             <span>ID: {t.id}</span>
                             {t.phone && <span>· WA: {t.phone}</span>}
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="font-semibold text-slate-800 block">{t.role}</span>
+                          <span className="font-semibold text-slate-800 block">{t.roleName || t.role}</span>
                           <span className="text-[10px] text-slate-500">{t.specialty || '-'}</span>
                         </td>
                         <td className="px-4 py-3 font-mono font-medium text-slate-800">
@@ -421,7 +424,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                               Jenjang: <strong className="text-slate-700">{t.level || 'Senior'}</strong>
                               {t.reportsTo && (
                                 <span className="block text-[9px] text-violet-600">
-                                  Lapor ke: {technicians.find(tc => tc.id === t.reportsTo)?.name || t.reportsTo}
+                                  Lapor ke: {technicians.find(tc => tc.id === t.reportsTo)?.nama || technicians.find(tc => tc.id === t.reportsTo)?.name || t.reportsTo}
                                 </span>
                               )}
                             </div>
@@ -465,7 +468,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                       {editingTech ? 'Edit Kredensial & Data PIC' : 'Tambah Akun PIC Baru'}
                     </h3>
                     <p className="text-xs text-slate-500">
-                      {editingTech ? `Mengubah data akun ${editingTech.name}` : 'Buat akun username dan password baru untuk teknisi'}
+                      {editingTech ? `Mengubah data akun ${editingTech.nama || editingTech.name}` : 'Buat akun username dan password baru untuk teknisi'}
                     </p>
                   </div>
                   <button

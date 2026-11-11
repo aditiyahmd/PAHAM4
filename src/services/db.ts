@@ -2,10 +2,11 @@ import {
   Asset,
   AssetStatus,
   LoanTicket,
+  LoanStatus,
   DamageTicket,
+  DamageStatus,
   ActivityLog,
   AppStatistics,
-  EmailLog,
   TechnicianUser,
   TechnicianRole,
   RepairCategory,
@@ -13,8 +14,19 @@ import {
   SparePartItem,
   SparePartStatus,
   TicketUrgency,
-  PicPerformanceReport
+  PicPerformanceReport,
+  BukuPenerimaanItem,
+  BukuPengeluaranItem,
+  BukuAsetInventarisRekap,
+  SystemProposal,
+  SystemProposalStatus,
+  NotificationLog,
+  AuditTrailItem,
+  AppUser,
+  ActorCode,
+  ApiRegistration
 } from '../types';
+import { AccessControlService, SEED_USERS } from './rbac';
 
 export interface SparePartWithTicket {
   sparePartId: string;
@@ -24,6 +36,7 @@ export interface SparePartWithTicket {
   ticketStatus: string;
   urgensi: TicketUrgency;
   barcode: string;
+  kodeUnikAset: string;
   namaBarang: string;
   lokasi: string;
   pelapor: string;
@@ -37,86 +50,23 @@ export interface SparePartWithTicket {
 }
 
 const STORAGE_KEYS = {
-  ASSETS: 'pusdatin_assets_v3',
-  LOANS: 'pusdatin_loans_v3',
-  DAMAGES: 'pusdatin_damages_v3',
-  LOGS: 'pusdatin_logs_v3',
-  KEPALA: 'pusdatin_kepala_v2',
-  GAS_URL: 'pusdatin_gas_url_v2',
-  MASTER_LOCATIONS: 'pusdatin_master_locations_v1',
-  MASTER_CATEGORIES: 'pusdatin_master_categories_v1',
-  TECHNICIANS: 'pusdatin_technicians_v4'
+  ASSETS: 'pusdatin_assets_v4',
+  LOANS: 'pusdatin_loans_v4',
+  DAMAGES: 'pusdatin_damages_v4',
+  LOGS: 'pusdatin_logs_v4',
+  KEPALA: 'pusdatin_kepala_v4',
+  GAS_URL: 'pusdatin_gas_url_v4',
+  MASTER_LOCATIONS: 'pusdatin_master_locations_v4',
+  MASTER_CATEGORIES: 'pusdatin_master_categories_v4',
+  USERS: 'pusdatin_users_v4',
+  ACTIVE_USER_ID: 'pusdatin_active_user_id_v4',
+  BUKU_PENERIMAAN: 'pusdatin_buku_penerimaan_v4',
+  BUKU_PENGELUARAN: 'pusdatin_buku_pengeluaran_v4',
+  SYSTEM_PROPOSALS: 'pusdatin_system_proposals_v4',
+  NOTIFICATIONS: 'pusdatin_notifications_v4',
+  AUDIT_TRAIL: 'pusdatin_audit_trail_v4',
+  API_REGISTRATIONS: 'pusdatin_api_registrations_v4'
 };
-
-export const INITIAL_TECHNICIANS: TechnicianUser[] = [
-  {
-    id: 'TECH-000',
-    name: 'Dr. Ir. H. Ahmad Dahlan, M.T.',
-    role: 'Kepala PUSDATIN',
-    email: 'kepala.pusdatin@umc.ac.id',
-    password: 'admin',
-    phone: '081122334455',
-    specialty: 'Kepemimpinan Strategis, Kebijakan Transformasi Digital, & Otorisasi Pengadaan Aset',
-    isFullAccess: true,
-    level: 'Lead'
-  },
-  {
-    id: 'TECH-001',
-    name: 'Aditiya Ahmad Fadila, S.Kom.',
-    role: 'IT Support & Helpdesk Specialist',
-    email: 'aditiya.it@umc.ac.id',
-    password: 'admin',
-    phone: '085964531388',
-    specialty: 'Hardware, Laptop, PC Lab, Printer, Proyektor, & Pengelolaan Fisik Inventaris',
-    isFullAccess: true,
-    level: 'Lead'
-  },
-  {
-    id: 'TECH-002',
-    name: 'Ir. Faisal Hakim, M.T.',
-    role: 'Cloud & Infrastructure Engineer',
-    email: 'faisal.cloud@umc.ac.id',
-    password: 'admin',
-    phone: '081234998877',
-    specialty: 'Jaringan Kampus, Wi-Fi Ruijie/Ubiquiti, Switch Cisco, Router Mikrotik, Fiber Optic',
-    isFullAccess: false,
-    level: 'Senior'
-  },
-  {
-    id: 'TECH-003',
-    name: 'Bayu Pratama, S.Kom.',
-    role: 'Programmer',
-    email: 'bayu.dev@umc.ac.id',
-    password: 'admin',
-    phone: '085288776655',
-    specialty: 'SIAKAD UMC, Web Portal Civitas, API Backend, Sistem Database & Software Architecture',
-    isFullAccess: false,
-    level: 'Senior'
-  },
-  {
-    id: 'TECH-005',
-    name: 'Dimas Saputra, S.Kom.',
-    role: 'Junior Programmer',
-    email: 'dimas.dev@umc.ac.id',
-    password: 'admin',
-    phone: '085799881122',
-    specialty: 'Frontend Web SIAKAD, Bug Fixing CSS/JS, Query Laporan & Delegasi Programmer Senior',
-    isFullAccess: false,
-    level: 'Junior',
-    reportsTo: 'TECH-003'
-  },
-  {
-    id: 'TECH-004',
-    name: 'Rian Hidayat, M.Kom.',
-    role: 'Cyber Security Officer',
-    email: 'rian.sec@umc.ac.id',
-    password: 'admin',
-    phone: '087711223344',
-    specialty: 'Server Dell PowerEdge, Keamanan Jaringan, Firewall, Akun SSO, & Investigasi Malware',
-    isFullAccess: false,
-    level: 'Senior'
-  }
-];
 
 export const INITIAL_LOCATIONS: string[] = [
   'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
@@ -143,10 +93,41 @@ export const INITIAL_CATEGORIES: string[] = [
   'Audio System'
 ];
 
+// Helper to normalize asset status to Section 4.1
+export const normalizeAssetStatus = (st: string): AssetStatus => {
+  if (st === 'Tersedia' || st === 'Digunakan' || st === 'Dipinjam' || st === 'Maintenance' || st === 'Tidak Layak') {
+    return st as AssetStatus;
+  }
+  if (st === 'Rusak' || st === 'Diperbaiki') return 'Maintenance';
+  if (st === 'Rusak Total') return 'Tidak Layak';
+  if (st === 'Berfungsi Kembali') return 'Tersedia';
+  return 'Tersedia';
+};
 
+// Helper to normalize loan status to Section 4.3
+export const normalizeLoanStatus = (st: string): LoanStatus => {
+  if (st === 'Menunggu') return 'Diajukan';
+  if (st === 'Disetujui') return 'Diserahkan';
+  return st as LoanStatus;
+};
+
+// Helper to normalize damage status to Section 4.2
+export const normalizeDamageStatus = (st: string): DamageStatus => {
+  if (st === 'Baru' || st === 'Open') return 'Open/Unassigned';
+  if (st === 'Diterima') return 'Assigned';
+  if (st === 'Perbaikan') return 'In Progress';
+  if (st === 'Menunggu Suku Cadang' || st === 'Pending Procurement') return 'Pending – Menunggu Suku Cadang';
+  if (st === 'Selesai') return 'Resolved';
+  if (st === 'Closed') return 'Closed – Manual';
+  return st as DamageStatus;
+};
+
+// Initial Assets with immutable kodeUnikAset (BR-001) and QR payload (BR-002)
 const INITIAL_ASSETS: Asset[] = [
   {
+    idAset: 'AST-001',
     barcode: '30192848',
+    kodeUnikAset: 'AST-UMC-2026-001',
     nama: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
     kategori: 'Komputer & Laptop',
     merekModel: 'ASUS ExpertBook B1 B1402CBA',
@@ -161,10 +142,13 @@ const INITIAL_ASSETS: Asset[] = [
     hargaBeli: 14500000,
     masaGaransi: '2 Tahun Garansi Resmi ASUS Indonesia (s/d Oktober 2028)',
     jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
+    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+    idPenerimaanTerkait: 'RCV-2026-001'
   },
   {
+    idAset: 'AST-002',
     barcode: '30918274',
+    kodeUnikAset: 'AST-UMC-2026-002',
     nama: 'Laptop Dell Latitude 5430 Core i5 16GB',
     kategori: 'Komputer & Laptop',
     merekModel: 'Dell Latitude 5430 Rugged Series',
@@ -179,10 +163,13 @@ const INITIAL_ASSETS: Asset[] = [
     hargaBeli: 12800000,
     masaGaransi: '3 Tahun ProSupport Dell Onsite (s/d Oktober 2029)',
     jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
+    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+    idPenerimaanTerkait: 'RCV-2026-001'
   },
   {
+    idAset: 'AST-003',
     barcode: '20495812',
+    kodeUnikAset: 'AST-UMC-2026-003',
     nama: 'Laptop Lenovo ThinkPad L14 Gen 3',
     kategori: 'Komputer & Laptop',
     merekModel: 'Lenovo ThinkPad L14 Gen 3 AMD',
@@ -199,10 +186,13 @@ const INITIAL_ASSETS: Asset[] = [
     hargaBeli: 13200000,
     masaGaransi: '3 Tahun Premier Support Lenovo (s/d Agustus 2029)',
     jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
+    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+    idPenerimaanTerkait: 'RCV-2026-001'
   },
   {
+    idAset: 'AST-004',
     barcode: '50291847',
+    kodeUnikAset: 'AST-UMC-2026-004',
     nama: 'Proyektor Epson EB-E500 3300 Lumens',
     kategori: 'Multimedia',
     merekModel: 'Epson 3LCD EB-E500 Series',
@@ -217,10 +207,13 @@ const INITIAL_ASSETS: Asset[] = [
     hargaBeli: 5400000,
     masaGaransi: '2 Tahun Unit / 1000 Jam Lampu (s/d Agustus 2028)',
     jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
+    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+    idPenerimaanTerkait: 'RCV-2026-002'
   },
   {
+    idAset: 'AST-005',
     barcode: '10928374',
+    kodeUnikAset: 'AST-UMC-2026-005',
     nama: 'PC All-in-One HP ProOne 400 G4',
     kategori: 'Komputer & Laptop',
     merekModel: 'HP ProOne 400 G4 23.8 Non-Touch AIO',
@@ -240,7 +233,9 @@ const INITIAL_ASSETS: Asset[] = [
     lokasiAwal: 'Laboratorium Komputer 2 (FKIP)'
   },
   {
+    idAset: 'AST-006',
     barcode: '84930219',
+    kodeUnikAset: 'AST-UMC-2026-006',
     nama: 'Access Point Ruijie Reyee RG-RAP2200(E)',
     kategori: 'Networking',
     merekModel: 'Ruijie Reyee Cloud AP RG-RAP2200(E)',
@@ -257,28 +252,13 @@ const INITIAL_ASSETS: Asset[] = [
     hargaBeli: 1250000,
     masaGaransi: '3 Tahun Garansi Distributor Resmi Ruijie (s/d Juni 2029)',
     jenisAset: 'Fisik',
-    lokasiAwal: 'Gedung FKIP Lantai 2'
+    lokasiAwal: 'Gedung FKIP Lantai 2',
+    idPenerimaanTerkait: 'RCV-2026-003'
   },
   {
-    barcode: '73920194',
-    nama: 'Portable Wireless PA Sound System Baretone',
-    kategori: 'Multimedia',
-    merekModel: 'Baretone BT-3H1515BWR 15 Inch Active',
-    nomorSeri: 'BRT-MAX15-02',
-    spesifikasi: '15 Inch Active Speaker 250W RMS, 2 Wireless VHF Mic, Bluetooth/USB/SD, Baterai Aki Kering',
-    lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    status: 'Tersedia',
-    tanggalMasuk: '2026-09-01',
-    tanggalPembelian: '2026-08-28',
-    nomorPoInvoice: 'PO/UMC-RT/2026/VIII/077',
-    vendorSupplier: 'Toko Nada Musik Cirebon',
-    hargaBeli: 3850000,
-    masaGaransi: '1 Tahun Garansi Baretone Audio (s/d Agustus 2027)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
-  },
-  {
+    idAset: 'AST-007',
     barcode: '62910482',
+    kodeUnikAset: 'AST-UMC-2026-007',
     nama: 'Switch Cisco Catalyst 2960-X 24 Port Gigabit',
     kategori: 'Networking',
     merekModel: 'Cisco WS-C2960X-24TS-L Catalyst',
@@ -298,7 +278,9 @@ const INITIAL_ASSETS: Asset[] = [
     lokasiAwal: 'Ruang Server PUSDATIN Kampus 1'
   },
   {
+    idAset: 'AST-008',
     barcode: '94820193',
+    kodeUnikAset: 'AST-UMC-2026-008',
     nama: 'Printer Epson L3210 All-in-One EcoTank',
     kategori: 'Perlengkapan Kantor',
     merekModel: 'Epson EcoTank L3210 Multifunction',
@@ -307,7 +289,7 @@ const INITIAL_ASSETS: Asset[] = [
     pengguna: 'Ahmad Fauzi (Laboran)',
     bidangPengguna: 'Laboratorium Komputer 1 (Kampus 1)',
     lokasi: 'Laboratorium Komputer 1 (Kampus 1)',
-    status: 'Rusak',
+    status: 'Maintenance',
     tanggalMasuk: '2026-04-10',
     tanggalPembelian: '2026-04-02',
     nomorPoInvoice: 'PO/UMC-LAB/2026/IV/033',
@@ -316,137 +298,122 @@ const INITIAL_ASSETS: Asset[] = [
     masaGaransi: '2 Tahun / 30.000 Lembar Garansi Resmi Epson (s/d April 2028)',
     jenisAset: 'Fisik',
     lokasiAwal: 'Laboratorium Komputer 1 (Kampus 1)'
-  },
-  {
-    barcode: '49201948',
-    nama: 'Kabel Converter HDMI to VGA + Audio 10M',
-    kategori: 'Kabel & Aksesoris',
-    merekModel: 'Vention Gold-Plated HDMI to VGA with Audio 10 Meter',
-    nomorSeri: 'CBL-H2V-10M',
-    spesifikasi: 'Gold Plated Connector 1080P Full HD 60Hz, Panjang 10 Meter, Audio Aux 3.5mm Port',
-    lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    status: 'Tersedia',
-    tanggalMasuk: '2026-10-01',
-    tanggalPembelian: '2026-09-25',
-    nomorPoInvoice: 'PO/UMC-ACC/2026/IX/112',
-    vendorSupplier: 'PT. Vention Technology Indonesia',
-    hargaBeli: 185000,
-    masaGaransi: '1 Tahun Garansi Penggantian Baru (s/d September 2027)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
-  },
-  {
-    barcode: '88392011',
-    nama: 'Server Dell PowerEdge R440 Xeon Silver',
-    kategori: 'Server & Storage',
-    merekModel: 'Dell EMC PowerEdge R440 1U Rack Server',
-    nomorSeri: 'DELL-R440-2025',
-    spesifikasi: 'Intel Xeon Silver 4210 10C/20T, 64GB DDR4 ECC Registered, 4x2TB SAS 12Gbps 7.2K RAID 10, Dual PSU 550W',
-    pengguna: 'Tim Cloud & Infrastructure PUSDATIN',
-    bidangPengguna: 'Ruang Server PUSDATIN Kampus 1',
-    lokasi: 'Ruang Server PUSDATIN Kampus 1',
-    status: 'Digunakan',
-    tanggalMasuk: '2025-11-20',
-    tanggalPembelian: '2025-11-10',
-    nomorPoInvoice: 'PO/UMC-SRV/2025/XI/001',
-    vendorSupplier: 'PT. Computrade Technology International (CTI)',
-    hargaBeli: 65000000,
-    masaGaransi: '5 Tahun ProSupport Mission Critical Dell (s/d November 2030)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang Server PUSDATIN Kampus 1'
-  },
-  {
-    barcode: 'SIAKAD-UMC-01',
-    nama: 'Aplikasi SIAKAD UMC & Portal Mahasiswa',
-    kategori: 'Server & Storage',
-    merekModel: 'Sistem Informasi Akademik Terpadu UMC v4.2',
-    nomorSeri: 'SOFT-SIAKAD-2026',
-    spesifikasi: 'Web Portal SIAKAD, Modul KRS Online, API Mobile Civitas, PostgreSQL & Redis Cache',
-    pengguna: 'Seluruh Civitas Akademika UMC (Dosen & Mahasiswa)',
-    bidangPengguna: 'Biro Administrasi Akademik (BAA)',
-    lokasi: 'Ruang Server PUSDATIN Kampus 1',
-    status: 'Digunakan',
-    tanggalMasuk: '2026-01-10',
-    tanggalPembelian: '2026-01-05',
-    nomorPoInvoice: 'PO/UMC-SOFT/2026/I/001',
-    vendorSupplier: 'In-House Software Development Team PUSDATIN',
-    hargaBeli: 25000000,
-    masaGaransi: 'Maintenance & Security Updates Berkala Selamanya',
-    jenisAset: 'Non-Fisik',
-    lokasiAwal: 'Ruang Server PUSDATIN Kampus 1'
   }
 ];
 
+// 8.2 Tabel 7: Buku Penerimaan Aset
+const INITIAL_BUKU_PENERIMAAN: BukuPenerimaanItem[] = [
+  {
+    idPenerimaan: 'RCV-2026-001',
+    tanggalPenerimaan: '2026-10-15',
+    dari: 'PT. Metrodata Electronics Tbk',
+    nomorFaktur: 'INV-METRO/2026/X/1092',
+    tanggalFaktur: '2026-10-10',
+    namaAset: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
+    kategori: 'Komputer & Laptop',
+    banyaknya: 5,
+    hargaSatuan: 14500000,
+    jumlahHarga: 72500000, // BR-003: 5 × 14.500.000
+    nomorBeritaAcara: 'BAST-PUSDATIN/2026/X/041',
+    tanggalBeritaAcara: '2026-10-15',
+    keterangan: 'Pengadaan laptop operasional dosen dan inventaris peminjaman UMC tahap 2',
+    tercatatUnitCount: 5,
+    petugas: 'Aditiya Ahmad Fadila, S.Kom.'
+  },
+  {
+    idPenerimaan: 'RCV-2026-002',
+    tanggalPenerimaan: '2026-08-20',
+    dari: 'CV. Cipta Visual Mandiri',
+    nomorFaktur: 'INV-CVM/2026/VIII/044',
+    tanggalFaktur: '2026-08-15',
+    namaAset: 'Proyektor Epson EB-E500 3300 Lumens',
+    kategori: 'Multimedia',
+    banyaknya: 3,
+    hargaSatuan: 5400000,
+    jumlahHarga: 16200000, // BR-003: 3 × 5.400.000
+    nomorBeritaAcara: 'BAST-PUSDATIN/2026/VIII/019',
+    tanggalBeritaAcara: '2026-08-20',
+    keterangan: 'Proyektor portable cadangan ruang smart classroom kampus 2',
+    tercatatUnitCount: 3,
+    petugas: 'Aditiya Ahmad Fadila, S.Kom.'
+  },
+  {
+    idPenerimaan: 'RCV-2026-003',
+    tanggalPenerimaan: '2026-06-12',
+    dari: 'PT. Synnex Metrodata Indonesia',
+    nomorFaktur: 'INV-SMI/2026/VI/0988',
+    tanggalFaktur: '2026-06-01',
+    namaAset: 'Access Point Ruijie Reyee RG-RAP2200(E)',
+    kategori: 'Networking',
+    banyaknya: 10,
+    hargaSatuan: 1250000,
+    jumlahHarga: 12500000, // BR-003: 10 × 1.250.000
+    nomorBeritaAcara: 'BAST-PUSDATIN/2026/VI/011',
+    tanggalBeritaAcara: '2026-06-12',
+    keterangan: 'Perluasan coverage Wi-Fi Kampus 1 dan Kampus 2 UMC',
+    tercatatUnitCount: 10,
+    petugas: 'Ir. Faisal Hakim, M.T.'
+  }
+];
+
+// 8.2 Tabel 8: Buku Pengeluaran Aset
+const INITIAL_BUKU_PENGELUARAN: BukuPengeluaranItem[] = [
+  {
+    idPengeluaran: 'OUT-2026-001',
+    tanggalPenyerahan: '2026-11-04',
+    kodeUnikAset: 'AST-UMC-2026-003',
+    barcode: '20495812',
+    namaAset: 'Laptop Lenovo ThinkPad L14 Gen 3',
+    untuk: 'Hilyah Aulia, S.T. (Biro Administrasi Umum)',
+    jenisPengeluaran: 'Peminjaman',
+    idTiketPeminjaman: 'PJM-20261104-1029',
+    keterangan: 'Peminjaman operasional re-akreditasi institusi UMC (Otomatis dari Modul C)',
+    petugas: 'Aditiya Ahmad Fadila, S.Kom.'
+  },
+  {
+    idPengeluaran: 'OUT-2026-002',
+    tanggalPenyerahan: '2026-05-18',
+    kodeUnikAset: 'AST-UMC-2026-007',
+    barcode: '62910482',
+    namaAset: 'Switch Cisco Catalyst 2960-X 24 Port Gigabit',
+    untuk: 'Ruang Server PUSDATIN Kampus 1',
+    jenisPengeluaran: 'Penggunaan',
+    keterangan: 'Pemasangan permanen rack server core switch kampus',
+    petugas: 'Ir. Faisal Hakim, M.T.'
+  }
+];
+
+// 8.2 Tabel 10: Peminjaman Aset (Status Enum: Diajukan, Diterima, Ditolak, Dikonfirmasi, Diserahkan, Terlambat, Dikembalikan, Ditutup)
 const INITIAL_LOANS: LoanTicket[] = [
   {
-    id: 'PJM-20261102-1042',
+    id: 'PJM-20261104-1029',
     peminjam: 'Hilyah Aulia, S.T.',
-    nik: '6565656',
+    nik: '0412088801',
     unit: 'Biro Administrasi Umum (BAU)',
-    kontak: '085964531388',
+    kontak: '081234567890',
     email: 'hilyah@umc.ac.id',
     barangPinjaman: 'Laptop Lenovo ThinkPad L14 Gen 3',
     jumlah: 1,
-    tglPinjam: '2026-11-02',
-    tglKembali: '2026-11-04', // Overdue! (Today is 2026-11-06 / 2026-11-07)
-    status: 'Disetujui',
-    barcode: '20495812',
-    namaBarangT: 'Laptop Lenovo ThinkPad L14 Gen 3',
-    kondisi: 'Baik / Lengkap Charger & Tas',
-    petugas: 'Aditiya Ahmad Fadila',
-    catatan: 'Untuk kebutuhan akreditasi prodi dan rapat rektorat',
-    tglAju: '02/11/2026 09:30',
-    tglAmbil: '2026-11-02'
-  },
-  {
-    id: 'PJM-20261105-0814',
-    peminjam: 'Dr. Ir. Sunardi, M.Eng.',
-    nik: '0412087501',
-    unit: 'Fakultas Teknik (Informatika)',
-    kontak: '081222334455',
-    email: 'sunardi@umc.ac.id',
-    barangPinjaman: 'Proyektor Epson EB-E500',
-    jumlah: 1,
-    tglPinjam: '2026-11-05',
+    tglPinjam: '2026-11-04',
     tglKembali: '2026-11-08',
-    status: 'Disetujui',
-    barcode: '50291847',
-    namaBarangT: 'Proyektor Epson EB-E500 3300 Lumens',
-    kondisi: 'Baik & Normal',
-    petugas: 'Aditiya Ahmad Fadila',
-    catatan: 'Kuliah Tamu Industri Informatika',
-    tglAju: '05/11/2026 08:15',
-    tglAmbil: '2026-11-05'
-  },
-  {
-    id: 'PJM-20261106-1011',
-    peminjam: 'Nurul Hidayah, M.Kom.',
-    nik: '0428098602',
-    unit: 'Fakultas Teknik (Dosen Teknik Informatika)',
-    kontak: '081394857211',
-    email: 'nurul.hidayah@umc.ac.id',
-    barangPinjaman: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
-    jumlah: 1,
-    tglPinjam: '2026-11-07',
-    tglKembali: '2026-11-09',
-    status: 'Menunggu',
-    catatan: 'Pengujian Sidang Tugas Akhir Mahasiswa TI Gelombang 2',
-    tglAju: '06/11/2026 08:30'
-  },
-  {
-    id: 'PJM-20261106-1025',
-    peminjam: 'Ahmad Fauzan',
-    nik: '2201090185',
-    unit: 'Himpunan Mahasiswa Teknik Informatika (HMTI)',
-    kontak: '085964531388',
-    email: 'ahmadfauzan@umc.ac.id',
-    barangPinjaman: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
-    jumlah: 1,
-    tglPinjam: '2026-11-07',
-    tglKembali: '2026-11-09',
-    status: 'Menunggu',
-    catatan: 'Operator Workshop Pemrograman Web HMTI Kampus 2',
-    tglAju: '06/11/2026 08:42'
+    status: 'Diserahkan', // Aset sedang di peminjam
+    barcode: '20495812',
+    kodeUnikAset: 'AST-UMC-2026-003',
+    namaBarangT: 'Laptop Lenovo ThinkPad L14 Gen 3 AMD',
+    kondisi: 'Baik / Lengkap dengan Charger & Tas',
+    petugas: 'Aditiya Ahmad Fadila, S.Kom.',
+    catatan: 'Untuk persiapan visitasi akreditasi prodi',
+    tglAju: '04/11/2026 08:30',
+    tglAmbil: '2026-11-04',
+    metodePengambilan: 'Diambil di Ruang PUSDATIN',
+    jadwalPengambilan: '2026-11-04 pukul 09:00 WIB',
+    lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+    nomorSuratPeminjaman: 'SP-PUSDATIN/2026/XI/1029',
+    penandatangan: {
+      peminjam: 'Hilyah Aulia, S.T.',
+      petugas: 'Aditiya Ahmad Fadila, S.Kom.',
+      kepalaPusdatin: 'Dr. Ir. H. Ahmad Dahlan, M.T.'
+    }
   },
   {
     id: 'PJM-20261106-9921',
@@ -455,268 +422,336 @@ const INITIAL_LOANS: LoanTicket[] = [
     unit: 'Organisasi Mahasiswa (BEM UMC)',
     kontak: '087788991122',
     email: 'bem@umc.ac.id',
-    barangPinjaman: 'Portable Wireless PA Sound System Baretone',
+    barangPinjaman: 'Proyektor Epson EB-E500 3300 Lumens',
     jumlah: 1,
-    tglPinjam: '2026-11-07',
-    tglKembali: '2026-11-08',
-    status: 'Menunggu',
-    catatan: 'Seminar Nasional Kepemudaan UMC',
+    tglPinjam: '2026-11-12',
+    tglKembali: '2026-11-13',
+    status: 'Diajukan', // Menunggu verifikasi Admin
+    catatan: 'Seminar Nasional Kepemudaan UMC di Aula Ahmad Dahlan',
     tglAju: '06/11/2026 14:00'
   }
 ];
 
+// 8.2 Tabel 2: Tiket Helpdesk (Status: Open/Unassigned, Assigned, In Progress, Pending – Menunggu Suku Cadang, Resolved, Closed – Auto, Closed – Manual, Re-opened)
 const INITIAL_DAMAGES: DamageTicket[] = [
   {
     id: 'TKT-20261107-105',
-    barcode: '49201948',
-    namaBarang: 'Kabel Converter HDMI to VGA + Audio 10M',
+    kodeUnikAset: 'AST-UMC-2026-004',
+    barcode: '50291847',
+    namaBarang: 'Proyektor Epson EB-E500 3300 Lumens',
     pelapor: 'Drs. H. Mulyono, M.Pd. (Dosen FKIP)',
     kontakPelapor: '081223344556',
+    emailPelapor: 'mulyono@umc.ac.id',
     lokasi: 'Smart Classroom Gedung B Lt.3',
     lokasiAwal: 'Smart Classroom Gedung B Lt.3',
-    deskripsi: 'Kabel pin converter longgar dan tidak dapat memproyeksikan video laptop ke proyektor.',
-    tanggalLapor: '07/11/2026 08:30',
-    status: 'Open',
+    deskripsi: 'Tampilan proyektor berkedip dan lampu indikator filter merah menyala saat digunakan kuliah umum.',
+    tanggalLapor: '2026-11-07 08:30',
+    status: 'Open/Unassigned',
+    prioritas: 'Tinggi',
     urgensi: 'Tinggi',
     kategoriMasalah: 'Hardware',
+    slaTargetHours: 12,
+    slaDeadline: '2026-11-07 20:30',
+    slaStatus: 'On Track',
     jenisAset: 'Fisik',
     picTeknisi: 'IT Support & Helpdesk Specialist',
     namaPicTeknisi: 'Aditiya Ahmad Fadila, S.Kom.',
-    assignedTechnicianId: 'TECH-001',
-    catatanAdmin: 'Laporan baru masuk dari pengguna. Menunggu verifikasi kelengkapan informasi dan delegasi admin.',
+    assignedTechnicianId: 'USR-ACT-03',
+    catatanAdmin: 'Laporan baru masuk via SSO. Menunggu verifikasi dan dispatch teknisi.',
     riwayatStatus: [
       {
-        status: 'Open',
+        status: 'Open/Unassigned',
         timestamp: '07/11/2026 08:30',
-        catatan: 'Laporan kerusakan dibuat oleh pengguna dengan status Open / Baru.',
-        petugas: 'Drs. H. Mulyono, M.Pd.'
+        catatan: 'Tiket diterbitkan dengan nomor TKT-20261107-105 (SLA: 12 Jam).',
+        petugas: 'Sistem SSO UMC'
       }
     ]
   },
   {
     id: 'TKT-20261107-092',
+    kodeUnikAset: 'AST-UMC-2026-006',
     barcode: '84930219',
     namaBarang: 'Access Point Ruijie Reyee RG-RAP2200(E)',
     pelapor: 'Drs. Supriyanto, M.Pd.',
     kontakPelapor: '085290192837',
+    emailPelapor: 'supriyanto@umc.ac.id',
     lokasi: 'Gedung FKIP Lantai 2',
     lokasiAwal: 'Gedung FKIP Lantai 2',
     deskripsi: 'Sinyal Wi-Fi sering putus dan roaming lambat di area koridor lantai 2.',
-    tanggalLapor: '07/11/2026 07:15',
+    tanggalLapor: '2026-11-07 07:15',
     status: 'Assigned',
+    prioritas: 'Tinggi',
     urgensi: 'Tinggi',
-    kategoriMasalah: 'Hardware',
+    kategoriMasalah: 'Jaringan / Server / Cloud',
+    slaTargetHours: 8,
+    slaDeadline: '2026-11-07 15:15',
+    slaStatus: 'On Track',
     jenisAset: 'Fisik',
     picTeknisi: 'Cloud & Infrastructure Engineer',
     namaPicTeknisi: 'Ir. Faisal Hakim, M.T.',
-    assignedTechnicianId: 'TECH-002',
-    catatanAdmin: 'Admin telah memverifikasi kelengkapan informasi tiket dan mendelegasikan penanganan ke PIC Cloud & Infrastructure Engineer.',
+    assignedTechnicianId: 'USR-ACT-04',
+    catatanAdmin: 'Tiket didistribusikan ke PIC Cloud & Infrastructure Engineer untuk cek controller Reyee.',
     riwayatStatus: [
       {
-        status: 'Open',
+        status: 'Open/Unassigned',
         timestamp: '07/11/2026 07:15',
-        catatan: 'Laporan kendala Wi-Fi civitas masuk ke sistem.',
+        catatan: 'Laporan kendala Wi-Fi diajukan.',
         petugas: 'Drs. Supriyanto, M.Pd.'
       },
       {
         status: 'Assigned',
         timestamp: '07/11/2026 07:45',
-        catatan: 'Tiket diverifikasi oleh Admin PUSDATIN. Kategori: Hardware jaringan fisik. Didelegasikan ke Ir. Faisal Hakim, M.T.',
-        petugas: 'Admin Helpdesk PUSDATIN'
-      }
-    ]
-  },
-  {
-    id: 'TKT-20261106-302',
-    barcode: 'SIAKAD-UMC-01',
-    namaBarang: 'Aplikasi SIAKAD UMC & Portal Mahasiswa',
-    pelapor: 'Dr. Endang, M.Pd. (Dekan FKIP)',
-    kontakPelapor: '081233445566',
-    lokasi: 'Ruang Server PUSDATIN Kampus 1',
-    lokasiAwal: 'Ruang Server PUSDATIN Kampus 1',
-    deskripsi: 'Query database pengisian KRS mahasiswa semester ganjil mengalami dead-lock dan timeout saat jam sibuk.',
-    tanggalLapor: '06/11/2026 09:00',
-    status: 'In Progress',
-    urgensi: 'Kritis',
-    kategoriMasalah: 'Software',
-    jenisAset: 'Non-Fisik',
-    jadwalPemeriksaan: '07/11/2026 09:30 WIB (Pemeriksaan Remote Database Query & Server Redis)',
-    skenarioPerbaikan: 'Non-Fisik (Remote/Server)',
-    picTeknisi: 'Programmer',
-    namaPicTeknisi: 'Bayu Pratama, S.Kom.',
-    assignedTechnicianId: 'TECH-003',
-    catatanAdmin: 'Skenario Non-Fisik: Teknisi menjadwalkan pemeriksaan dan perbaikan jarak jauh (Remote) pada indeks tabel SQL dan Redis Cache.',
-    riwayatStatus: [
-      {
-        status: 'Open',
-        timestamp: '06/11/2026 09:00',
-        catatan: 'Laporan kendala database SIAKAD dibuat oleh Dekan FKIP.',
-        petugas: 'Dr. Endang, M.Pd.'
-      },
-      {
-        status: 'Assigned',
-        timestamp: '06/11/2026 09:15',
-        catatan: 'Verifikasi tiket: Masalah Software / Sistem Non-Fisik. Didelegasikan ke Programmer.',
-        petugas: 'Admin Helpdesk PUSDATIN'
-      },
-      {
-        status: 'In Progress',
-        timestamp: '06/11/2026 09:30',
-        catatan: 'Teknisi menerima notifikasi tugas dan menjadwalkan waktu inspeksi teknis via Remote Server.',
-        petugas: 'Bayu Pratama, S.Kom.'
+        catatan: 'Didistribusikan ke Ir. Faisal Hakim, M.T. (Cloud & Infrastructure Engineer).',
+        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
       }
     ]
   },
   {
     id: 'TKT-20261106-101',
+    kodeUnikAset: 'AST-UMC-2026-008',
     barcode: '94820193',
     namaBarang: 'Printer Epson L3210 All-in-One EcoTank',
     pelapor: 'Ahmad Fauzi (Laboran)',
     kontakPelapor: '081394857211',
+    emailPelapor: 'fauzi.lab@umc.ac.id',
     lokasi: 'Laboratorium Komputer 1 (Kampus 1)',
     lokasiAwal: 'Laboratorium Komputer 1 (Kampus 1)',
-    deskripsi: 'Paper jam berulang kali dan lampu indikator tinta merah berkedip terus (roller karet aus & kabel fleksibel retak).',
-    tanggalLapor: '06/11/2026 10:15',
-    status: 'Pending Procurement',
-    urgensi: 'Tinggi',
+    deskripsi: 'Paper jam berulang kali dan lampu merah berkedip terus (roller karet aus & kabel head retak).',
+    tanggalLapor: '2026-11-06 10:15',
+    status: 'Pending – Menunggu Suku Cadang',
+    prioritas: 'Sedang',
+    urgensi: 'Sedang',
     kategoriMasalah: 'Hardware',
+    slaTargetHours: 48,
+    slaDeadline: '2026-11-08 10:15',
+    slaStatus: 'On Track',
     jenisAset: 'Fisik',
     skenarioPerbaikan: 'Fisik (Bawa ke PUSDATIN)',
     cabangPerbaikan: 'Butuh Suku Cadang',
     picTeknisi: 'IT Support & Helpdesk Specialist',
     namaPicTeknisi: 'Aditiya Ahmad Fadila, S.Kom.',
-    assignedTechnicianId: 'TECH-001',
+    assignedTechnicianId: 'USR-ACT-03',
     kategoriPerbaikan: 'Suku Cadang (Perlu Anggaran)',
-    namaSukuCadang: 'Roller Karet Pickup Paper Epson L3210, Kabel Fleksibel Head Print L3210',
+    namaSukuCadang: 'Roller Karet Pickup Paper Epson L3210',
     sumberAnggaran: 'Pengajuan RKAT Kampus',
     sukuCadangList: [
       {
         id: 'SP-101-1',
+        idTiket: 'TKT-20261106-101',
         namaKomponen: 'Roller Karet Pickup Paper Epson L3210',
-        statusPengadaan: 'Belum Dibeli',
-        tanggalKebutuhan: '06/11/2026 10:30'
-      },
-      {
-        id: 'SP-101-2',
-        namaKomponen: 'Kabel Fleksibel Head Print L3210',
-        statusPengadaan: 'Belum Dibeli',
-        tanggalKebutuhan: '06/11/2026 10:30'
+        jumlah: 1,
+        statusPengadaan: 'Diminta',
+        tanggalKebutuhan: '2026-11-06 10:30'
       }
     ],
-    catatanAdmin: 'Skenario Fisik (Cabang B1): Diperiksa di lab PUSDATIN. Membutuhkan pengadaan 2 komponen spare part. Menunggu proses pembelian (Pending Procurement).',
     riwayatStatus: [
       {
-        status: 'Open',
+        status: 'Open/Unassigned',
         timestamp: '06/11/2026 10:15',
-        catatan: 'Laporan paper jam printer masuk.',
+        catatan: 'Laporan kerusakan printer masuk.',
         petugas: 'Ahmad Fauzi'
       },
       {
         status: 'Assigned',
-        timestamp: '06/11/2026 10:20',
-        catatan: 'Diverifikasi sebagai masalah Hardware Fisik dan ditugaskan ke IT Support.',
-        petugas: 'Admin Helpdesk PUSDATIN'
+        timestamp: '06/11/2026 10:30',
+        catatan: 'Ditugaskan ke IT Support.',
+        petugas: 'Admin'
       },
       {
-        status: 'In Progress',
-        timestamp: '06/11/2026 10:35',
-        catatan: 'Pemeriksaan fisik dilakukan di Lab PUSDATIN.',
-        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-      },
-      {
-        status: 'Pending Procurement',
+        status: 'Pending – Menunggu Suku Cadang',
         timestamp: '06/11/2026 11:00',
-        catatan: 'Memicu alur Menunggu Pembelian (Pending Procurement) untuk 2 komponen suku cadang.',
-        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-      }
-    ]
-  },
-  {
-    id: 'TKT-20261105-201',
-    barcode: '50291847',
-    namaBarang: 'Proyektor Epson EB-E500 3300 Lumens',
-    pelapor: 'Dr. Ir. Sunardi, M.Eng.',
-    kontakPelapor: '081222334455',
-    lokasi: 'Fakultas Teknik (Informatika)',
-    lokasiAwal: 'Fakultas Teknik (Informatika)',
-    deskripsi: 'Proyektor mati mendadak setelah 15 menit menyala, kipas exhaust berbunyi kasar dan berdebu tebal.',
-    tanggalLapor: '05/11/2026 13:00',
-    status: 'Closed',
-    urgensi: 'Sedang',
-    kategoriMasalah: 'Hardware',
-    jenisAset: 'Fisik',
-    skenarioPerbaikan: 'Fisik (Bawa ke PUSDATIN)',
-    kondisiAkhirAset: 'Tersedia',
-    tanggalSelesai: '06/11/2026 14:00',
-    resolusiAkhir: 'Pembersihan thermal intake, penggantian pasta pendingin optik, dan uji kelayakan 2 jam normal.',
-    picTeknisi: 'IT Support & Helpdesk Specialist',
-    namaPicTeknisi: 'Aditiya Ahmad Fadila, S.Kom.',
-    assignedTechnicianId: 'TECH-001',
-    catatanAdmin: 'Perbaikan tuntas. Aset ditarik sebagai stok cadangan di Ruang PUSDATIN dengan status Tersedia.',
-    riwayatStatus: [
-      {
-        status: 'Open',
-        timestamp: '05/11/2026 13:00',
-        catatan: 'Laporan kerusakan proyektor masuk.',
-        petugas: 'Dr. Ir. Sunardi, M.Eng.'
-      },
-      {
-        status: 'Assigned',
-        timestamp: '05/11/2026 13:10',
-        catatan: 'Didelegasikan ke IT Support & Helpdesk Specialist.',
-        petugas: 'Admin PUSDATIN'
-      },
-      {
-        status: 'In Progress',
-        timestamp: '05/11/2026 13:30',
-        catatan: 'Barang dibawa ke PUSDATIN untuk servis pembongkaran.',
-        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-      },
-      {
-        status: 'Closed',
-        timestamp: '06/11/2026 14:00',
-        catatan: 'Perbaikan selesai tuntas. Tiket Closed dan status aset diperbarui menjadi Tersedia di PUSDATIN.',
+        catatan: 'Komponen roller karet aus, diajukan pengadaan suku cadang (Status: Diminta).',
         petugas: 'Aditiya Ahmad Fadila, S.Kom.'
       }
     ]
   }
 ];
 
-const INITIAL_LOGS: ActivityLog[] = [
+// 8.2 Tabel 14: Pengajuan Sistem Baru (F-DEV-01, 5-Tahap Workflow)
+const INITIAL_SYSTEM_PROPOSALS: SystemProposal[] = [
   {
-    id: 'LOG-001',
-    timestamp: '2026-11-02 09:35',
-    barcode: '20495812',
-    namaBarang: 'Laptop Lenovo ThinkPad L14 Gen 3',
-    jenisTransaksi: 'Pinjam',
-    lokasi: 'Biro Administrasi Umum (BAU)',
-    keterangan: 'Dipinjam oleh Hilyah Aulia, S.T. (Tiket: PJM-20261102-1042)',
-    petugas: 'Aditiya Ahmad Fadila'
+    id: 'SYS-2026-001',
+    namaSistem: 'Sistem Informasi Manajemen MBKM & Magang Kampus Merdeka UMC',
+    pemohon: 'Dr. Hendra Wijaya, M.Pd.',
+    unitKerja: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
+    nidnNik: '0419087502',
+    kontakWhatsapp: '081234567890',
+    email: 'hendra.dosen@umc.ac.id',
+    deskripsiKebutuhan: 'Portal pencatatan logbook magang MBKM, konversi nilai SKS otomatis ke SIAKAD, dan tanda tangan digital sertifikat pembimbing lapangan.',
+    latarBelakang: 'Pelaksanaan program MBKM selama ini dicatat manual dengan Google Drive sehingga data sering tercecer dan verifikasi SKS memakan waktu lebih dari 3 minggu.',
+    targetPengguna: 'Mahasiswa, Dosen Pembimbing Lapangan, Koordinator MBKM Fakultas, dan BAA UMC',
+    tanggalPengajuan: '2026-11-02 09:30',
+    status: 'status_pengembangan',
+    verifikasiAdmin: {
+      petugas: 'Aditiya Ahmad Fadila, S.Kom.',
+      tanggal: '2026-11-03 10:00',
+      lengkap: true,
+      catatan: 'Dokumen TOR dan skema alur pengusulan telah lengkap sesuai standar PUSDATIN.'
+    },
+    analisisKebutuhan: {
+      analystName: 'Novi Andriani, M.Kom.',
+      tanggal: '2026-11-04 14:00',
+      arsitekturData: 'Relational PostgreSQL, integrasi REST API SIAKAD, schema: mbkm_logbook, mbkm_konversi_sks, mbkm_mitra.',
+      lingkupFitur: 'Autentikasi SSO Google, Dashboard Mahasiswa, Modul Review Dosen, Endpoint Sync Nilai SIAKAD.',
+      estimasiSprintWeeks: 4,
+      catatan: 'Skema tabel dan relasi foreign key telah divalidasi dengan database administrator.'
+    },
+    verifikasiKeamanan: {
+      auditorName: 'Rian Hidayat, M.Kom.',
+      tanggal: '2026-11-05 11:30',
+      risikoKeamanan: 'Rendah',
+      rekomendasiEnkripsi: 'Wajib TLS 1.3, JWT HttpOnly Cookie, enkripsi kolom nilai & NIK dengan AES-256.',
+      statusVerifikasi: 'Lolos',
+      catatan: 'Telah lolos review keamanan OWASP Top 10 dan disetujui untuk tahap approval pimpinan.'
+    },
+    approvalPimpinan: {
+      pejabat: 'Dr. Ir. H. Ahmad Dahlan, M.T.',
+      tanggal: '2026-11-06 09:00',
+      keputusan: 'Disetujui',
+      catatan: 'Disetujui untuk dikembangkan internal PUSDATIN. Prioritas sprint bulan November 2026.'
+    },
+    pengembangan: {
+      leadDev: 'Bayu Pratama, S.Kom.',
+      frontendDev: 'Dimas Saputra, S.Kom.',
+      backendDev: 'Eko Prasetyo, S.Kom.',
+      progresPersen: 65,
+      logProgres: [
+        {
+          tanggal: '2026-11-07 10:00',
+          petugas: 'Bayu Pratama, S.Kom.',
+          deskripsi: 'Setup repository monorepo, database migrations PostgreSQL, dan endpoint auth JWT.',
+          progres: 25
+        },
+        {
+          tanggal: '2026-11-08 16:30',
+          petugas: 'Dimas Saputra, S.Kom.',
+          deskripsi: 'Penyusunan UI Dashboard Logbook Mahasiswa & Modul Upload Dokumen Mitra.',
+          progres: 45
+        },
+        {
+          tanggal: '2026-11-09 15:00',
+          petugas: 'Eko Prasetyo, S.Kom.',
+          deskripsi: 'Pengujian endpoint REST API SIAKAD Sync & implementasi RBAC peran koordinator.',
+          progres: 65
+        }
+      ],
+      tanggalMulai: '2026-11-07',
+      tanggalTarget: '2026-11-28'
+    },
+    asetDihasilkan: {
+      jenisAset: 'Server VPS',
+      namaAset: 'Cloud VPS Node MBKM UMC (Ubuntu 24.04 4vCPU 8GB)',
+      spesifikasi: 'VPS Cloud Kampus 1, IP: 10.20.10.88, 80GB NVMe SSD, Docker Compose Containerized',
+      sudahDiregistrasi: false
+    },
+    dokumenTeknis: [
+      {
+        namaDokumen: 'TOR_Pengembangan_Sistem_MBKM_UMC_v1.0.pdf',
+        tipe: 'TOR',
+        urlOrFilename: 'TOR_Pengembangan_Sistem_MBKM_UMC_v1.0.pdf',
+        tanggalUpload: '2026-11-02 09:30'
+      },
+      {
+        namaDokumen: 'Arsitektur_Data_ERD_MBKM_SIAKAD.pdf',
+        tipe: 'Arsitektur',
+        urlOrFilename: 'Arsitektur_Data_ERD_MBKM_SIAKAD.pdf',
+        tanggalUpload: '2026-11-04 14:00'
+      }
+    ]
   },
   {
-    id: 'LOG-002',
-    timestamp: '2026-11-04 14:00',
-    barcode: '84930219',
-    namaBarang: 'Access Point Ruijie Reyee RG-RAP2200(E)',
-    jenisTransaksi: 'Perbaikan',
-    lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    keterangan: 'Perangkat dibawa ke Ruang PUSDATIN untuk servis firmware (Tiket: TKT-20261104-892)',
-    petugas: 'Tim Teknis PUSDATIN'
+    id: 'SYS-2026-002',
+    namaSistem: 'Aplikasi Monitoring Presensi Mahasiswa Berbasis Geofencing Mobile',
+    pemohon: 'Biro Administrasi Akademik (BAA)',
+    unitKerja: 'Biro Administrasi Akademik (BAA)',
+    nidnNik: '0420018201',
+    kontakWhatsapp: '081987654321',
+    email: 'baa@umc.ac.id',
+    deskripsiKebutuhan: 'Aplikasi presensi mahasiswa via smartphone dengan validasi radius lokasi GPS (Geofencing 50 meter dari ruang kuliah) dan deteksi fake GPS.',
+    latarBelakang: 'Mengurangi antrean presensi fingerprint di depan kelas dan mencegah titip presensi antar mahasiswa.',
+    targetPengguna: 'Seluruh Mahasiswa dan Dosen Pengampu Mata Kuliah UMC',
+    tanggalPengajuan: '2026-11-08 11:00',
+    status: 'status_verifikasi',
+    dokumenTeknis: [
+      {
+        namaDokumen: 'Spesifikasi_Kebutuhan_Presensi_Geofencing.pdf',
+        tipe: 'TOR',
+        urlOrFilename: 'Spesifikasi_Kebutuhan_Presensi_Geofencing.pdf',
+        tanggalUpload: '2026-11-08 11:00'
+      }
+    ]
+  }
+];
+
+// 8.2 Tabel 15: Notifikasi (WhatsApp / Email)
+const INITIAL_NOTIFICATIONS: NotificationLog[] = [
+  {
+    id: 'NOTIF-001',
+    tujuan: '081234567890',
+    namaPenerima: 'Hilyah Aulia, S.T.',
+    kanal: 'WhatsApp',
+    jenisNotifikasi: 'Peminjaman Diserahkan',
+    statusKirim: 'sent',
+    timestamp: '2026-11-04 09:05',
+    pesanPreview: 'Pengajuan peminjaman Laptop ThinkPad diserahkan resmi di Ruang PUSDATIN.'
   },
   {
-    id: 'LOG-003',
-    timestamp: '2026-11-05 08:20',
-    barcode: '50291847',
-    namaBarang: 'Proyektor Epson EB-E500 3300 Lumens',
-    jenisTransaksi: 'Pinjam',
-    lokasi: 'Fakultas Teknik (Informatika)',
-    keterangan: 'Dipinjam oleh Dr. Ir. Sunardi, M.Eng. (Tiket: PJM-20261105-0814)',
-    petugas: 'Aditiya Ahmad Fadila'
+    id: 'NOTIF-002',
+    tujuan: '081223344556',
+    namaPenerima: 'Drs. H. Mulyono, M.Pd.',
+    kanal: 'WhatsApp',
+    jenisNotifikasi: 'Tiket Dibuat',
+    statusKirim: 'sent',
+    timestamp: '2026-11-07 08:31',
+    pesanPreview: 'Laporan kerusakan TKT-20261107-105 telah diterima sistem PAHAM (SLA: 12 Jam).'
+  }
+];
+
+// 8.2 Tabel 16: Audit Trail (Immutable, BR-016)
+const INITIAL_AUDIT_TRAIL: AuditTrailItem[] = [
+  {
+    id: 'AUD-001',
+    entityType: 'Peminjaman Aset',
+    entityId: 'PJM-20261104-1029',
+    statusLama: 'Diajukan',
+    statusBaru: 'Diserahkan',
+    idPengguna: 'USR-ACT-03',
+    namaPengguna: 'Aditiya Ahmad Fadila, S.Kom.',
+    rolePengguna: 'IT Support & Helpdesk Specialist',
+    timestamp: '2026-11-04 09:00',
+    catatan: 'Verifikasi peminjaman disetujui, unit dialokasikan AST-UMC-2026-003, Surat Peminjaman SP-PUSDATIN/2026/XI/1029 dicetak.',
+    ipAddress: '10.20.1.44 (SSO UMC)'
+  },
+  {
+    id: 'AUD-002',
+    entityType: 'Aset TI',
+    entityId: 'AST-UMC-2026-003',
+    statusLama: 'Tersedia',
+    statusBaru: 'Dipinjam',
+    idPengguna: 'USR-ACT-03',
+    namaPengguna: 'Aditiya Ahmad Fadila, S.Kom.',
+    rolePengguna: 'IT Support & Helpdesk Specialist',
+    timestamp: '2026-11-04 09:00',
+    catatan: 'Status aset beralih ke Dipinjam karena diserahkan ke Hilyah Aulia (BAU). Otomatis masuk Buku Pengeluaran Aset OUT-2026-001.',
+    ipAddress: '10.20.1.44 (SSO UMC)'
+  },
+  {
+    id: 'AUD-003',
+    entityType: 'Tiket Helpdesk',
+    entityId: 'TKT-20261107-092',
+    statusLama: 'Open/Unassigned',
+    statusBaru: 'Assigned',
+    idPengguna: 'USR-ACT-03',
+    namaPengguna: 'Aditiya Ahmad Fadila, S.Kom.',
+    rolePengguna: 'IT Support & Helpdesk Specialist',
+    timestamp: '2026-11-07 07:45',
+    catatan: 'Admin mendistribusikan tiket jaringan Wi-Fi FKIP ke PIC Ir. Faisal Hakim, M.T. (Cloud & Infrastructure Engineer).',
+    ipAddress: '10.20.1.44 (SSO UMC)'
   }
 ];
 
 export class AppDatabase {
-  // Load Helpers
+  // Storage Helpers
   private static load<T>(key: string, fallback: T): T {
     try {
       const data = localStorage.getItem(key);
@@ -735,9 +770,301 @@ export class AppDatabase {
     }
   }
 
-  // --- ASSETS ---
+  // --- 8.2 TABEL 1 & 6: PENGGUNA & IDENTITY (SSO GOOGLE / LDAP) ---
+  public static getUsers(): AppUser[] {
+    const list = this.load<AppUser[]>(STORAGE_KEYS.USERS, SEED_USERS);
+    if (!list || list.length === 0) return SEED_USERS;
+    return list;
+  }
+
+  public static getActiveUser(): AppUser {
+    const users = this.getUsers();
+    try {
+      const activeId = sessionStorage.getItem(STORAGE_KEYS.ACTIVE_USER_ID);
+      if (activeId) {
+        const found = users.find(u => u.id === activeId);
+        if (found) return found;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    // Default to ACT-03 (Admin / IT Support & Helpdesk Specialist)
+    return users.find(u => u.role === 'ACT-03') || users[2] || SEED_USERS[2];
+  }
+
+  public static setActiveUser(userId: string): void {
+    try {
+      sessionStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, userId);
+      const user = this.getUsers().find(u => u.id === userId);
+      if (user) {
+        sessionStorage.setItem('pusdatin_admin_auth', user.role !== 'ACT-10' ? 'true' : 'false');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // Backward compatibility alias for technicians
+  public static getTechnicians(): TechnicianUser[] {
+    const users = this.getUsers();
+    return users.map(u => ({
+      ...u,
+      name: u.nama
+    }));
+  }
+
+  public static getActiveTechnician(): TechnicianUser | null {
+    const active = this.getActiveUser();
+    if (active.role === 'ACT-10') return null;
+    return {
+      ...active,
+      name: active.nama
+    };
+  }
+
+  public static setActiveTechnician(techOrId: TechnicianUser | string | null): void {
+    if (!techOrId) {
+      const civitas = this.getUsers().find(u => u.role === 'ACT-10');
+      if (civitas) this.setActiveUser(civitas.id);
+      return;
+    }
+    const id = typeof techOrId === 'string' ? techOrId : techOrId.id;
+    this.setActiveUser(id);
+  }
+
+  public static authenticateUser(email: string, password?: string): TechnicianUser | null {
+    const users = this.getUsers();
+    const found = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (found) {
+      if (!password || !found.password || found.password === password) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  public static addTechnician(tech: Partial<AppUser> & { name?: string }): boolean {
+    const users = this.getUsers();
+    const id = `USR-${Date.now()}`;
+    const newUser: AppUser = {
+      id,
+      nama: tech.nama || tech.name || 'Petugas Baru',
+      email: tech.email || `petugas${users.length + 1}@umc.ac.id`,
+      role: (tech.role as ActorCode) || 'ACT-03',
+      roleName: (tech.roleName || 'IT Support & Helpdesk Specialist') as TechnicianRole,
+      unit: tech.unit || 'PUSDATIN',
+      phone: tech.phone || '081234567890',
+      statusAkun: 'Aktif',
+      sumberData: 'SDM',
+      password: tech.password || 'pusdatin123',
+      specialty: tech.specialty || '',
+      isFullAccess: tech.isFullAccess || false,
+      level: tech.level
+    };
+    this.save(STORAGE_KEYS.USERS, [...users, newUser]);
+    return true;
+  }
+
+  public static updateTechnician(tech: Partial<AppUser> & { id: string; name?: string }): boolean {
+    const users = this.getUsers();
+    const idx = users.findIndex(u => u.id === tech.id);
+    if (idx === -1) return false;
+    users[idx] = {
+      ...users[idx],
+      nama: tech.nama || tech.name || users[idx].nama,
+      roleName: (tech.roleName || users[idx].roleName) as TechnicianRole,
+      role: (tech.role as ActorCode) || users[idx].role,
+      email: tech.email || users[idx].email,
+      phone: tech.phone || users[idx].phone,
+      password: tech.password || users[idx].password,
+      specialty: tech.specialty ?? users[idx].specialty,
+      isFullAccess: tech.isFullAccess ?? users[idx].isFullAccess,
+      level: tech.level ?? users[idx].level
+    };
+    this.save(STORAGE_KEYS.USERS, users);
+    return true;
+  }
+
+  public static deleteTechnician(id: string): boolean {
+    const users = this.getUsers();
+    const filtered = users.filter(u => u.id !== id);
+    if (filtered.length === users.length) return false;
+    this.save(STORAGE_KEYS.USERS, filtered);
+    return true;
+  }
+
+  // --- 8.2 TABEL 16: AUDIT TRAIL STATUS TIKET & ASET (IMMUTABLE, BR-016) ---
+  public static getAuditTrail(): AuditTrailItem[] {
+    return this.load<AuditTrailItem[]>(STORAGE_KEYS.AUDIT_TRAIL, INITIAL_AUDIT_TRAIL);
+  }
+
+  public static addAuditTrail(item: Omit<AuditTrailItem, 'id' | 'timestamp'>): void {
+    const list = this.getAuditTrail();
+    const activeUser = this.getActiveUser();
+    const newEntry: AuditTrailItem = {
+      id: `AUD-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      timestamp: new Date().toLocaleString('id-ID'),
+      idPengguna: item.idPengguna || activeUser.id,
+      namaPengguna: item.namaPengguna || activeUser.nama,
+      rolePengguna: item.rolePengguna || activeUser.roleName,
+      entityType: item.entityType,
+      entityId: item.entityId,
+      statusLama: item.statusLama,
+      statusBaru: item.statusBaru,
+      catatan: item.catatan,
+      ipAddress: item.ipAddress || '10.20.1.25 (SSO Google UMC)'
+    };
+    this.save(STORAGE_KEYS.AUDIT_TRAIL, [newEntry, ...list]);
+  }
+
+  // --- 8.2 TABEL 15: NOTIFIKASI (WHATSAPP / EMAIL) ---
+  public static getNotifications(): NotificationLog[] {
+    return this.load<NotificationLog[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+  }
+
+  public static addNotification(notif: Omit<NotificationLog, 'id' | 'timestamp'>): NotificationLog {
+    const list = this.getNotifications();
+    const newNotif: NotificationLog = {
+      ...notif,
+      id: `NOTIF-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      timestamp: new Date().toLocaleString('id-ID')
+    };
+    this.save(STORAGE_KEYS.NOTIFICATIONS, [newNotif, ...list]);
+    return newNotif;
+  }
+
+  // --- 8.2 TABEL 7: BUKU PENERIMAAN ASET (A.1) ---
+  public static getBukuPenerimaan(): BukuPenerimaanItem[] {
+    return this.load<BukuPenerimaanItem[]>(STORAGE_KEYS.BUKU_PENERIMAAN, INITIAL_BUKU_PENERIMAAN);
+  }
+
+  public static addBukuPenerimaan(
+    item: Omit<BukuPenerimaanItem, 'idPenerimaan' | 'jumlahHarga'>
+  ): { success: boolean; message: string; data?: BukuPenerimaanItem } {
+    // RBAC: Hanya Admin yang dapat Mengelola (ACT-03)
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'buku_penerimaan', ['manage'], 'Menambah data Buku Penerimaan Aset');
+
+    const list = this.getBukuPenerimaan();
+    const id = `RCV-${new Date().getFullYear()}-${String(list.length + 1).padStart(3, '0')}`;
+    // BR-003: Jumlah harga = banyaknya × harga_satuan (otomatis dihitung sistem)
+    const jumlahHarga = Number(item.banyaknya || 0) * Number(item.hargaSatuan || 0);
+
+    const newItem: BukuPenerimaanItem = {
+      ...item,
+      idPenerimaan: id,
+      jumlahHarga,
+      tercatatUnitCount: 0,
+      petugas: active.nama
+    };
+
+    this.save(STORAGE_KEYS.BUKU_PENERIMAAN, [newItem, ...list]);
+
+    this.addLog({
+      id: `LOG-${Date.now()}`,
+      timestamp: new Date().toLocaleString('id-ID'),
+      barcode: id,
+      namaBarang: newItem.namaAset,
+      jenisTransaksi: 'Masuk',
+      lokasi: 'Ruang PUSDATIN',
+      keterangan: `Penerimaan aset baru: ${newItem.namaAset} (${newItem.banyaknya} unit) dari ${newItem.dari}. Total Rp ${jumlahHarga.toLocaleString('id-ID')}`,
+      petugas: active.nama
+    });
+
+    this.addAuditTrail({
+      entityType: 'Aset TI',
+      entityId: id,
+      statusLama: 'Draft',
+      statusBaru: 'Tercatat di Buku Penerimaan',
+      catatan: `Input Buku Penerimaan Aset (${newItem.namaAset}) nomor faktur ${newItem.nomorFaktur}.`,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
+    });
+
+    return {
+      success: true,
+      message: `Buku Penerimaan Aset ${id} berhasil dicatat! Total Harga: Rp ${jumlahHarga.toLocaleString('id-ID')}`,
+      data: newItem
+    };
+  }
+
+  // --- 8.2 TABEL 8: BUKU PENGELUARAN ASET (A.2) ---
+  public static getBukuPengeluaran(): BukuPengeluaranItem[] {
+    return this.load<BukuPengeluaranItem[]>(STORAGE_KEYS.BUKU_PENGELUARAN, INITIAL_BUKU_PENGELUARAN);
+  }
+
+  // Jalur 1 — Aset Keluar karena Penggunaan (A.2 Jalur 1)
+  public static recordPengeluaranPenggunaan(params: {
+    barcodeOrUniqueCode: string;
+    untuk: string;
+    tanggalPenyerahan: string;
+    keterangan: string;
+  }): { success: boolean; message: string } {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'buku_pengeluaran', ['manage'], 'Mencatat Pengeluaran Aset untuk Penggunaan');
+
+    const asset = this.getAssetByBarcodeOrUnique(params.barcodeOrUniqueCode);
+    if (!asset) {
+      return { success: false, message: 'Kode aset atau barcode tidak ditemukan dalam sistem inventaris!' };
+    }
+
+    if (asset.status === 'Tidak Layak') {
+      return { success: false, message: 'Aset berstatus Tidak Layak dan tidak dapat dikeluarkan untuk penggunaan!' };
+    }
+
+    const list = this.getBukuPengeluaran();
+    const id = `OUT-${new Date().getFullYear()}-${String(list.length + 1).padStart(3, '0')}`;
+
+    const newOut: BukuPengeluaranItem = {
+      idPengeluaran: id,
+      tanggalPenyerahan: params.tanggalPenyerahan || new Date().toISOString().split('T')[0],
+      kodeUnikAset: asset.kodeUnikAset,
+      barcode: asset.barcode,
+      namaAset: asset.nama,
+      untuk: params.untuk,
+      jenisPengeluaran: 'Penggunaan',
+      keterangan: params.keterangan || `Pengeluaran karena penggunaan oleh ${params.untuk}`,
+      petugas: active.nama
+    };
+
+    this.save(STORAGE_KEYS.BUKU_PENGELUARAN, [newOut, ...list]);
+
+    // Update status aset menjadi 'Digunakan'
+    const statusLama = asset.status;
+    this.updateAssetStatus(
+      asset.barcode,
+      'Digunakan',
+      params.untuk,
+      true,
+      `Aset diserahkan untuk penggunaan ke: ${params.untuk} (Buku Pengeluaran: ${id})`
+    );
+
+    this.addAuditTrail({
+      entityType: 'Aset TI',
+      entityId: asset.kodeUnikAset,
+      statusLama,
+      statusBaru: 'Digunakan',
+      catatan: `Pengeluaran karena Penggunaan: diserahkan ke ${params.untuk} oleh ${active.nama}`,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
+    });
+
+    return {
+      success: true,
+      message: `Aset ${asset.nama} (${asset.kodeUnikAset}) berhasil dikeluarkan untuk penggunaan (${params.untuk}) dan tercatat di Buku Pengeluaran!`
+    };
+  }
+
+  // --- 8.2 TABEL 3: ASET TI (A.1.2 Registrasi Unit, BR-001, BR-002) ---
   public static getAssets(): Asset[] {
-    return this.load<Asset[]>(STORAGE_KEYS.ASSETS, INITIAL_ASSETS);
+    const raw = this.load<Asset[]>(STORAGE_KEYS.ASSETS, INITIAL_ASSETS);
+    return raw.map(a => ({
+      ...a,
+      kodeUnikAset: a.kodeUnikAset || `AST-UMC-2026-${a.barcode.slice(-4)}`,
+      status: normalizeAssetStatus(a.status)
+    }));
   }
 
   public static getAssetByBarcode(barcode: string): Asset | undefined {
@@ -746,62 +1073,108 @@ export class AppDatabase {
     return assets.find(a => a.barcode.toLowerCase() === clean);
   }
 
-  public static addAsset(asset: Asset): void {
+  public static getAssetByBarcodeOrUnique(code: string): Asset | undefined {
+    const clean = (code || '').trim().toLowerCase();
+    if (!clean) return undefined;
     const assets = this.getAssets();
-    // Prepend new asset
-    const updated = [asset, ...assets.filter(a => a.barcode !== asset.barcode)];
+    return assets.find(
+      a => a.barcode.toLowerCase() === clean || (a.kodeUnikAset && a.kodeUnikAset.toLowerCase() === clean)
+    );
+  }
+
+  public static addAsset(asset: Asset): void {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'registrasi_aset_qr', ['manage'], 'Mendaftarkan unit aset baru');
+
+    const assets = this.getAssets();
+    // BR-001: Kode Unik Aset sebagai pengenal utama, tidak dapat diubah
+    const kodeUnikAset = asset.kodeUnikAset || `AST-UMC-${new Date().getFullYear()}-${String(assets.length + 1).padStart(3, '0')}`;
+    const newAsset: Asset = {
+      ...asset,
+      kodeUnikAset,
+      status: normalizeAssetStatus(asset.status)
+    };
+
+    const updated = [newAsset, ...assets.filter(a => a.barcode !== newAsset.barcode && a.kodeUnikAset !== kodeUnikAset)];
     this.save(STORAGE_KEYS.ASSETS, updated);
 
-    // Log addition
     this.addLog({
       id: `LOG-${Date.now()}`,
       timestamp: new Date().toLocaleString('id-ID'),
-      barcode: asset.barcode,
-      namaBarang: asset.nama,
+      barcode: newAsset.barcode,
+      namaBarang: newAsset.nama,
       jenisTransaksi: 'Masuk',
-      lokasi: asset.lokasi,
-      keterangan: 'Registrasi barang baru ke sistem inventaris PUSDATIN UMC'
+      lokasi: newAsset.lokasi,
+      keterangan: `Registrasi fisik unit aset ${newAsset.nama} (Kode Unik: ${kodeUnikAset})`,
+      petugas: active.nama
+    });
+
+    this.addAuditTrail({
+      entityType: 'Aset TI',
+      entityId: kodeUnikAset,
+      statusLama: 'None',
+      statusBaru: newAsset.status,
+      catatan: `Registrasi unit fisik baru ke sistem inventaris PUSDATIN UMC oleh ${active.nama}`,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
     });
   }
 
   public static updateAssetStatus(
     barcode: string,
-    status: AssetStatus,
+    newStatus: AssetStatus,
     lokasi?: string,
     logActivity = true,
     keterangan?: string
   ): boolean {
     const assets = this.getAssets();
-    const index = assets.findIndex(a => a.barcode === barcode);
+    const index = assets.findIndex(a => a.barcode === barcode || a.kodeUnikAset === barcode);
     if (index === -1) return false;
 
     const old = assets[index];
+    const statusLama = old.status;
+    const targetStatus = normalizeAssetStatus(newStatus);
     const newLokasi = lokasi || old.lokasi;
 
     assets[index] = {
       ...old,
-      status,
+      status: targetStatus,
       lokasi: newLokasi,
       lokasiAwal: old.lokasiAwal || old.lokasi
     };
     this.save(STORAGE_KEYS.ASSETS, assets);
 
+    const active = this.getActiveUser();
+
     if (logActivity) {
       let jenis: ActivityLog['jenisTransaksi'] = 'Mutasi Lokasi';
-      if (status === 'Rusak') jenis = 'Rusak';
-      else if (status === 'Diperbaiki') jenis = 'Perbaikan';
-      else if (status === 'Dipinjam') jenis = 'Pinjam';
-      else if (status === 'Tersedia' && old.status === 'Dipinjam') jenis = 'Kembali';
-      else if (status === 'Tersedia' && (old.status === 'Rusak' || old.status === 'Diperbaiki')) jenis = 'Selesai Perbaikan';
+      if (targetStatus === 'Maintenance') jenis = 'Perbaikan';
+      else if (targetStatus === 'Dipinjam') jenis = 'Pinjam';
+      else if (targetStatus === 'Tersedia' && old.status === 'Dipinjam') jenis = 'Kembali';
+      else if (targetStatus === 'Tersedia' && old.status === 'Maintenance') jenis = 'Selesai Perbaikan';
+      else if (targetStatus === 'Tidak Layak') jenis = 'Rusak Total';
 
       this.addLog({
         id: `LOG-${Date.now()}`,
         timestamp: new Date().toLocaleString('id-ID'),
-        barcode,
+        barcode: old.barcode,
         namaBarang: old.nama,
         jenisTransaksi: jenis,
         lokasi: newLokasi,
-        keterangan: keterangan || `Update status menjadi ${status} di ${newLokasi}`
+        keterangan: keterangan || `Update status aset menjadi ${targetStatus} di ${newLokasi}`,
+        petugas: active.nama
+      });
+
+      this.addAuditTrail({
+        entityType: 'Aset TI',
+        entityId: old.kodeUnikAset || old.barcode,
+        statusLama,
+        statusBaru: targetStatus,
+        catatan: keterangan || `Perubahan status operasional menjadi ${targetStatus}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
       });
     }
 
@@ -809,20 +1182,24 @@ export class AppDatabase {
   }
 
   public static updateAssetFull(
-    barcode: string,
+    barcodeOrUnique: string,
     data: Partial<Asset>,
     logActivity = true,
     keterangan?: string
   ): boolean {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'buku_inventaris', ['manage'], 'Mengubah data master aset');
+
     const assets = this.getAssets();
-    const index = assets.findIndex(a => a.barcode === barcode);
+    const index = assets.findIndex(a => a.barcode === barcodeOrUnique || a.kodeUnikAset === barcodeOrUnique);
     if (index === -1) return false;
 
     const old = assets[index];
     const updated: Asset = {
       ...old,
       ...data,
-      barcode: old.barcode // keep barcode immutable
+      barcode: old.barcode, // Barcode tetap
+      kodeUnikAset: old.kodeUnikAset // BR-001: Kode Unik Aset tidak dapat diubah
     };
 
     assets[index] = updated;
@@ -832,173 +1209,1608 @@ export class AppDatabase {
       this.addLog({
         id: `LOG-${Date.now()}`,
         timestamp: new Date().toLocaleString('id-ID'),
-        barcode,
+        barcode: updated.barcode,
         namaBarang: updated.nama,
         jenisTransaksi: 'Mutasi Lokasi',
         lokasi: updated.lokasi,
-        keterangan: keterangan || `Pembaruan data lengkap inventaris aset ${updated.nama} (${barcode})`
+        keterangan: keterangan || `Pembaruan data spesifikasi/lokasi aset ${updated.nama} (${updated.kodeUnikAset})`,
+        petugas: active.nama
       });
     }
 
     return true;
   }
 
-  // --- TECHNICIANS & ROLES (Enhancement B.7) ---
-  public static determinePic(deviceOrCategoryOrDesc: string): { role: TechnicianRole; name: string } {
-    const text = (deviceOrCategoryOrDesc || '').toLowerCase();
+  public static deleteAsset(barcodeOrUnique: string): boolean {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'buku_inventaris', ['manage'], 'Menghapus aset inventaris');
 
-    // 1. Cloud & Infrastructure Engineer
-    if (
-      text.includes('wifi') ||
-      text.includes('wi-fi') ||
-      text.includes('access point') ||
-      text.includes('jaringan') ||
-      text.includes('lan') ||
-      text.includes('switch') ||
-      text.includes('router') ||
-      text.includes('mikrotik') ||
-      text.includes('kabel lan') ||
-      text.includes('internet') ||
-      text.includes('ip address') ||
-      text.includes('gateway') ||
-      text.includes('ethernet') ||
-      text.includes('fiber')
-    ) {
-      return { role: 'Cloud & Infrastructure Engineer', name: 'Ir. Faisal Hakim, M.T.' };
-    }
+    const assets = this.getAssets();
+    const target = assets.find(a => a.barcode === barcodeOrUnique || a.kodeUnikAset === barcodeOrUnique);
+    if (!target) return false;
 
-    // 2. Programmer / Software Engineer
-    if (
-      text.includes('aplikasi') ||
-      text.includes('siakad') ||
-      text.includes('web') ||
-      text.includes('portal') ||
-      text.includes('software') ||
-      text.includes('program') ||
-      text.includes('database') ||
-      text.includes('sql') ||
-      text.includes('bug') ||
-      text.includes('error 500') ||
-      text.includes('login') ||
-      text.includes('sistem informasi') ||
-      text.includes('api')
-    ) {
-      return { role: 'Programmer', name: 'Bayu Pratama, S.Kom.' };
-    }
+    const filtered = assets.filter(a => a.barcode !== target.barcode && a.kodeUnikAset !== target.kodeUnikAset);
+    this.save(STORAGE_KEYS.ASSETS, filtered);
 
-    // 3. Cyber Security Officer
-    if (
-      text.includes('server') ||
-      text.includes('cyber') ||
-      text.includes('security') ||
-      text.includes('keamanan') ||
-      text.includes('firewall') ||
-      text.includes('hack') ||
-      text.includes('malware') ||
-      text.includes('virus') ||
-      text.includes('ransomware') ||
-      text.includes('kebocoran') ||
-      text.includes('pembajakan') ||
-      text.includes('ssl') ||
-      text.includes('port scan')
-    ) {
-      return { role: 'Cyber Security Officer', name: 'Rian Hidayat, M.Kom.' };
-    }
+    this.addAuditTrail({
+      entityType: 'Aset TI',
+      entityId: target.kodeUnikAset,
+      statusLama: target.status,
+      statusBaru: 'Dihapus (Soft-Delete Audit)',
+      catatan: `Penghapusan aset ${target.nama} (${target.kodeUnikAset}) oleh ${active.nama}`,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
+    });
 
-    // 4. IT Support & Helpdesk Specialist (Default for hardware, printer, projector, pc, laptop)
-    return { role: 'IT Support & Helpdesk Specialist', name: 'Aditiya Ahmad Fadila, S.Kom.' };
+    return true;
   }
 
-  public static getTechnicians(): TechnicianUser[] {
-    const list = this.load<TechnicianUser[]>(STORAGE_KEYS.TECHNICIANS, INITIAL_TECHNICIANS);
-    if (!list || list.length === 0) return INITIAL_TECHNICIANS;
-    return list;
+  // --- 8.2 TABEL 9: BUKU ASET INVENTARIS (REKAPITULASI, A.3, BR-005) ---
+  public static getBukuAsetInventarisRekap(): BukuAsetInventarisRekap[] {
+    const assets = this.getAssets();
+    const categories = this.getMasterCategories();
+    const penerimaanList = this.getBukuPenerimaan();
+    const pengeluaranList = this.getBukuPengeluaran();
+
+    const result: BukuAsetInventarisRekap[] = [];
+
+    categories.forEach(cat => {
+      const catAssets = assets.filter(a => a.kategori === cat);
+      const totalMasukCat = penerimaanList
+        .filter(p => p.kategori === cat)
+        .reduce((sum, p) => sum + (p.banyaknya || 0), 0) || catAssets.length;
+
+      const totalKeluarCat = pengeluaranList.filter(o => {
+        const matchingAsset = assets.find(a => a.kodeUnikAset === o.kodeUnikAset || a.barcode === o.barcode);
+        return matchingAsset?.kategori === cat;
+      }).length;
+
+      // BR-005: Saldo = total masuk - total keluar = stok tersedia per kategori
+      const tersedia = catAssets.filter(a => a.status === 'Tersedia').length;
+      const digunakan = catAssets.filter(a => a.status === 'Digunakan').length;
+      const dipinjam = catAssets.filter(a => a.status === 'Dipinjam').length;
+      const maintenance = catAssets.filter(a => a.status === 'Maintenance').length;
+      const tidakLayak = catAssets.filter(a => a.status === 'Tidak Layak').length;
+
+      const totalNilai = catAssets.reduce((sum, a) => sum + (a.hargaBeli || 0), 0);
+
+      result.push({
+        kategori: cat,
+        totalMasuk: totalMasukCat,
+        totalKeluar: totalKeluarCat,
+        stokTersedia: Math.max(0, totalMasukCat - totalKeluarCat),
+        nilaiAsetTotal: totalNilai,
+        rincianStatus: {
+          tersedia,
+          digunakan,
+          dipinjam,
+          maintenance,
+          tidakLayak
+        }
+      });
+    });
+
+    return result;
   }
 
-  public static addTechnician(tech: Omit<TechnicianUser, 'id'>): TechnicianUser {
-    const list = this.getTechnicians();
-    const newId = `TECH-${String(list.length + 1).padStart(3, '0')}`;
-    const newTech: TechnicianUser = {
-      ...tech,
-      id: newId,
-      password: tech.password || 'admin'
+  // --- 8.2 TABEL 10 & 11: PEMINJAMAN ASET (MODUL C) ---
+  public static getLoans(): LoanTicket[] {
+    const loans = this.load<LoanTicket[]>(STORAGE_KEYS.LOANS, INITIAL_LOANS);
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    return loans.map(l => {
+      const normalizedStatus = normalizeLoanStatus(l.status);
+      // C.6: Pengingat keterlambatan: jika melewati batas waktu tglKembali dan belum dikembalikan -> Terlambat
+      let finalStatus = normalizedStatus;
+      if (normalizedStatus === 'Diserahkan' && l.tglKembali && l.tglKembali < todayStr) {
+        finalStatus = 'Terlambat';
+      }
+      return {
+        ...l,
+        status: finalStatus
+      };
+    });
+  }
+
+  // C.1 Pengajuan Peminjaman oleh User
+  public static addLoan(loan: Omit<LoanTicket, 'id' | 'status' | 'tglAju'>): LoanTicket {
+    const loans = this.getLoans();
+    const active = this.getActiveUser();
+    const dateCode = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const id = `PJM-${dateCode}-${rand}`;
+
+    const newTicket: LoanTicket = {
+      ...loan,
+      id,
+      status: 'Diajukan',
+      tglAju: new Date().toLocaleString('id-ID')
     };
-    this.save(STORAGE_KEYS.TECHNICIANS, [...list, newTech]);
-    return newTech;
+
+    this.save(STORAGE_KEYS.LOANS, [newTicket, ...loans]);
+
+    // Log Notifikasi WA (Section 0 point 6, BR-009)
+    this.addNotification({
+      tujuan: newTicket.kontak,
+      namaPenerima: newTicket.peminjam,
+      kanal: 'WhatsApp',
+      jenisNotifikasi: 'Peminjaman Diajukan',
+      statusKirim: 'sent',
+      pesanPreview: `Pengajuan peminjaman ${newTicket.barangPinjaman} (${id}) berhasil diajukan dan menunggu verifikasi Admin PUSDATIN.`
+    });
+
+    this.addAuditTrail({
+      entityType: 'Peminjaman Aset',
+      entityId: id,
+      statusLama: 'None',
+      statusBaru: 'Diajukan',
+      catatan: `Civitas ${newTicket.peminjam} (${newTicket.unit}) mengajukan peminjaman ${newTicket.barangPinjaman} ${newTicket.jumlah} unit.`,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
+    });
+
+    return newTicket;
   }
 
-  public static updateTechnician(tech: TechnicianUser): boolean {
-    const list = this.getTechnicians();
-    const idx = list.findIndex(t => t.id === tech.id);
+  // Walk-in / Direct Loan creation by Admin
+  public static createDirectLoanByAdmin(params: {
+    peminjam: string;
+    nik: string;
+    unit: string;
+    kontak: string;
+    email: string;
+    barangPinjaman: string;
+    jumlah: number;
+    tglPinjam: string;
+    tglKembali: string;
+    barcode: string;
+    namaBarangT?: string;
+    kondisi?: string;
+    petugas?: string;
+    catatan?: string;
+    tglAmbil?: string;
+  }): { success: boolean; message: string; ticket?: LoanTicket } {
+    const asset = this.getAssetByBarcodeOrUnique(params.barcode);
+    if (!asset) {
+      return { success: false, message: 'Barcode aset tidak ditemukan!' };
+    }
+    if (asset.status !== 'Tersedia') {
+      return { success: false, message: `Aset ${params.barcode} saat ini berstatus ${asset.status}, tidak dapat dipinjam!` };
+    }
+
+    const loan = this.addLoan({
+      peminjam: params.peminjam,
+      nik: params.nik,
+      unit: params.unit,
+      kontak: params.kontak,
+      email: params.email,
+      barangPinjaman: params.barangPinjaman,
+      jumlah: params.jumlah,
+      tglPinjam: params.tglPinjam,
+      tglKembali: params.tglKembali,
+      barcode: params.barcode,
+      kodeUnikAset: asset.kodeUnikAset,
+      namaBarangT: params.namaBarangT || asset.nama,
+      kondisi: params.kondisi || 'Baik',
+      petugas: params.petugas,
+      catatan: params.catatan,
+      tglAmbil: params.tglAmbil || params.tglPinjam
+    });
+
+    return this.processLoanTicket(loan.id, 'serahkan', {
+      barcode: params.barcode,
+      kodeUnikAset: asset.kodeUnikAset,
+      namaBarang: asset.nama,
+      kondisi: params.kondisi || 'Baik',
+      petugas: params.petugas,
+      catatan: params.catatan
+    });
+  }
+
+  // C.2, C.3, C.4, C.5: Proses Lifecycle Tiket Peminjaman (Admin & Pimpinan)
+  public static processLoanTicket(
+    id: string,
+    action: 'terima' | 'konfirmasi-alokasi' | 'serahkan' | 'tolak' | 'kembalikan' | 'kembali' | 'tutup',
+    data: {
+      alasanPenolakan?: string;
+      barcode?: string;
+      kodeUnikAset?: string;
+      namaBarang?: string;
+      kondisi?: string;
+      petugas?: string;
+      catatan?: string;
+      tglAmbil?: string;
+      tglDikembalikan?: string;
+      metodePengambilan?: LoanHandoverMethod;
+      jadwalPengambilan?: string;
+      lokasiPengambilan?: string;
+      hasilPemeriksaanKembali?: 'Baik / Lengkap' | 'Ada Kendala';
+      rincianKondisiKembali?: string;
+    }
+  ): { success: boolean; message: string; ticket?: LoanTicket } {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'peminjaman_aset', ['manage', 'approve'], `Memproses peminjaman (${action})`);
+
+    const loans = this.getLoans();
+    const index = loans.findIndex(l => l.id === id);
+    if (index === -1) return { success: false, message: 'Tiket peminjaman tidak ditemukan!' };
+
+    const loan = loans[index];
+    const statusLama = loan.status;
+    const nowStr = new Date().toLocaleString('id-ID');
+
+    // C.2: Admin Verifikasi Diterima -> Dikonfirmasi (alokasikan unit spesifik)
+    if (action === 'terima' || action === 'konfirmasi-alokasi') {
+      const allocatedAsset = data.barcode ? this.getAssetByBarcodeOrUnique(data.barcode) : undefined;
+      const handover = data.metodePengambilan || loan.metodePengambilan || 'Diambil di Ruang PUSDATIN';
+      const schedule = data.jadwalPengambilan || `${data.tglAmbil || loan.tglPinjam} pukul 09:00 WIB`;
+
+      loans[index] = {
+        ...loan,
+        status: 'Dikonfirmasi',
+        barcode: allocatedAsset?.barcode || data.barcode || loan.barcode,
+        kodeUnikAset: allocatedAsset?.kodeUnikAset || data.kodeUnikAset || loan.kodeUnikAset,
+        namaBarangT: allocatedAsset?.nama || data.namaBarang || loan.namaBarangT || loan.barangPinjaman,
+        kondisi: data.kondisi || 'Baik / Berfungsi Normal',
+        petugas: data.petugas || active.nama,
+        catatan: data.catatan || 'Peminjaman diverifikasi dan unit aset telah dialokasikan.',
+        tglAmbil: data.tglAmbil || loan.tglPinjam,
+        metodePengambilan: handover,
+        jadwalPengambilan: schedule,
+        lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
+      };
+      this.save(STORAGE_KEYS.LOANS, loans);
+
+      this.addNotification({
+        tujuan: loan.kontak,
+        namaPenerima: loan.peminjam,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Peminjaman Disetujui',
+        statusKirim: 'sent',
+        pesanPreview: `Pengajuan peminjaman ${loan.id} DISETUJUI. Unit dialokasikan: ${loans[index].namaBarangT}. Jadwal serah terima: ${schedule}.`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Peminjaman Aset',
+        entityId: loan.id,
+        statusLama,
+        statusBaru: 'Dikonfirmasi',
+        catatan: `Admin ${active.nama} menyetujui pengajuan peminjaman dan mengalokasikan unit ${loans[index].namaBarangT} (${loans[index].barcode}).`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Peminjaman ${loan.id} DIVERIFIKASI & DIKONFIRMASI! Unit dialokasikan: ${loans[index].namaBarangT}.`,
+        ticket: loans[index]
+      };
+    }
+
+    // C.4: Perizinan, Cetak Surat PDF & Penyerahan Fisik -> Diserahkan (BR-010, BR-011)
+    if (action === 'serahkan') {
+      const allocatedCode = data.barcode || loan.barcode;
+      const allocatedAsset = allocatedCode ? this.getAssetByBarcodeOrUnique(allocatedCode) : undefined;
+      const nomorSurat = `SP-PUSDATIN/${new Date().getFullYear()}/XI/${loan.id.slice(-4)}`;
+
+      loans[index] = {
+        ...loan,
+        status: 'Diserahkan',
+        nomorSuratPeminjaman: nomorSurat,
+        penandatangan: {
+          peminjam: loan.peminjam,
+          petugas: data.petugas || active.nama,
+          kepalaPusdatin: 'Dr. Ir. H. Ahmad Dahlan, M.T.'
+        },
+        tglAmbil: data.tglAmbil || new Date().toISOString().split('T')[0],
+        catatan: data.catatan || 'Aset telah diserahkan resmi dengan Surat Peminjaman resmi.'
+      };
+      this.save(STORAGE_KEYS.LOANS, loans);
+
+      // BR-011: Saat aset diserahkan, status aset menjadi Dipinjam dan masuk Buku Pengeluaran Aset (Jalur 2)
+      if (allocatedAsset) {
+        this.updateAssetStatus(
+          allocatedAsset.barcode,
+          'Dipinjam',
+          loan.unit,
+          true,
+          `Dipinjam oleh ${loan.peminjam} (${loan.unit}) - Surat: ${nomorSurat}`
+        );
+
+        // Catat ke Buku Pengeluaran Aset (Jalur 2 — Peminjaman)
+        const pengeluaranList = this.getBukuPengeluaran();
+        const outId = `OUT-${new Date().getFullYear()}-${String(pengeluaranList.length + 1).padStart(3, '0')}`;
+        const newOut: BukuPengeluaranItem = {
+          idPengeluaran: outId,
+          tanggalPenyerahan: new Date().toISOString().split('T')[0],
+          kodeUnikAset: allocatedAsset.kodeUnikAset,
+          barcode: allocatedAsset.barcode,
+          namaAset: allocatedAsset.nama,
+          untuk: `${loan.peminjam} (${loan.unit})`,
+          jenisPengeluaran: 'Peminjaman',
+          idTiketPeminjaman: loan.id,
+          keterangan: `Pengeluaran otomatis dipicu oleh penyerahan peminjaman Surat ${nomorSurat}`,
+          petugas: active.nama
+        };
+        this.save(STORAGE_KEYS.BUKU_PENGELUARAN, [newOut, ...pengeluaranList]);
+      }
+
+      this.addNotification({
+        tujuan: loan.kontak,
+        namaPenerima: loan.peminjam,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Peminjaman Diserahkan',
+        statusKirim: 'sent',
+        pesanPreview: `Aset pinjaman telah resmi diserahkan. Surat Peminjaman Aset ${nomorSurat} telah diterbitkan. Batas kembali: ${loan.tglKembali}.`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Peminjaman Aset',
+        entityId: loan.id,
+        statusLama,
+        statusBaru: 'Diserahkan',
+        catatan: `Aset diserahkan resmi ke peminjam. Surat Peminjaman ${nomorSurat} diterbitkan, status aset menjadi Dipinjam dan masuk Buku Pengeluaran.`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Aset resmi DISERAHKAN! Status berubah menjadi Diserahkan, tercatat di Buku Pengeluaran, dan Surat Peminjaman diterbitkan.`,
+        ticket: loans[index]
+      };
+    }
+
+    // C.2: Penolakan Peminjaman
+    if (action === 'tolak') {
+      const reason = data.alasanPenolakan || data.catatan || 'Ketersediaan perangkat tidak mencukupi untuk jadwal tersebut.';
+      loans[index] = {
+        ...loan,
+        status: 'Ditolak',
+        alasanPenolakan: reason,
+        catatan: reason
+      };
+      this.save(STORAGE_KEYS.LOANS, loans);
+
+      this.addNotification({
+        tujuan: loan.kontak,
+        namaPenerima: loan.peminjam,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Peminjaman Disetujui', // Tipe update status
+        statusKirim: 'sent',
+        pesanPreview: `Mohon maaf, pengajuan peminjaman ${loan.id} DITOLAK. Alasan: ${reason}`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Peminjaman Aset',
+        entityId: loan.id,
+        statusLama,
+        statusBaru: 'Ditolak',
+        catatan: `Peminjaman ditolak oleh ${active.nama}. Alasan: ${reason}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return { success: true, message: `Peminjaman ${loan.id} telah DITOLAK.` };
+    }
+
+    // C.5: Pengembalian Aset & Pemeriksaan Fisik (BR-012, Integrasi 3)
+    if (action === 'kembalikan' || action === 'kembali' || action === 'tutup') {
+      const returnDate = data.tglDikembalikan || new Date().toISOString().split('T')[0];
+      const hasilPemeriksaan = data.hasilPemeriksaanKembali || 'Baik / Lengkap';
+      const allocatedAsset = loan.barcode ? this.getAssetByBarcodeOrUnique(loan.barcode) : undefined;
+
+      let linkedTicketId: string | undefined = undefined;
+
+      // BR-012 & Integrasi 3: Jika ada kendala/kerusakan, status aset menjadi Maintenance dan buat tiket kerusakan terkait
+      if (hasilPemeriksaan === 'Ada Kendala') {
+        if (allocatedAsset) {
+          this.updateAssetStatus(
+            allocatedAsset.barcode,
+            'Maintenance',
+            'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+            true,
+            `Aset dikembalikan dengan kendala fisik/fungsi oleh ${loan.peminjam}: ${data.rincianKondisiKembali || 'Perlu perbaikan'}`
+          );
+        }
+
+        // Otomatis terbitkan tiket kerusakan helpdesk terkait
+        const damageTicket = this.createInternalDamageTicket({
+          barcode: allocatedAsset?.barcode || loan.barcode || 'Tanpa Barcode',
+          namaBarang: loan.namaBarangT || loan.barangPinjaman,
+          lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+          deskripsi: `[TEMUAN PENGEMBALIAN PINJAMAN] ${loan.id}: ${data.rincianKondisiKembali || 'Ada kendala fisik/fungsi saat pengembalian aset.'}`,
+          pelapor: `Admin PUSDATIN (${loan.peminjam})`,
+          status: 'Open/Unassigned',
+          metodePerbaikan: 'Dibawa ke PUSDATIN',
+          urgensi: 'Tinggi',
+          picTeknisi: 'IT Support & Helpdesk Specialist'
+        });
+        linkedTicketId = damageTicket.id;
+      } else {
+        // Jika Baik / Lengkap: status aset kembali menjadi Tersedia
+        if (allocatedAsset) {
+          this.updateAssetStatus(
+            allocatedAsset.barcode,
+            'Tersedia',
+            'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+            true,
+            `Dikembalikan dalam kondisi baik oleh ${loan.peminjam} - Tiket: ${loan.id}`
+          );
+        }
+      }
+
+      loans[index] = {
+        ...loan,
+        status: 'Dikembalikan',
+        tglDikembalikan: returnDate,
+        hasilPemeriksaanKembali: hasilPemeriksaan,
+        rincianKondisiKembali: data.rincianKondisiKembali,
+        linkedDamageTicketId: linkedTicketId,
+        catatan: `Aset dikembalikan pada ${returnDate}. Pemeriksaan: ${hasilPemeriksaan}.`
+      };
+      this.save(STORAGE_KEYS.LOANS, loans);
+
+      this.addNotification({
+        tujuan: loan.kontak,
+        namaPenerima: loan.peminjam,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Aset Dikembalikan',
+        statusKirim: 'sent',
+        pesanPreview: `Pengembalian aset ${loan.id} telah dicatat. Kondisi: ${hasilPemeriksaan}. Terima kasih telah menggunakan fasilitas kampus.`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Peminjaman Aset',
+        entityId: loan.id,
+        statusLama,
+        statusBaru: 'Dikembalikan',
+        catatan: `Aset berhasil dikembalikan. Hasil pemeriksaan: ${hasilPemeriksaan}. ${linkedTicketId ? 'Tiket kerusakan tertaut: ' + linkedTicketId : 'Status aset kembali Tersedia.'}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Aset berhasil dikembalikan! Kondisi: ${hasilPemeriksaan}. ${linkedTicketId ? 'Tiket kerusakan ' + linkedTicketId + ' otomatis diterbitkan!' : 'Aset kembali Tersedia.'}`,
+        ticket: loans[index]
+      };
+    }
+
+    return { success: false, message: 'Aksi tidak valid.' };
+  }
+
+  // --- 8.2 TABEL 2: HELPDESK & TIKET KERUSAKAN (MODUL B) ---
+  public static getDamageTickets(): DamageTicket[] {
+    const raw = this.load<DamageTicket[]>(STORAGE_KEYS.DAMAGES, INITIAL_DAMAGES);
+    const now = new Date();
+
+    return raw.map(t => {
+      const normalizedStatus = normalizeDamageStatus(t.status);
+      let updatedStatus = normalizedStatus;
+
+      // BR-008: Mekanisme 2 hari kerja penutupan otomatis (Closed – Auto)
+      if (normalizedStatus === 'Resolved' && t.resolvedAt) {
+        const resolvedTime = new Date(t.resolvedAt).getTime();
+        const twoWorkDaysMs = 48 * 60 * 60 * 1000;
+        if (now.getTime() - resolvedTime > twoWorkDaysMs) {
+          updatedStatus = 'Closed – Auto';
+        }
+      }
+
+      // Hitung SLA status
+      let slaStatus: 'On Track' | 'Mendekati Batas' | 'Overdue' = t.slaStatus || 'On Track';
+      if (t.slaDeadline && (updatedStatus !== 'Resolved' && updatedStatus !== 'Closed – Auto' && updatedStatus !== 'Closed – Manual')) {
+        const deadline = new Date(t.slaDeadline).getTime();
+        const diffHours = (deadline - now.getTime()) / (1000 * 60 * 60);
+        if (diffHours < 0) {
+          slaStatus = 'Overdue';
+        } else if (diffHours < 4) {
+          slaStatus = 'Mendekati Batas';
+        } else {
+          slaStatus = 'On Track';
+        }
+      }
+
+      return {
+        ...t,
+        status: updatedStatus,
+        slaStatus,
+        eskalasiPusdatin: slaStatus === 'Overdue' ? true : t.eskalasiPusdatin
+      };
+    });
+  }
+
+  // B.1 Pembuatan Tiket oleh User via SSO Google (BR-006)
+  public static addDamageTicket(ticket: Omit<DamageTicket, 'id' | 'status' | 'tanggalLapor' | 'slaDeadline' | 'slaTargetHours'>): DamageTicket {
+    const tickets = this.getDamageTickets();
+    const active = this.getActiveUser();
+    const dateCode = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const rand = Math.floor(100 + Math.random() * 900);
+    const id = `TKT-${dateCode}-${rand}`;
+
+    // BR-006: SLA target berdasarkan kategori dan urgensi
+    let slaHours = 24;
+    const cat = (ticket.kategoriMasalah || '').toLowerCase();
+    const urg = ticket.prioritas || ticket.urgensi || 'Sedang';
+
+    if (urg === 'Kritis') slaHours = 4;
+    else if (urg === 'Tinggi') slaHours = 12;
+    else if (cat.includes('jaringan') || cat.includes('server')) slaHours = 8;
+    else if (urg === 'Rendah') slaHours = 48;
+
+    const deadlineDate = new Date(Date.now() + slaHours * 60 * 60 * 1000);
+    const deadlineStr = deadlineDate.toLocaleString('id-ID');
+
+    // BR-007: Distribusi otomatis awal berdasarkan kategori/PIC
+    const picMatch = this.determinePic(`${ticket.kategoriMasalah} ${ticket.namaBarang} ${ticket.deskripsi}`);
+
+    const newTicket: DamageTicket = {
+      ...ticket,
+      id,
+      status: 'Open/Unassigned',
+      tanggalLapor: new Date().toLocaleString('id-ID'),
+      slaTargetHours: slaHours,
+      slaDeadline: deadlineStr,
+      slaStatus: 'On Track',
+      picTeknisi: ticket.picTeknisi || picMatch.role,
+      namaPicTeknisi: ticket.namaPicTeknisi || picMatch.name,
+      urgensi: ticket.urgensi || ticket.prioritas || 'Sedang',
+      riwayatStatus: [
+        {
+          status: 'Open/Unassigned',
+          timestamp: new Date().toLocaleString('id-ID'),
+          catatan: `Laporan kerusakan diterbitkan via SSO Google UMC. Target SLA: ${slaHours} Jam.`,
+          petugas: active.nama
+        }
+      ]
+    };
+
+    this.save(STORAGE_KEYS.DAMAGES, [newTicket, ...tickets]);
+
+    // Update status aset terkait menjadi Maintenance
+    if (newTicket.barcode && newTicket.barcode !== 'Tanpa Barcode') {
+      this.updateAssetStatus(
+        newTicket.barcode,
+        'Maintenance',
+        newTicket.lokasi,
+        true,
+        `Laporan gangguan tiket ${id}: ${newTicket.deskripsi}`
+      );
+    }
+
+    this.addNotification({
+      tujuan: newTicket.kontakPelapor,
+      namaPenerima: newTicket.pelapor,
+      kanal: 'WhatsApp',
+      jenisNotifikasi: 'Tiket Dibuat',
+      statusKirim: 'sent',
+      pesanPreview: `Tiket ${id} berhasil dibuat. Target SLA penyelesaian: ${slaHours} Jam (${deadlineStr}). Tim Helpdesk PUSDATIN segera menindaklanjuti.`
+    });
+
+    this.addAuditTrail({
+      entityType: 'Tiket Helpdesk',
+      entityId: id,
+      statusLama: 'None',
+      statusBaru: 'Open/Unassigned',
+      catatan: `Pembuatan tiket helpdesk oleh ${newTicket.pelapor} (${newTicket.kategoriMasalah}). SLA: ${slaHours} jam.`,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
+    });
+
+    return newTicket;
+  }
+
+  public static createInternalDamageTicket(params: {
+    barcode: string;
+    namaBarang: string;
+    lokasi: string;
+    deskripsi: string;
+    pelapor: string;
+    status: DamageStatus;
+    metodePerbaikan: 'Di Lokasi' | 'Dibawa ke PUSDATIN';
+    urgensi: TicketUrgency;
+    picTeknisi?: TechnicianRole;
+  }): DamageTicket {
+    const asset = params.barcode && params.barcode !== 'Tanpa Barcode' ? this.getAssetByBarcodeOrUnique(params.barcode) : undefined;
+    return this.addDamageTicket({
+      barcode: params.barcode,
+      kodeUnikAset: asset?.kodeUnikAset || `AST-${params.barcode}`,
+      namaBarang: params.namaBarang,
+      pelapor: params.pelapor,
+      kontakPelapor: '085964531388',
+      lokasi: params.lokasi,
+      deskripsi: params.deskripsi,
+      kategoriMasalah: 'Hardware',
+      prioritas: params.urgensi,
+      metodePerbaikan: params.metodePerbaikan,
+      picTeknisi: params.picTeknisi
+    });
+  }
+
+  public static updateDamageTicketUrgency(id: string, urgensi: TicketUrgency): boolean {
+    const tickets = this.getDamageTickets();
+    const idx = tickets.findIndex(t => t.id === id);
     if (idx === -1) return false;
-    list[idx] = { ...tech };
-    this.save(STORAGE_KEYS.TECHNICIANS, list);
+    tickets[idx] = {
+      ...tickets[idx],
+      prioritas: urgensi,
+      urgensi: urgensi
+    };
+    this.save(STORAGE_KEYS.DAMAGES, tickets);
     return true;
   }
 
-  public static deleteTechnician(id: string): boolean {
-    if (id === 'TECH-000' || id === 'TECH-001') return false;
-    const list = this.getTechnicians();
-    const updated = list.filter(t => t.id !== id);
-    this.save(STORAGE_KEYS.TECHNICIANS, updated);
-    return true;
-  }
+  // B.2, B.3, B.4, B.5: Proses Tiket Kerusakan oleh Admin & Teknisi
+  public static processDamageTicket(
+    id: string,
+    action:
+      | 'distribusi-pic'
+      | 'jadwalkan-perbaikan'
+      | 'butuh-suku-cadang'
+      | 'lanjut-perbaikan'
+      | 'selesai-perbaikan'
+      | 're-open'
+      | 'tutup-manual'
+      | 'tidak-layak'
+      | 'delegasikan'
+      | 'jadwalkan-inspeksi'
+      | 'perbaikan'
+      | 'rusak-total'
+      | 'selesai'
+      | 'suku-cadang'
+      | 'ubah-pic'
+      | 'verifikasi-delegasi',
+    options: {
+      picTeknisiBaru?: TechnicianRole;
+      namaPicBaru?: string;
+      jadwalPemeriksaan?: string;
+      catatan?: string;
+      catatanAdmin?: string;
+      kategoriPerbaikan?: RepairCategory;
+      namaSukuCadang?: string;
+      komponenList?: string[];
+      sumberAnggaran?: 'Stok Internal PUSDATIN' | 'Pengajuan RKAT Kampus' | 'Biaya Unit/Fakultas';
+      resolusiAkhir?: string;
+      statusAsetBaru?: AssetStatus;
+      lokasiBaruCustom?: string;
+      petugasName?: string;
+      dibawaKePusdatin?: boolean;
+      kategoriMasalah?: string;
+      jenisAset?: string;
+      skenarioPerbaikan?: string;
+      targetTechnicianId?: string;
+      urgensiBaru?: TicketUrgency;
+    }
+  ): { success: boolean; message: string; ticket?: DamageTicket } {
+    let effAction: string = action;
+    if (action === 'jadwalkan-inspeksi') effAction = 'jadwalkan-perbaikan';
+    else if (action === 'perbaikan' || action === 'lanjut-perbaikan') effAction = 'lanjut-perbaikan';
+    else if (action === 'suku-cadang') effAction = 'butuh-suku-cadang';
+    else if (action === 'selesai') effAction = 'selesai-perbaikan';
+    else if (action === 'rusak-total') effAction = 'tidak-layak';
+    else if (action === 'ubah-pic' || action === 'delegasikan' || action === 'verifikasi-delegasi') effAction = 'distribusi-pic';
 
-  public static authenticateUser(emailOrId: string, password: string): TechnicianUser | null {
-    const trimmedInput = (emailOrId || '').trim().toLowerCase();
-    const trimmedPass = (password || '').trim();
-
-    const technicians = this.getTechnicians();
-    const user = technicians.find(
-      t => t.email.toLowerCase() === trimmedInput || t.id.toLowerCase() === trimmedInput
+    const active = this.getActiveUser();
+    AccessControlService.enforce(
+      active,
+      effAction === 'distribusi-pic' ? 'distribusi_tiket' : 'tindakan_perbaikan',
+      ['manage', 'execute', 'verify', 'propose'],
+      `Memproses tiket kerusakan (${effAction})`
     );
 
-    if (user) {
-      const userPass = user.password || 'admin';
-      if (
-        userPass === trimmedPass ||
-        trimmedPass === 'admin' ||
-        trimmedPass === 'admin123' ||
-        trimmedPass === 'pusdatin2026'
-      ) {
-        return user;
+    const tickets = this.getDamageTickets();
+    const index = tickets.findIndex(t => t.id === id);
+    if (index === -1) return { success: false, message: 'Tiket kerusakan tidak ditemukan!' };
+
+    const ticket = tickets[index];
+    const statusLama = ticket.status;
+    const nowStr = new Date().toLocaleString('id-ID');
+    const operator = options.petugasName || active.nama;
+    const asset = ticket.barcode ? this.getAssetByBarcodeOrUnique(ticket.barcode) : undefined;
+
+    // Lanjut Perbaikan
+    if (effAction === 'lanjut-perbaikan') {
+      tickets[index] = {
+        ...ticket,
+        status: 'In Progress',
+        catatanAdmin: options.catatan || options.catatanAdmin || 'Perbaikan dilanjutkan oleh teknisi.',
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'In Progress',
+            timestamp: nowStr,
+            catatan: `Perbaikan dilanjutkan oleh ${operator}.`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'In Progress',
+        catatan: `Perbaikan dilanjutkan oleh ${operator}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+      return { success: true, message: `Perbaikan tiket ${ticket.id} dilanjutkan!`, ticket: tickets[index] };
+    }
+
+    // B.2: Distribusi Tiket oleh Admin (BR-007)
+    if (effAction === 'distribusi-pic') {
+      const targetRole = options.picTeknisiBaru || ticket.picTeknisi || 'IT Support & Helpdesk Specialist';
+      const matched = this.getUsers().find(u => u.roleName === targetRole);
+      const techName = options.namaPicBaru || matched?.nama || targetRole;
+
+      tickets[index] = {
+        ...ticket,
+        status: 'Assigned',
+        picTeknisi: targetRole,
+        namaPicTeknisi: techName,
+        assignedTechnicianId: matched?.id,
+        tanggalDitugaskan: nowStr,
+        catatanAdmin: options.catatan || `Tiket didistribusikan ke PIC ${targetRole} (${techName}).`,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Assigned',
+            timestamp: nowStr,
+            catatan: `Distribusi tiket ke PIC: ${targetRole} (${techName}) oleh ${operator}.`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      this.addNotification({
+        tujuan: ticket.kontakPelapor,
+        namaPenerima: ticket.pelapor,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Status Tiket Diperbarui',
+        statusKirim: 'sent',
+        pesanPreview: `Tiket ${ticket.id} telah didistribusikan ke teknisi ${techName} (${targetRole}).`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Assigned',
+        catatan: `Distribusi tiket ke PIC ${targetRole} (${techName}) oleh ${operator}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Tiket ${ticket.id} didistribusikan ke ${techName} (${targetRole})!`,
+        ticket: tickets[index]
+      };
+    }
+
+    // B.3: Penjadwalan & Tindakan Perbaikan (In Progress)
+    if (effAction === 'jadwalkan-perbaikan') {
+      const schedule = options.jadwalPemeriksaan || `${nowStr} (Pemeriksaan Segera)`;
+      tickets[index] = {
+        ...ticket,
+        status: 'In Progress',
+        jadwalPemeriksaan: schedule,
+        catatanAdmin: options.catatan || `Teknisi telah menjadwalkan pemeriksaan dan memulai perbaikan (${schedule}).`,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'In Progress',
+            timestamp: nowStr,
+            catatan: `Jadwal inspeksi & perbaikan dimulai: ${schedule}`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      this.addNotification({
+        tujuan: ticket.kontakPelapor,
+        namaPenerima: ticket.pelapor,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Status Tiket Diperbarui',
+        statusKirim: 'sent',
+        pesanPreview: `Teknisi ${ticket.namaPicTeknisi} menjadwalkan perbaikan untuk tiket ${ticket.id}: ${schedule}.`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'In Progress',
+        catatan: `Penjadwalan perbaikan oleh teknisi (${schedule})`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Perbaikan tiket ${ticket.id} dimulai (In Progress)! Jadwal: ${schedule}`,
+        ticket: tickets[index]
+      };
+    }
+
+    // B.4: Penanganan Suku Cadang (Pending – Menunggu Suku Cadang)
+    if (effAction === 'butuh-suku-cadang') {
+      const parts = options.komponenList || (options.namaSukuCadang ? [options.namaSukuCadang] : ['Suku Cadang Pengganti']);
+      const partItems: SparePartItem[] = parts.map((p, idx) => ({
+        id: `SP-${ticket.id}-${idx + 1}`,
+        idTiket: ticket.id,
+        namaKomponen: p.trim(),
+        jumlah: 1,
+        statusPengadaan: 'Diminta', // 4.4 Enum awal
+        tanggalKebutuhan: nowStr
+      }));
+
+      tickets[index] = {
+        ...ticket,
+        status: 'Pending – Menunggu Suku Cadang',
+        cabangPerbaikan: 'Butuh Suku Cadang',
+        kategoriPerbaikan: options.kategoriPerbaikan || 'Suku Cadang (Perlu Anggaran)',
+        namaSukuCadang: parts.join(', '),
+        sukuCadangList: partItems,
+        sumberAnggaran: options.sumberAnggaran || 'Stok Internal PUSDATIN',
+        catatanAdmin: options.catatan || `Menunggu pengadaan suku cadang: ${parts.join(', ')}`,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Pending – Menunggu Suku Cadang',
+            timestamp: nowStr,
+            catatan: `Pemeriksaan teknisi: Kebutuhan suku cadang ${parts.join(', ')} (Status Pengadaan: Diminta).`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      this.addNotification({
+        tujuan: ticket.kontakPelapor,
+        namaPenerima: ticket.pelapor,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Status Tiket Diperbarui',
+        statusKirim: 'sent',
+        pesanPreview: `Tiket ${ticket.id} membutuhkan suku cadang: ${parts.join(', ')}. Proses pengadaan sedang diproses.`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Pending – Menunggu Suku Cadang',
+        catatan: `Kebutuhan ${parts.length} suku cadang dicatat oleh teknisi. Status tiket beralih ke Pending.`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Tiket ${ticket.id} kini berstatus Pending – Menunggu Suku Cadang!`,
+        ticket: tickets[index]
+      };
+    }
+
+    // B.5: Penyelesaian Perbaikan (Resolved)
+    if (effAction === 'selesai-perbaikan') {
+      const resolusi = options.resolusiAkhir || options.catatan || 'Perbaikan telah selesai dan perangkat telah berfungsi normal.';
+      const statusFinalAset: AssetStatus = options.statusAsetBaru || 'Tersedia';
+
+      tickets[index] = {
+        ...ticket,
+        status: 'Resolved',
+        waktuSelesai: nowStr,
+        resolvedAt: new Date().toISOString(),
+        resolusiAkhir: resolusi,
+        catatanAdmin: resolusi,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Resolved',
+            timestamp: nowStr,
+            catatan: `Perbaikan diselesaikan oleh ${operator}. Resolusi: ${resolusi}. Menunggu konfirmasi user (2 hari kerja).`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      // Kembalikan status aset ke Tersedia / Digunakan
+      if (asset) {
+        this.updateAssetStatus(
+          asset.barcode,
+          statusFinalAset,
+          options.lokasiBaruCustom || asset.lokasiAwal || asset.lokasi,
+          true,
+          `Perbaikan selesai (Tiket: ${ticket.id})`
+        );
       }
+
+      this.addNotification({
+        tujuan: ticket.kontakPelapor,
+        namaPenerima: ticket.pelapor,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Status Tiket Diperbarui',
+        statusKirim: 'sent',
+        pesanPreview: `Tiket ${ticket.id} telah SELESAI (Resolved). Resolusi: ${resolusi}. Harap konfirmasi dalam 2 hari kerja jika kendala tuntas.`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Resolved',
+        catatan: `Perbaikan selesai oleh ${operator}. Status beralih ke Resolved dengan grace period 2 hari kerja.`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Tiket ${ticket.id} berstatus RESOLVED! Masa konfirmasi 2 hari kerja diaktifkan.`,
+        ticket: tickets[index]
+      };
     }
 
-    if (
-      (trimmedInput === 'admin' || trimmedInput === 'admin@umc.ac.id') &&
-      (trimmedPass === 'admin' || trimmedPass === 'admin123' || trimmedPass === 'pusdatin2026')
-    ) {
-      return technicians.find(t => t.id === 'TECH-001') || technicians[0];
+    // B.5: User Re-open Tiket
+    if (effAction === 're-open') {
+      tickets[index] = {
+        ...ticket,
+        status: 'Re-opened',
+        catatanAdmin: options.catatan || 'Pengguna melaporkan kendala belum terselesaikan sepenuhnya.',
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Re-opened',
+            timestamp: nowStr,
+            catatan: `Tiket dibuka kembali oleh pengguna (Re-opened): ${options.catatan || 'Kendala masih berulang.'}`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Re-opened',
+        catatan: `Tiket di-reopen oleh pengguna: ${options.catatan || 'Masalah belum tuntas'}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return { success: true, message: `Tiket ${ticket.id} berhasil DIBUKA KEMBALI (Re-opened)!`, ticket: tickets[index] };
     }
 
-    return null;
-  }
+    // B.5: Tutup Manual oleh User / Admin (Closed – Manual)
+    if (effAction === 'tutup-manual') {
+      tickets[index] = {
+        ...ticket,
+        status: 'Closed – Manual',
+        closedMode: 'Manual',
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Closed – Manual',
+            timestamp: nowStr,
+            catatan: `Tiket ditutup manual oleh ${operator}. Kendala terkonfirmasi selesai.`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
 
-  public static getActiveTechnician(): TechnicianUser | null {
-    try {
-      const activeId = sessionStorage.getItem('pusdatin_active_technician_id');
-      if (!activeId) return null;
-      return this.getTechnicians().find(t => t.id === activeId) || null;
-    } catch {
-      return null;
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Closed – Manual',
+        catatan: `Tiket ditutup manual (Closed - Manual) oleh ${operator}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return { success: true, message: `Tiket ${ticket.id} ditutup resmi (Closed – Manual)!`, ticket: tickets[index] };
     }
-  }
 
-  public static setActiveTechnician(techOrId: TechnicianUser | string | null): void {
-    try {
-      if (techOrId) {
-        const id = typeof techOrId === 'string' ? techOrId : techOrId.id;
-        sessionStorage.setItem('pusdatin_active_technician_id', id);
-      } else {
-        sessionStorage.removeItem('pusdatin_active_technician_id');
+    // Perangkat Tidak Layak / Afkir (Beyond Economic Repair)
+    if (effAction === 'tidak-layak') {
+      tickets[index] = {
+        ...ticket,
+        status: 'Closed – Manual',
+        kondisiAkhirAset: 'Tidak Layak',
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Closed – Manual',
+            timestamp: nowStr,
+            catatan: `Aset dinyatakan Tidak Layak / Rusak Total (Beyond Economic Repair). Disimpan ke gudang afkir.`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      if (asset) {
+        this.updateAssetStatus(
+          asset.barcode,
+          'Tidak Layak',
+          'Ruang Gudang Afkir PUSDATIN Kampus 2',
+          true,
+          `Dinyatakan Tidak Layak / Afkir (Tiket: ${ticket.id})`
+        );
       }
-    } catch (e) {
-      console.error(e);
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Closed – Manual',
+        catatan: `Aset dinyatakan Tidak Layak oleh ${operator}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return { success: true, message: `Aset ditetapkan berstatus TIDAK LAYAK di Gudang Afkir. Tiket ditutup.`, ticket: tickets[index] };
     }
+
+    return { success: false, message: 'Aksi tidak valid.' };
   }
 
-  // --- MASTER LOCATIONS (Enhancement B.5) ---
+  // --- 8.2 TABEL 13: SUKU CADANG (MODUL B.4) & INTEGRASI 4 (BR-014) ---
+  public static getAllSpareParts(): SparePartWithTicket[] {
+    const tickets = this.getDamageTickets();
+    const result: SparePartWithTicket[] = [];
+
+    tickets.forEach(ticket => {
+      if (ticket.sukuCadangList && ticket.sukuCadangList.length > 0) {
+        ticket.sukuCadangList.forEach(sp => {
+          result.push({
+            sparePartId: sp.id,
+            namaKomponen: sp.namaKomponen,
+            statusPengadaan: sp.statusPengadaan || 'Diminta',
+            ticketId: ticket.id,
+            ticketStatus: ticket.status,
+            urgensi: ticket.urgensi || 'Sedang',
+            barcode: ticket.barcode,
+            kodeUnikAset: ticket.kodeUnikAset,
+            namaBarang: ticket.namaBarang,
+            lokasi: ticket.lokasi,
+            pelapor: ticket.pelapor,
+            picTeknisi: ticket.picTeknisi,
+            namaPicTeknisi: ticket.namaPicTeknisi,
+            assignedTechnicianId: ticket.assignedTechnicianId,
+            tanggalKebutuhan: sp.tanggalKebutuhan || ticket.tanggalLapor,
+            tanggalBeli: sp.tanggalBeli,
+            tanggalDigunakan: sp.tanggalDigunakan,
+            catatan: sp.catatan
+          });
+        });
+      }
+    });
+
+    return result;
+  }
+
+  // 4.4 Status Pengadaan: Diminta -> Disetujui -> Dipesan -> Diterima -> Terpasang
+  public static updateSparePartStatus(
+    ticketId: string,
+    sparePartId: string,
+    newStatus: SparePartStatus,
+    operatorName?: string,
+    notes?: string
+  ): { success: boolean; message: string } {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'suku_cadang', ['manage', 'execute'], 'Mengubah status pengadaan suku cadang');
+
+    const tickets = this.getDamageTickets();
+    const ticketIdx = tickets.findIndex(t => t.id === ticketId);
+    if (ticketIdx === -1) return { success: false, message: 'Tiket tidak ditemukan!' };
+
+    const ticket = tickets[ticketIdx];
+    const nowStr = new Date().toLocaleString('id-ID');
+    const operator = operatorName || active.nama;
+
+    let partFound = false;
+    let partName = '';
+    let statusLama = '';
+
+    if (ticket.sukuCadangList && ticket.sukuCadangList.length > 0) {
+      ticket.sukuCadangList = ticket.sukuCadangList.map(sp => {
+        if (sp.id === sparePartId || sp.id.endsWith(sparePartId)) {
+          partFound = true;
+          partName = sp.namaKomponen;
+          statusLama = sp.statusPengadaan;
+          return {
+            ...sp,
+            statusPengadaan: newStatus,
+            tanggalBeli: newStatus === 'Diterima' ? nowStr : sp.tanggalBeli,
+            tanggalDigunakan: newStatus === 'Terpasang' ? nowStr : sp.tanggalDigunakan,
+            petugasPengadaan: newStatus === 'Diterima' ? operator : sp.petugasPengadaan,
+            petugasPemasangan: newStatus === 'Terpasang' ? operator : sp.petugasPemasangan,
+            catatan: notes || sp.catatan
+          };
+        }
+        return sp;
+      });
+    }
+
+    if (!partFound) return { success: false, message: 'Komponen suku cadang tidak ditemukan pada tiket.' };
+
+    const note = `Suku cadang "${partName}" beralih status: ${newStatus} oleh ${operator}${notes ? ' (' + notes + ')' : ''}`;
+    ticket.riwayatStatus = [
+      ...(ticket.riwayatStatus || []),
+      {
+        status: ticket.status,
+        timestamp: nowStr,
+        catatan: note,
+        petugas: operator
+      }
+    ];
+
+    tickets[ticketIdx] = ticket;
+    this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+    this.addAuditTrail({
+      entityType: 'Suku Cadang',
+      entityId: `${ticketId}-${sparePartId}`,
+      statusLama,
+      statusBaru: newStatus,
+      catatan: note,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
+    });
+
+    return {
+      success: true,
+      message: `Status suku cadang "${partName}" berhasil diubah menjadi "${newStatus}"!`
+    };
+  }
+
+  // Integrasi 4 & BR-014: Registrasi Suku Cadang yang Menghasilkan Aset Baru ke Buku Penerimaan
+  public static registerAssetFromSparePart(params: {
+    ticketId: string;
+    sparePartId: string;
+    namaAset: string;
+    kategori: string;
+    nomorSeri?: string;
+    hargaBeli: number;
+    dari: string;
+    nomorFaktur: string;
+  }): { success: boolean; message: string; assetId?: string } {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'buku_penerimaan', ['manage'], 'Registrasi suku cadang sebagai aset baru');
+
+    const penerimaanResult = this.addBukuPenerimaan({
+      tanggalPenerimaan: new Date().toISOString().split('T')[0],
+      dari: params.dari || 'Pengadaan Suku Cadang Helpdesk UMC',
+      nomorFaktur: params.nomorFaktur || `SP-INV/${Date.now()}`,
+      tanggalFaktur: new Date().toISOString().split('T')[0],
+      namaAset: params.namaAset,
+      kategori: params.kategori || 'Perlengkapan Kantor',
+      banyaknya: 1,
+      hargaSatuan: params.hargaBeli,
+      nomorBeritaAcara: `BAST-SP/${params.ticketId}`,
+      tanggalBeritaAcara: new Date().toISOString().split('T')[0],
+      keterangan: `Aset baru dari penggantian komponen tiket ${params.ticketId} (BR-014 / Integrasi 4)`
+    });
+
+    const assets = this.getAssets();
+    const barcode = String(Math.floor(10000000 + Math.random() * 90000000));
+    const kodeUnikAset = `AST-UMC-${new Date().getFullYear()}-${String(assets.length + 1).padStart(3, '0')}`;
+
+    this.addAsset({
+      barcode,
+      kodeUnikAset,
+      nama: params.namaAset,
+      kategori: params.kategori || 'Perlengkapan Kantor',
+      nomorSeri: params.nomorSeri || `SN-${barcode}`,
+      status: 'Tersedia',
+      lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+      tanggalMasuk: new Date().toISOString().split('T')[0],
+      hargaBeli: params.hargaBeli,
+      vendorSupplier: params.dari,
+      jenisAset: 'Fisik',
+      idPenerimaanTerkait: penerimaanResult.data?.idPenerimaan
+    });
+
+    return {
+      success: true,
+      message: `Aset baru hasil penggantian suku cadang (${params.namaAset}) berhasil diregistrasi ke Buku Penerimaan (${penerimaanResult.data?.idPenerimaan}) dengan Kode Unik: ${kodeUnikAset}!`,
+      assetId: kodeUnikAset
+    };
+  }
+
+  // --- 8.2 TABEL 14: PENGAJUAN SISTEM BARU & PENGEMBANGAN APLIKASI (5.4) ---
+  public static getSystemProposals(): SystemProposal[] {
+    return this.load<SystemProposal[]>(STORAGE_KEYS.SYSTEM_PROPOSALS, INITIAL_SYSTEM_PROPOSALS);
+  }
+
+  // F-DEV-01: Civitas Ajukan Permintaan Fitur / Sistem Baru
+  public static addSystemProposal(proposal: Omit<SystemProposal, 'id' | 'tanggalPengajuan' | 'status'>): SystemProposal {
+    const list = this.getSystemProposals();
+    const active = this.getActiveUser();
+    const id = `SYS-${new Date().getFullYear()}-${String(list.length + 1).padStart(3, '0')}`;
+
+    const newProposal: SystemProposal = {
+      ...proposal,
+      id,
+      tanggalPengajuan: new Date().toLocaleString('id-ID'),
+      status: 'status_verifikasi' // Tahap 1
+    };
+
+    this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, [newProposal, ...list]);
+
+    this.addNotification({
+      tujuan: newProposal.kontakWhatsapp,
+      namaPenerima: newProposal.pemohon,
+      kanal: 'WhatsApp',
+      jenisNotifikasi: 'Pengajuan Sistem Baru',
+      statusKirim: 'sent',
+      pesanPreview: `Pengajuan sistem baru "${newProposal.namaSistem}" (${id}) telah diterima dan sedang dalam tahap verifikasi awal kelengkapan dokumen oleh Admin.`
+    });
+
+    this.addAuditTrail({
+      entityType: 'Pengajuan Sistem Baru',
+      entityId: id,
+      statusLama: 'None',
+      statusBaru: 'status_verifikasi',
+      catatan: `Pengajuan sistem baru diajukan oleh ${newProposal.pemohon} (${newProposal.unitKerja}).`,
+      idPengguna: active.id,
+      namaPengguna: active.nama,
+      rolePengguna: active.roleName
+    });
+
+    return newProposal;
+  }
+
+  // Workflow 5-Tahap Pengajuan Sistem Baru (Section 5.4)
+  public static advanceSystemProposal(
+    id: string,
+    action:
+      | 'verifikasi_admin'
+      | 'analisis_system_analyst'
+      | 'verifikasi_keamanan'
+      | 'approval_pimpinan'
+      | 'update_progres_dev'
+      | 'serah_terima',
+    payload: any
+  ): { success: boolean; message: string; proposal?: SystemProposal } {
+    const list = this.getSystemProposals();
+    const index = list.findIndex(p => p.id === id);
+    if (index === -1) return { success: false, message: 'Pengajuan sistem tidak ditemukan!' };
+
+    const p = list[index];
+    const statusLama = p.status;
+    const active = this.getActiveUser();
+    const nowStr = new Date().toLocaleString('id-ID');
+
+    // Tahap 1: Verifikasi Kelengkapan oleh Admin (ACT-03)
+    if (action === 'verifikasi_admin') {
+      AccessControlService.enforce(active, 'pengajuan_sistem', ['verify', 'manage'], 'Verifikasi kelengkapan dokumen sistem baru');
+      const lengkap = payload.lengkap ?? true;
+      list[index] = {
+        ...p,
+        status: lengkap ? 'status_analisis' : 'status_verifikasi',
+        verifikasiAdmin: {
+          petugas: active.nama,
+          tanggal: nowStr,
+          lengkap,
+          catatan: payload.catatan || (lengkap ? 'Dokumen pengusulan lengkap.' : 'Dokumen belum lengkap, perlu revisi.')
+        }
+      };
+      this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, list);
+
+      this.addAuditTrail({
+        entityType: 'Pengajuan Sistem Baru',
+        entityId: p.id,
+        statusLama,
+        statusBaru: list[index].status,
+        catatan: `Verifikasi kelengkapan oleh Admin ${active.nama}: ${payload.catatan}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: lengkap ? 'Verifikasi lolos! Pengajuan diteruskan ke System Analyst (status_analisis).' : 'Verifikasi tercatat (perlu revisi).',
+        proposal: list[index]
+      };
+    }
+
+    // Tahap 2: Analisis Kebutuhan oleh System Analyst (ACT-05)
+    if (action === 'analisis_system_analyst') {
+      AccessControlService.enforce(active, 'pengajuan_sistem', ['execute', 'manage'], 'Analisis kebutuhan sistem baru');
+      list[index] = {
+        ...p,
+        status: 'status_keamanan',
+        analisisKebutuhan: {
+          analystName: active.nama,
+          tanggal: nowStr,
+          arsitekturData: payload.arsitekturData || 'Database Relasional & REST API',
+          lingkupFitur: payload.lingkupFitur || '',
+          estimasiSprintWeeks: Number(payload.estimasiSprintWeeks || 4),
+          catatan: payload.catatan || 'Analisis kebutuhan selesai.'
+        }
+      };
+      this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, list);
+
+      this.addAuditTrail({
+        entityType: 'Pengajuan Sistem Baru',
+        entityId: p.id,
+        statusLama,
+        statusBaru: 'status_keamanan',
+        catatan: `Analisis kebutuhan diselesaikan oleh System Analyst ${active.nama}. Dialihkan ke Cyber Security.`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: 'Analisis kebutuhan tuntas! Pengajuan dialihkan ke Cyber Security Officer (status_keamanan).',
+        proposal: list[index]
+      };
+    }
+
+    // Tahap 3: Verifikasi Keamanan oleh Cyber Security Officer (ACT-09)
+    if (action === 'verifikasi_keamanan') {
+      AccessControlService.enforce(active, 'pengajuan_sistem', ['verify', 'manage'], 'Verifikasi keamanan sistem baru');
+      const lolos = payload.statusVerifikasi === 'Lolos';
+      list[index] = {
+        ...p,
+        status: lolos ? 'status_approval' : 'status_keamanan',
+        verifikasiKeamanan: {
+          auditorName: active.nama,
+          tanggal: nowStr,
+          risikoKeamanan: payload.risikoKeamanan || 'Rendah',
+          rekomendasiEnkripsi: payload.rekomendasiEnkripsi || 'Wajib TLS & Enkripsi AES',
+          statusVerifikasi: payload.statusVerifikasi || 'Lolos',
+          catatan: payload.catatan || 'Uji aspek keamanan telah dilakukan.'
+        }
+      };
+      this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, list);
+
+      this.addAuditTrail({
+        entityType: 'Pengajuan Sistem Baru',
+        entityId: p.id,
+        statusLama,
+        statusBaru: list[index].status,
+        catatan: `Audit keamanan oleh ${active.nama}: ${payload.statusVerifikasi}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: lolos ? 'Keamanan terverifikasi! Pengajuan siap di-approve oleh Pimpinan PUSDATIN (status_approval).' : 'Catatan keamanan tersimpan.',
+        proposal: list[index]
+      };
+    }
+
+    // Tahap 4: Approval oleh Pimpinan PUSDATIN (ACT-02)
+    if (action === 'approval_pimpinan') {
+      AccessControlService.enforce(active, 'pengajuan_sistem', ['approve', 'manage'], 'Approval pengajuan sistem baru');
+      const setuju = payload.keputusan === 'Disetujui';
+      list[index] = {
+        ...p,
+        status: setuju ? 'status_pengembangan' : 'Ditolak',
+        approvalPimpinan: {
+          pejabat: active.nama,
+          tanggal: nowStr,
+          keputusan: setuju ? 'Disetujui' : 'Ditolak',
+          catatan: payload.catatan || (setuju ? 'Disetujui untuk pengembangan sprint internal.' : 'Pengajuan ditolak.')
+        },
+        pengembangan: setuju ? {
+          leadDev: 'Bayu Pratama, S.Kom.',
+          progresPersen: 0,
+          logProgres: [
+            {
+              tanggal: nowStr,
+              petugas: active.nama,
+              deskripsi: 'Sistem disetujui pimpinan PUSDATIN dan sprint pengembangan dimulai.',
+              progres: 0
+            }
+          ],
+          tanggalMulai: new Date().toISOString().split('T')[0]
+        } : undefined
+      };
+      this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, list);
+
+      this.addNotification({
+        tujuan: p.kontakWhatsapp,
+        namaPenerima: p.pemohon,
+        kanal: 'WhatsApp',
+        jenisNotifikasi: 'Pengajuan Sistem Baru',
+        statusKirim: 'sent',
+        pesanPreview: `Pengajuan sistem "${p.namaSistem}" telah ${setuju ? 'DISETUJUI' : 'DITOLAK'} oleh Kepala PUSDATIN. ${payload.catatan || ''}`
+      });
+
+      this.addAuditTrail({
+        entityType: 'Pengajuan Sistem Baru',
+        entityId: p.id,
+        statusLama,
+        statusBaru: list[index].status,
+        catatan: `Otorisasi pimpinan: ${setuju ? 'Disetujui (status_pengembangan)' : 'Ditolak'} oleh ${active.nama}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: setuju ? 'Pengajuan DISETUJUI Kepala PUSDATIN! Sprint pengembangan dimulai (status_pengembangan).' : 'Pengajuan ditolak.',
+        proposal: list[index]
+      };
+    }
+
+    // Tahap 5: Update Progres Pengembangan (F-DEV-02) oleh Developer (ACT-06, ACT-07, ACT-08)
+    if (action === 'update_progres_dev') {
+      AccessControlService.enforce(active, 'pengajuan_sistem', ['execute', 'manage'], 'Mencatat progres pengembangan sistem');
+      const currentDev = p.pengembangan || {
+        leadDev: active.nama,
+        progresPersen: 0,
+        logProgres: []
+      };
+
+      const newPercent = Math.min(100, Math.max(0, Number(payload.progresPersen ?? currentDev.progresPersen)));
+      const newLog = {
+        tanggal: nowStr,
+        petugas: active.nama,
+        deskripsi: payload.deskripsi || 'Pembaruan progres pengembangan',
+        progres: newPercent
+      };
+
+      const isCompleted = newPercent >= 100;
+
+      list[index] = {
+        ...p,
+        status: isCompleted ? 'Selesai' : 'status_pengembangan',
+        pengembangan: {
+          ...currentDev,
+          progresPersen: newPercent,
+          logProgres: [...currentDev.logProgres, newLog],
+          tanggalSelesai: isCompleted ? nowStr : currentDev.tanggalSelesai,
+          codeReviewBy: payload.codeReviewBy || currentDev.codeReviewBy
+        }
+      };
+      this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, list);
+
+      this.addAuditTrail({
+        entityType: 'Pengajuan Sistem Baru',
+        entityId: p.id,
+        statusLama,
+        statusBaru: list[index].status,
+        catatan: `Progres pengembangan: ${newPercent}% oleh ${active.nama}: ${payload.deskripsi}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Progres berhasil dicatat (${newPercent}%). ${isCompleted ? 'Sistem telah Selesai dan siap serah terima ke Service Desk!' : ''}`,
+        proposal: list[index]
+      };
+    }
+
+    // Tahap 5 Serah Terima ke Service Desk (BR-015)
+    if (action === 'serah_terima') {
+      AccessControlService.enforce(active, 'pengajuan_sistem', ['manage'], 'Serah terima sistem baru');
+      const currentDev = p.pengembangan || { leadDev: active.nama, progresPersen: 100, logProgres: [] };
+      list[index] = {
+        ...p,
+        status: 'Serah Terima',
+        pengembangan: {
+          ...currentDev,
+          serahTerimaServiceDesk: true,
+          codeReviewBy: active.nama
+        }
+      };
+      this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, list);
+
+      return {
+        success: true,
+        message: `Sistem "${p.namaSistem}" telah resmi diserahterimakan ke Service Desk PUSDATIN!`,
+        proposal: list[index]
+      };
+    }
+
+    return { success: false, message: 'Aksi tidak valid.' };
+  }
+
+  // Integrasi 5 & BR-015: Sistem/Aplikasi baru yang menghasilkan Server/Lisensi/Perangkat wajib diinput ke Pendataan Aset
+  public static registerAssetFromSystemProposal(params: {
+    proposalId: string;
+    namaAset: string;
+    jenisAset: 'Server VPS' | 'Lisensi Software' | 'Perangkat Pendukung';
+    spesifikasi: string;
+    hargaBeli: number;
+    nomorPoFaktur?: string;
+  }): { success: boolean; message: string; assetId?: string } {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'buku_penerimaan', ['manage'], 'Registrasi aset hasil sistem baru');
+
+    // 1. Catat ke Buku Penerimaan Aset
+    const penerimaanResult = this.addBukuPenerimaan({
+      tanggalPenerimaan: new Date().toISOString().split('T')[0],
+      dari: 'Hasil Pengembangan Internal PUSDATIN UMC',
+      nomorFaktur: params.nomorPoFaktur || `DEV-ASSET/${params.proposalId}`,
+      tanggalFaktur: new Date().toISOString().split('T')[0],
+      namaAset: params.namaAset,
+      kategori: params.jenisAset === 'Lisensi Software' ? 'Software & Lisensi' : 'Server & Storage',
+      banyaknya: 1,
+      hargaSatuan: params.hargaBeli || 0,
+      nomorBeritaAcara: `BAST-DEV/${params.proposalId}`,
+      tanggalBeritaAcara: new Date().toISOString().split('T')[0],
+      keterangan: `Aset server/lisensi hasil pengembangan sistem baru ${params.proposalId} (BR-015 / Integrasi 5)`
+    });
+
+    // 2. Registrasikan ke Master Aset
+    const assets = this.getAssets();
+    const barcode = String(Math.floor(10000000 + Math.random() * 90000000));
+    const kodeUnikAset = `AST-UMC-${new Date().getFullYear()}-${String(assets.length + 1).padStart(3, '0')}`;
+
+    this.addAsset({
+      barcode,
+      kodeUnikAset,
+      nama: params.namaAset,
+      kategori: params.jenisAset === 'Lisensi Software' ? 'Software & Lisensi' : 'Server & Storage',
+      spesifikasi: params.spesifikasi,
+      status: 'Digunakan',
+      lokasi: 'Ruang Server PUSDATIN Kampus 1',
+      tanggalMasuk: new Date().toISOString().split('T')[0],
+      hargaBeli: params.hargaBeli || 0,
+      vendorSupplier: 'Internal PUSDATIN UMC',
+      jenisAset: params.jenisAset === 'Lisensi Software' ? 'Non-Fisik' : 'Fisik',
+      idPenerimaanTerkait: penerimaanResult.data?.idPenerimaan
+    });
+
+    // Tandai di proposal
+    const proposals = this.getSystemProposals();
+    const pIdx = proposals.findIndex(p => p.id === params.proposalId);
+    if (pIdx !== -1) {
+      proposals[pIdx].asetDihasilkan = {
+        jenisAset: params.jenisAset,
+        namaAset: params.namaAset,
+        spesifikasi: params.spesifikasi,
+        kodeUnikAset,
+        sudahDiregistrasi: true
+      };
+      this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, proposals);
+    }
+
+    return {
+      success: true,
+      message: `Aset ${params.namaAset} (${kodeUnikAset}) berhasil diregistrasi ke Modul Pendataan Aset!`,
+      assetId: kodeUnikAset
+    };
+  }
+
+  // --- MASTER LOCATIONS & CATEGORIES ---
   public static getMasterLocations(): string[] {
     return this.load<string[]>(STORAGE_KEYS.MASTER_LOCATIONS, INITIAL_LOCATIONS);
   }
@@ -1012,42 +2824,22 @@ export class AppDatabase {
     return true;
   }
 
-  public static deleteMasterLocation(loc: string): boolean {
-    const current = this.getMasterLocations();
-    const updated = current.filter(l => l !== loc);
-    this.save(STORAGE_KEYS.MASTER_LOCATIONS, updated);
-    return true;
-  }
-
   public static updateMasterLocation(oldLoc: string, newLoc: string): boolean {
-    const trimmedOld = oldLoc.trim();
-    const trimmedNew = newLoc.trim();
-    if (!trimmedNew || trimmedOld === trimmedNew) return false;
-
-    const current = this.getMasterLocations();
-    const idx = current.indexOf(trimmedOld);
+    const list = this.getMasterLocations();
+    const idx = list.indexOf(oldLoc);
     if (idx === -1) return false;
-
-    current[idx] = trimmedNew;
-    this.save(STORAGE_KEYS.MASTER_LOCATIONS, current);
-
-    // Update affected assets
-    const assets = this.getAssets();
-    let hasAssetChange = false;
-    const updatedAssets = assets.map(a => {
-      if (a.lokasi === trimmedOld) {
-        hasAssetChange = true;
-        return { ...a, lokasi: trimmedNew };
-      }
-      return a;
-    });
-    if (hasAssetChange) {
-      this.save(STORAGE_KEYS.ASSETS, updatedAssets);
-    }
+    list[idx] = newLoc;
+    this.save(STORAGE_KEYS.MASTER_LOCATIONS, list);
     return true;
   }
 
-  // --- MASTER CATEGORIES (Enhancement B.5) ---
+  public static deleteMasterLocation(loc: string): boolean {
+    const list = this.getMasterLocations();
+    const filtered = list.filter(l => l !== loc);
+    this.save(STORAGE_KEYS.MASTER_LOCATIONS, filtered);
+    return true;
+  }
+
   public static getMasterCategories(): string[] {
     return this.load<string[]>(STORAGE_KEYS.MASTER_CATEGORIES, INITIAL_CATEGORIES);
   }
@@ -1061,1162 +2853,25 @@ export class AppDatabase {
     return true;
   }
 
-  public static deleteMasterCategory(cat: string): boolean {
-    const current = this.getMasterCategories();
-    const updated = current.filter(c => c !== cat);
-    this.save(STORAGE_KEYS.MASTER_CATEGORIES, updated);
-    return true;
-  }
-
   public static updateMasterCategory(oldCat: string, newCat: string): boolean {
-    const trimmedOld = oldCat.trim();
-    const trimmedNew = newCat.trim();
-    if (!trimmedNew || trimmedOld === trimmedNew) return false;
-
-    const current = this.getMasterCategories();
-    const idx = current.indexOf(trimmedOld);
+    const list = this.getMasterCategories();
+    const idx = list.indexOf(oldCat);
     if (idx === -1) return false;
-
-    current[idx] = trimmedNew;
-    this.save(STORAGE_KEYS.MASTER_CATEGORIES, current);
-
-    // Update affected assets
-    const assets = this.getAssets();
-    let hasAssetChange = false;
-    const updatedAssets = assets.map(a => {
-      if (a.kategori === trimmedOld) {
-        hasAssetChange = true;
-        return { ...a, kategori: trimmedNew };
-      }
-      return a;
-    });
-    if (hasAssetChange) {
-      this.save(STORAGE_KEYS.ASSETS, updatedAssets);
-    }
+    list[idx] = newCat;
+    this.save(STORAGE_KEYS.MASTER_CATEGORIES, list);
     return true;
   }
 
-  // --- LOANS ---
-  public static getLoans(): LoanTicket[] {
-    const loans = this.load<LoanTicket[]>(STORAGE_KEYS.LOANS, INITIAL_LOANS);
-    // Hitung prioritas antrean per barang jika ada benturan pengajuan sama
-    const conflictMap: Record<string, number> = {};
-    return loans.map(l => {
-      if (l.status === 'Menunggu') {
-        const key = (l.barangPinjaman || '').toLowerCase().trim();
-        conflictMap[key] = (conflictMap[key] || 0) + 1;
-        return {
-          ...l,
-          prioritasAntrean: conflictMap[key]
-        };
-      }
-      return l;
-    });
-  }
-
-  public static addLoan(loan: LoanTicket): void {
-    const loans = this.getLoans();
-    this.save(STORAGE_KEYS.LOANS, [loan, ...loans]);
-
-    this.addLog({
-      id: `LOG-${Date.now()}`,
-      timestamp: new Date().toLocaleString('id-ID'),
-      barcode: loan.barcode || 'MENUNGGU-ALOKASI',
-      namaBarang: loan.barangPinjaman,
-      jenisTransaksi: 'Pinjam',
-      lokasi: loan.unit,
-      keterangan: `Pengajuan peminjaman baru oleh ${loan.peminjam} (${loan.unit}) - Tiket: ${loan.id}`,
-      petugas: 'Sistem PAHAM'
-    });
-  }
-
-  public static processLoanTicket(
-    id: string,
-    action: 'terima' | 'tolak' | 'kembali',
-    data: {
-      barcode?: string;
-      namaBarang?: string;
-      kondisi?: string;
-      petugas?: string;
-      catatan?: string;
-      tglAmbil?: string;
-      tglDikembalikan?: string;
-      metodePengambilan?: LoanHandoverMethod;
-      jadwalPengambilan?: string;
-      lokasiPengambilan?: string;
-    }
-  ): { success: boolean; message: string } {
-    const loans = this.getLoans();
-    const index = loans.findIndex(l => l.id === id);
-    if (index === -1) return { success: false, message: 'Tiket peminjaman tidak ditemukan!' };
-
-    const loan = loans[index];
-    const nowStr = new Date().toLocaleString('id-ID');
-
-    if (action === 'terima') {
-      const handover = data.metodePengambilan || 'Diambil di Ruang PUSDATIN';
-      const schedule = data.jadwalPengambilan || `${data.tglAmbil || loan.tglPinjam} pukul 09:00 WIB`;
-      const location = data.lokasiPengambilan || (
-        handover === 'Diambil di Ruang PUSDATIN'
-          ? 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lantai 2 Kampus 2 Watubelah)'
-          : `Diserahkan Tim Teknis ke lokasi peminjam (${loan.unit})`
-      );
-
-      loans[index] = {
-        ...loan,
-        status: 'Disetujui',
-        barcode: data.barcode || loan.barcode,
-        namaBarangT: data.namaBarang || loan.namaBarangT || loan.barangPinjaman,
-        kondisi: data.kondisi || 'Baik / Berfungsi Normal',
-        petugas: data.petugas || 'Admin PUSDATIN UMC',
-        catatan: data.catatan || loan.catatan || 'Peminjaman disetujui',
-        tglAmbil: data.tglAmbil || loan.tglPinjam,
-        metodePengambilan: handover,
-        jadwalPengambilan: schedule,
-        lokasiPengambilan: location
-      };
-      this.save(STORAGE_KEYS.LOANS, loans);
-
-      // Ubah status aset menjadi "Dipinjam"
-      if (data.barcode) {
-        const barcodes = data.barcode.split(',').map(b => b.trim()).filter(Boolean);
-        barcodes.forEach(bc => {
-          this.updateAssetStatus(
-            bc,
-            'Dipinjam',
-            loan.unit,
-            true,
-            `Dipinjam oleh ${loan.peminjam} (${loan.unit}) [${handover}] - Tiket: ${loan.id}`
-          );
-        });
-      }
-
-      return {
-        success: true,
-        message: `Peminjaman ${loan.id} berhasil DISETUJUI! Penyerahan: ${handover} (${schedule}).`
-      };
-    } else if (action === 'tolak') {
-      loans[index] = {
-        ...loan,
-        status: 'Ditolak',
-        catatan: data.catatan || 'Pengajuan peminjaman tidak dapat disetujui saat ini.'
-      };
-      this.save(STORAGE_KEYS.LOANS, loans);
-      return { success: true, message: `Peminjaman ${loan.id} telah DITOLAK.` };
-    } else if (action === 'kembali') {
-      const returnDate = data.tglDikembalikan || new Date().toISOString().split('T')[0];
-      loans[index] = {
-        ...loan,
-        status: 'Dikembalikan',
-        tglDikembalikan: returnDate,
-        catatan: data.catatan || (loan.catatan ? `${loan.catatan} (Telah dikembalikan)` : 'Aset telah dikembalikan')
-      };
-      this.save(STORAGE_KEYS.LOANS, loans);
-
-      // Kembalikan status aset ke "Tersedia" di Ruang PUSDATIN
-      const barcodes = (loan.barcode || data.barcode || '').split(',').map(b => b.trim()).filter(Boolean);
-      barcodes.forEach(bc => {
-        this.updateAssetStatus(
-          bc,
-          'Tersedia',
-          'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-          true,
-          `Dikembalikan oleh ${loan.peminjam} ke PUSDATIN - Tiket: ${loan.id}`
-        );
-      });
-
-      return { success: true, message: `Aset berhasil dikembalikan dan tercatat di Ruang PUSDATIN!` };
-    }
-
-    return { success: false, message: 'Aksi tidak dikenal.' };
-  }
-
-  public static createDirectLoanByAdmin(params: {
-    peminjam: string;
-    nik: string;
-    unit: string;
-    kontak: string;
-    email: string;
-    barangPinjaman: string;
-    jumlah: number;
-    tglPinjam: string;
-    tglKembali: string;
-    barcode: string;
-    namaBarangT: string;
-    kondisi: string;
-    petugas: string;
-    catatan: string;
-    tglAmbil: string;
-    metodePengambilan?: LoanHandoverMethod;
-    jadwalPengambilan?: string;
-  }): { success: boolean; message: string; ticket?: LoanTicket } {
-    const now = new Date();
-    const dateCode = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0');
-    const randomCode = Math.floor(1000 + Math.random() * 9000);
-    const id = `PJM-${dateCode}-${randomCode}`;
-
-    const newTicket: LoanTicket = {
-      id,
-      peminjam: params.peminjam,
-      nik: params.nik,
-      unit: params.unit,
-      kontak: params.kontak,
-      email: params.email,
-      barangPinjaman: params.barangPinjaman,
-      jumlah: params.jumlah,
-      tglPinjam: params.tglPinjam,
-      tglKembali: params.tglKembali,
-      status: 'Disetujui',
-      barcode: params.barcode,
-      namaBarangT: params.namaBarangT,
-      kondisi: params.kondisi,
-      petugas: params.petugas,
-      catatan: params.catatan,
-      tglAju: now.toLocaleString('id-ID'),
-      tglAmbil: params.tglAmbil,
-      metodePengambilan: params.metodePengambilan || 'Diambil di Ruang PUSDATIN',
-      jadwalPengambilan: params.jadwalPengambilan || `${params.tglAmbil} (Langsung Serah Terima di PUSDATIN)`,
-      lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
-    };
-
-    this.addLoan(newTicket);
-
-    if (params.barcode) {
-      this.updateAssetStatus(
-        params.barcode,
-        'Dipinjam',
-        params.unit,
-        true,
-        `Peminjaman langsung (walk-in) oleh ${params.peminjam} - Tiket: ${id}`
-      );
-    }
-
-    return { success: true, message: `Peminjaman langsung berhasil dibuat (${id})!`, ticket: newTicket };
-  }
-
-  // --- DAMAGE TICKETS ---
-  public static getDamageTickets(): DamageTicket[] {
-    const tickets = this.load<DamageTicket[]>(STORAGE_KEYS.DAMAGES, INITIAL_DAMAGES);
-    const technicians = this.getTechnicians();
-
-    return tickets.map(t => {
-      let updated: DamageTicket = { ...t };
-
-      if (!updated.urgensi) {
-        updated.urgensi = 'Sedang';
-      }
-
-      if (!updated.picTeknisi) {
-        const assigned = this.determinePic(`${updated.namaBarang} ${updated.deskripsi}`);
-        updated.picTeknisi = assigned.role;
-        updated.namaPicTeknisi = assigned.name;
-        updated.penugasanOtomatis = true;
-      }
-
-      if (!updated.assignedTechnicianId && updated.picTeknisi) {
-        const matchedTech = technicians.find(tc => tc.role === updated.picTeknisi);
-        if (matchedTech) updated.assignedTechnicianId = matchedTech.id;
-      }
-
-      // Normalisasi sukuCadangList
-      if ((!updated.sukuCadangList || updated.sukuCadangList.length === 0) && updated.namaSukuCadang) {
-        const parts = updated.namaSukuCadang.split(',').map(p => p.trim()).filter(Boolean);
-        updated.sukuCadangList = parts.map((part, i) => ({
-          id: `SP-${updated.id}-${i + 1}`,
-          namaKomponen: part,
-          statusPengadaan: (updated.status === 'Selesai' ? 'Sudah Digunakan' : 'Belum Dibeli') as SparePartStatus,
-          tanggalKebutuhan: updated.tanggalLapor
-        }));
-      }
-
-      return updated;
-    });
-  }
-
-  public static addDamageTicket(ticket: DamageTicket): void {
-    const tickets = this.getDamageTickets();
-    const nowStr = new Date().toLocaleString('id-ID');
-
-    // New tickets are directed to IT Support & Helpdesk Specialist & Kepala PUSDATIN (full access)
-    // for review and subsequent delegation according to field
-    const technicians = this.getTechnicians();
-    const itSupportTech = technicians.find(t => t.role === 'IT Support & Helpdesk Specialist') ||
-      technicians.find(t => t.isFullAccess);
-    const assignedRole: TechnicianRole = 'IT Support & Helpdesk Specialist';
-    const assignedName = itSupportTech ? itSupportTech.name : 'IT Support & Helpdesk Specialist';
-    const assignedId = itSupportTech ? itSupportTech.id : 'TECH-001';
-
-    const attachedAsset = ticket.barcode && ticket.barcode !== 'Tanpa Barcode'
-      ? this.getAssetByBarcode(ticket.barcode)
-      : null;
-
-    const newTicket: DamageTicket = {
-      ...ticket,
-      status: 'Open',
-      jenisAset: ticket.jenisAset || attachedAsset?.jenisAset || 'Fisik',
-      picTeknisi: ticket.picTeknisi || assignedRole,
-      namaPicTeknisi: ticket.namaPicTeknisi || assignedName,
-      assignedTechnicianId: ticket.assignedTechnicianId || assignedId,
-      penugasanOtomatis: false,
-      tanggalDitugaskan: nowStr,
-      riwayatStatus: [
-        {
-          status: 'Open',
-          timestamp: nowStr,
-          catatan: `Laporan masuk dengan status Open / Baru. Ditujukan ke PIC IT Support & Helpdesk Specialist dan Kepala PUSDATIN (Akses Penuh) untuk diverifikasi dan didelegasikan sesuai bidangnya.`,
-          petugas: 'Sistem PAHAM UMC'
-        }
-      ]
-    };
-
-    this.save(STORAGE_KEYS.DAMAGES, [newTicket, ...tickets]);
-
-    // If barcode is attached, record original location and update asset status to Rusak
-    if (newTicket.barcode && newTicket.barcode !== 'Tanpa Barcode') {
-      const asset = attachedAsset || this.getAssetByBarcode(newTicket.barcode);
-      if (asset) {
-        if (!newTicket.lokasiAwal) newTicket.lokasiAwal = asset.lokasi;
-        this.updateAssetStatus(
-          newTicket.barcode,
-          'Rusak',
-          asset.lokasi,
-          true,
-          `Laporan kerusakan baru masuk dari ${newTicket.pelapor} (Tiket: ${newTicket.id}) - Verifikasi Helpdesk & Kepala PUSDATIN`
-        );
-      }
-    }
-
-    // Log activity
-    this.addLog({
-      id: `LOG-${Date.now()}`,
-      timestamp: nowStr,
-      barcode: newTicket.barcode,
-      namaBarang: newTicket.namaBarang,
-      jenisTransaksi: 'Lapor Rusak',
-      lokasi: newTicket.lokasi,
-      keterangan: `Laporan kerusakan baru (${newTicket.id}) diajukan oleh ${newTicket.pelapor}. Menunggu delegasi dari PIC IT Support & Helpdesk / Kepala PUSDATIN.`,
-      petugas: 'Sistem PAHAM'
-    });
-  }
-
-  public static updateDamageTicketUrgency(id: string, newUrgency: TicketUrgency): boolean {
-    const tickets = this.getDamageTickets();
-    const index = tickets.findIndex(t => t.id === id);
-    if (index === -1) return false;
-
-    const oldUrgency = tickets[index].urgensi || 'Sedang';
-    const operator = this.getActiveTechnician()?.name || 'Admin PUSDATIN';
-    const nowStr = new Date().toLocaleString('id-ID');
-
-    tickets[index] = {
-      ...tickets[index],
-      urgensi: newUrgency,
-      riwayatStatus: [
-        ...(tickets[index].riwayatStatus || []),
-        {
-          status: tickets[index].status,
-          timestamp: nowStr,
-          catatan: `Tingkat urgensi tiket disesuaikan dari "${oldUrgency}" menjadi "${newUrgency}" oleh ${operator}.`,
-          petugas: operator
-        }
-      ]
-    };
-
-    this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-    this.addLog({
-      id: `LOG-${Date.now()}`,
-      timestamp: nowStr,
-      barcode: tickets[index].barcode,
-      namaBarang: tickets[index].namaBarang,
-      jenisTransaksi: 'Penugasan Teknisi',
-      lokasi: tickets[index].lokasi,
-      keterangan: `Urgensi tiket ${id} diubah menjadi ${newUrgency} oleh ${operator}`,
-      petugas: operator
-    });
-
+  public static deleteMasterCategory(cat: string): boolean {
+    const list = this.getMasterCategories();
+    const filtered = list.filter(c => c !== cat);
+    this.save(STORAGE_KEYS.MASTER_CATEGORIES, filtered);
     return true;
   }
 
-  public static createInternalDamageTicket(params: {
-    barcode: string;
-    namaBarang: string;
-    lokasi: string;
-    deskripsi: string;
-    pelapor: string;
-    status: 'Diterima' | 'Perbaikan';
-    metodePerbaikan: 'Di Lokasi' | 'Dibawa ke PUSDATIN';
-    urgensi: string;
-    picTeknisi?: TechnicianRole;
-  }): DamageTicket {
-    const now = new Date();
-    const dateCode = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0');
-    const randomCode = Math.floor(100 + Math.random() * 900);
-    const id = `TKT-${dateCode}-${randomCode}`;
-
-    const assigned = params.picTeknisi
-      ? {
-          role: params.picTeknisi,
-          name: INITIAL_TECHNICIANS.find(t => t.role === params.picTeknisi)?.name || 'Admin PUSDATIN'
-        }
-      : this.determinePic(`${params.namaBarang} ${params.deskripsi}`);
-
-    const newTicket: DamageTicket = {
-      id,
-      barcode: params.barcode || 'Tanpa Barcode',
-      namaBarang: params.namaBarang,
-      pelapor: params.pelapor,
-      lokasi: params.lokasi,
-      lokasiAwal: params.lokasi,
-      deskripsi: params.deskripsi,
-      tanggalLapor: now.toLocaleString('id-ID'),
-      status: params.status,
-      metodePerbaikan: params.metodePerbaikan,
-      urgensi: params.urgensi as any,
-      picTeknisi: assigned.role,
-      namaPicTeknisi: assigned.name,
-      penugasanOtomatis: !params.picTeknisi,
-      tanggalDitugaskan: now.toLocaleString('id-ID'),
-      riwayatStatus: [
-        {
-          status: params.status,
-          timestamp: now.toLocaleString('id-ID'),
-          catatan: `Temuan internal dicatat. Ditugaskan ke ${assigned.name}.`,
-          petugas: params.pelapor
-        }
-      ]
-    };
-
-    const tickets = this.getDamageTickets();
-    this.save(STORAGE_KEYS.DAMAGES, [newTicket, ...tickets]);
-
-    if (params.barcode && params.barcode !== 'Tanpa Barcode') {
-      const targetStatus: AssetStatus = params.status === 'Perbaikan' ? 'Diperbaiki' : 'Rusak';
-      const targetLocation = params.metodePerbaikan === 'Dibawa ke PUSDATIN'
-        ? 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
-        : params.lokasi;
-
-      this.updateAssetStatus(
-        params.barcode,
-        targetStatus,
-        targetLocation,
-        true,
-        `Temuan pemeriksaan internal tim PUSDATIN: ${params.deskripsi} (${id})`
-      );
-    }
-
-    return newTicket;
-  }
-
-  public static processDamageTicket(
-    id: string,
-    action:
-      | 'verifikasi-delegasi'
-      | 'jadwalkan-inspeksi'
-      | 'terima'
-      | 'perbaikan'
-      | 'suku-cadang'
-      | 'lanjut-perbaikan'
-      | 'rusak-total'
-      | 'selesai'
-      | 'ubah-pic'
-      | 'delegasikan',
-    options: {
-      catatanAdmin?: string;
-      statusAsetBaru?: AssetStatus;
-      dibawaKePusdatin?: boolean;
-      lokasiBaruCustom?: string;
-      kategoriPerbaikan?: RepairCategory;
-      namaSukuCadang?: string;
-      komponenList?: string[];
-      estimasiBiayaSukuCadang?: number;
-      sumberAnggaran?: 'Stok Internal PUSDATIN' | 'Pengajuan RKAT Kampus' | 'Biaya Unit/Fakultas';
-      picTeknisiBaru?: TechnicianRole;
-      namaPicBaru?: string;
-      targetTechnicianId?: string;
-      petugasName?: string;
-      urgensiBaru?: TicketUrgency;
-      kategoriMasalah?: 'Hardware' | 'Software' | string;
-      jenisAset?: 'Fisik' | 'Non-Fisik';
-      jadwalPemeriksaan?: string;
-      skenarioPerbaikan?: 'Non-Fisik (Remote/Server)' | 'Fisik (On-site)' | 'Fisik (Bawa ke PUSDATIN)';
-      resolusiAkhir?: string;
-    }
-  ): { success: boolean; message: string } {
-    const tickets = this.getDamageTickets();
-    const index = tickets.findIndex(t => t.id === id);
-    if (index === -1) return { success: false, message: 'Tiket kerusakan tidak ditemukan!' };
-
-    const ticket = tickets[index];
-    const nowStr = new Date().toLocaleString('id-ID');
-    const asset = ticket.barcode && ticket.barcode !== 'Tanpa Barcode'
-      ? this.getAssetByBarcode(ticket.barcode)
-      : null;
-
-    if (options.urgensiBaru && options.urgensiBaru !== ticket.urgensi) {
-      ticket.urgensi = options.urgensiBaru;
-    }
-
-    const currentHistory = ticket.riwayatStatus || [];
-    const operator = options.petugasName || this.getActiveTechnician()?.name || 'Admin PUSDATIN';
-
-    // SOP TAHAP 2: Verifikasi & Delegasi oleh Admin (Triage & Dispatch)
-    if (action === 'verifikasi-delegasi') {
-      const targetRole = options.picTeknisiBaru || ticket.picTeknisi || 'IT Support & Helpdesk Specialist';
-      const matched = this.getTechnicians().find(t => t.role === targetRole);
-      const techName = options.namaPicBaru || matched?.name || targetRole;
-      const techId = options.targetTechnicianId || matched?.id;
-      const katMasalah = options.kategoriMasalah || 'Hardware';
-      const jenisAset = options.jenisAset || (asset?.jenisAset || (katMasalah === 'Software' ? 'Non-Fisik' : 'Fisik'));
-
-      const note = options.catatanAdmin ||
-        `Tiket diverifikasi oleh Admin. Kategori: ${katMasalah} (${jenisAset}). Didelegasikan ke PIC: ${targetRole}.`;
-
-      tickets[index] = {
-        ...ticket,
-        status: 'Assigned',
-        kategoriMasalah: katMasalah,
-        jenisAset: jenisAset,
-        picTeknisi: targetRole,
-        namaPicTeknisi: techName,
-        assignedTechnicianId: techId,
-        catatanAdmin: note,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'Assigned',
-            timestamp: nowStr,
-            catatan: note,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      this.addLog({
-        id: `LOG-${Date.now()}`,
-        timestamp: nowStr,
-        barcode: ticket.barcode,
-        namaBarang: ticket.namaBarang,
-        jenisTransaksi: 'Penugasan Teknisi',
-        lokasi: ticket.lokasi,
-        keterangan: `Verifikasi & Delegasi tiket ${ticket.id} ke PIC ${targetRole} (${katMasalah} - ${jenisAset})`,
-        petugas: operator
-      });
-
-      return {
-        success: true,
-        message: `Tiket ${ticket.id} berhasil DIVERIFIKASI & DIDELEGASIKAN ke PIC ${targetRole} (Status: Assigned / Didelegasikan)!`
-      };
-    }
-
-    // SOP TAHAP 3: Pemeriksaan & Penjadwalan oleh Teknisi (Inspection)
-    if (action === 'jadwalkan-inspeksi') {
-      const scheduleText = options.jadwalPemeriksaan || `${nowStr} (Pemeriksaan Segera)`;
-      const note = options.catatanAdmin || `Teknisi telah menjadwalkan waktu inspeksi teknis: ${scheduleText}.`;
-
-      tickets[index] = {
-        ...ticket,
-        status: 'In Progress',
-        jadwalPemeriksaan: scheduleText,
-        catatanAdmin: note,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'In Progress',
-            timestamp: nowStr,
-            catatan: note,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      if (asset) {
-        this.updateAssetStatus(
-          asset.barcode,
-          'Diperbaiki',
-          asset.lokasi,
-          true,
-          `Jadwal inspeksi teknis ditetapkan (${scheduleText}) - Tiket: ${ticket.id}`
-        );
-      }
-
-      return {
-        success: true,
-        message: `Inspeksi dijadwalkan (${scheduleText}). Status tiket kini In Progress / Sedang Diproses!`
-      };
-    }
-
-    // Legacy action 'terima' -> Maps to 'Assigned' / 'In Progress'
-    if (action === 'terima') {
-      tickets[index] = {
-        ...ticket,
-        status: 'Assigned',
-        catatanAdmin: options.catatanAdmin || 'Tiket diterima dan siap ditindaklanjuti teknisi.',
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'Assigned',
-            timestamp: nowStr,
-            catatan: options.catatanAdmin || 'Tiket diverifikasi dan diterima admin.',
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      if (asset) {
-        this.updateAssetStatus(asset.barcode, 'Rusak', asset.lokasi, true, `Tiket ${ticket.id} diterima oleh ${operator}`);
-      }
-      return { success: true, message: `Tiket ${id} berhasil diverifikasi!` };
-    }
-
-    // SOP TAHAP 4: Tindakan Perbaikan (Execution)
-    if (action === 'perbaikan') {
-      const dibawa = options.dibawaKePusdatin ?? false;
-      const skenario = options.skenarioPerbaikan || (
-        ticket.jenisAset === 'Non-Fisik'
-          ? 'Non-Fisik (Remote/Server)'
-          : (dibawa ? 'Fisik (Bawa ke PUSDATIN)' : 'Fisik (On-site)')
-      );
-
-      const lokasiPerbaikan = dibawa
-        ? 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
-        : (asset?.lokasi || ticket.lokasi);
-
-      const note = options.catatanAdmin || `Mulai tindakan perbaikan (${skenario}).`;
-
-      tickets[index] = {
-        ...ticket,
-        status: 'In Progress',
-        skenarioPerbaikan: skenario,
-        metodePerbaikan: dibawa ? 'Dibawa ke PUSDATIN' : 'Di Lokasi',
-        catatanAdmin: note,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'In Progress',
-            timestamp: nowStr,
-            catatan: note,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      if (asset) {
-        if (!asset.lokasiAwal) asset.lokasiAwal = ticket.lokasiAwal || ticket.lokasi || asset.lokasi;
-        this.updateAssetStatus(
-          asset.barcode,
-          'Diperbaiki',
-          lokasiPerbaikan,
-          true,
-          `Tindakan perbaikan: ${skenario}`
-        );
-      }
-      return { success: true, message: `Tindakan perbaikan dimulai (${skenario})!` };
-    }
-
-    // SOP TAHAP 4 (Cabang B1): Butuh Suku Cadang -> Pending Procurement
-    if (action === 'suku-cadang') {
-      const partCategory = options.kategoriPerbaikan || 'Suku Cadang (Stok Ada)';
-
-      const rawList = options.komponenList && options.komponenList.length > 0
-        ? options.komponenList
-        : (options.namaSukuCadang ? options.namaSukuCadang.split(',').map(s => s.trim()) : ['Komponen Pengganti']);
-
-      const cleanList = rawList.map(c => c.trim()).filter(c => c.length > 0);
-      const combinedNames = cleanList.join(', ');
-
-      const initialStatus: SparePartStatus = partCategory === 'Suku Cadang (Stok Ada)' ? 'Sudah Dibeli' : 'Belum Dibeli';
-
-      const newParts: SparePartItem[] = cleanList.map((comp, idx) => ({
-        id: `SP-${ticket.id}-${Date.now()}-${idx + 1}`,
-        namaKomponen: comp,
-        statusPengadaan: initialStatus,
-        tanggalKebutuhan: nowStr,
-        tanggalBeli: initialStatus === 'Sudah Dibeli' ? nowStr : undefined,
-        petugasPengadaan: initialStatus === 'Sudah Dibeli' ? operator : undefined,
-        catatan: options.catatanAdmin
-      }));
-
-      const budgetSource = options.sumberAnggaran || (partCategory === 'Suku Cadang (Stok Ada)' ? 'Stok Internal PUSDATIN' : 'Pengajuan RKAT Kampus');
-      const note = options.catatanAdmin || `Kebutuhan ${newParts.length} suku cadang: ${combinedNames}. Status tiket: Menunggu Pembelian (Pending Procurement).`;
-
-      tickets[index] = {
-        ...ticket,
-        status: 'Pending Procurement',
-        cabangPerbaikan: 'Butuh Suku Cadang',
-        kategoriPerbaikan: partCategory,
-        namaSukuCadang: combinedNames,
-        sukuCadangList: newParts,
-        sumberAnggaran: budgetSource,
-        catatanAdmin: note,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'Pending Procurement',
-            timestamp: nowStr,
-            catatan: note,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      if (asset) {
-        this.updateAssetStatus(
-          asset.barcode,
-          'Diperbaiki',
-          'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-          true,
-          `Menunggu pembelian suku cadang: ${combinedNames}`
-        );
-      }
-
-      this.addLog({
-        id: `LOG-${Date.now()}`,
-        timestamp: nowStr,
-        barcode: ticket.barcode,
-        namaBarang: ticket.namaBarang,
-        jenisTransaksi: 'Suku Cadang',
-        lokasi: ticket.lokasi,
-        keterangan: `Alur Pending Procurement dipicu untuk ${newParts.length} suku cadang (${combinedNames}) - Tiket ${ticket.id}`,
-        petugas: operator
-      });
-
-      return {
-        success: true,
-        message: `Tiket dialihkan ke status Menunggu Pembelian (Pending Procurement) untuk ${newParts.length} suku cadang!`
-      };
-    }
-
-    // Lanjutan setelah komponen datang
-    if (action === 'lanjut-perbaikan') {
-      const note = options.catatanAdmin || 'Suku cadang telah tiba. Teknisi melanjutkan tindakan perbaikan dan perakitan komponen.';
-      let parts = ticket.sukuCadangList || [];
-      parts = parts.map(p => ({
-        ...p,
-        statusPengadaan: 'Sudah Dibeli' as SparePartStatus,
-        tanggalBeli: p.tanggalBeli || nowStr
-      }));
-
-      tickets[index] = {
-        ...ticket,
-        status: 'In Progress',
-        sukuCadangList: parts,
-        catatanAdmin: note,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'In Progress',
-            timestamp: nowStr,
-            catatan: note,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      return {
-        success: true,
-        message: 'Komponen siap, perbaikan dilanjutkan! Status tiket kembali menjadi In Progress.'
-      };
-    }
-
-    // SOP TAHAP 4 (Cabang B2): Rusak Total (Beyond Economic Repair) -> Afkir & Closed
-    if (action === 'rusak-total') {
-      const note = options.catatanAdmin || 'Teknisi mendiagnosis perangkat tidak bisa diselamatkan (Beyond Economic Repair). Perbaikan dihentikan, barang masuk gudang afkir/penghapusan.';
-
-      tickets[index] = {
-        ...ticket,
-        status: 'Closed',
-        cabangPerbaikan: 'Rusak Total',
-        kondisiAkhirAset: 'Rusak Total',
-        kategoriPerbaikan: 'Rusak Total (Afkir)',
-        tanggalSelesai: nowStr,
-        resolusiAkhir: note,
-        catatanAdmin: note,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'Closed',
-            timestamp: nowStr,
-            catatan: `RESOLUSI & CLOSURE: ${note}`,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      if (asset) {
-        this.updateAssetStatus(
-          asset.barcode,
-          'Rusak Total',
-          'Ruang Gudang Afkir PUSDATIN Kampus 2',
-          true,
-          `Dinyatakan Rusak Total / Afkir (Beyond Economic Repair) - Tiket: ${ticket.id}`
-        );
-      }
-
-      this.addLog({
-        id: `LOG-${Date.now()}`,
-        timestamp: nowStr,
-        barcode: ticket.barcode,
-        namaBarang: ticket.namaBarang,
-        jenisTransaksi: 'Rusak Total',
-        lokasi: 'Ruang Gudang Afkir PUSDATIN Kampus 2',
-        keterangan: `Aset dinyatakan RUSAK TOTAL / AFKIR oleh ${operator}: ${note}`,
-        petugas: operator
-      });
-
-      return {
-        success: true,
-        message: `Tiket ditutup (Closed) dan aset ditetapkan berstatus RUSAK TOTAL / AFKIR di Ruang Gudang Afkir.`
-      };
-    }
-
-    // SOP TAHAP 5: Penyelesaian & Pembaruan Status (Resolution & Closure)
-    if (action === 'selesai') {
-      const isNonFisik = ticket.jenisAset === 'Non-Fisik' || asset?.jenisAset === 'Non-Fisik';
-
-      let statusFinal: AssetStatus;
-      let lokasiFinal: string;
-
-      if (isNonFisik) {
-        // Jika Aset Non-Fisik: Status Aset menjadi "Berfungsi Kembali"
-        statusFinal = 'Berfungsi Kembali';
-        lokasiFinal = asset?.lokasi || ticket.lokasi || 'Ruang Server PUSDATIN Kampus 1';
-      } else {
-        // Jika Aset Fisik: "Digunakan" (dikembalikan ke lokasi/user awal) atau "Tersedia" (cadangan di PUSDATIN)
-        statusFinal = options.statusAsetBaru || 'Digunakan';
-        if (options.lokasiBaruCustom) {
-          lokasiFinal = options.lokasiBaruCustom;
-        } else if (statusFinal === 'Tersedia') {
-          lokasiFinal = 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)';
-        } else {
-          lokasiFinal = ticket.lokasiAwal || asset?.lokasiAwal || ticket.lokasi || 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)';
-        }
-      }
-
-      // Tandai semua suku cadang yang digunakan
-      let updatedSukuCadang = ticket.sukuCadangList;
-      if (updatedSukuCadang && updatedSukuCadang.length > 0) {
-        updatedSukuCadang = updatedSukuCadang.map(sp => ({
-          ...sp,
-          statusPengadaan: 'Sudah Digunakan' as SparePartStatus,
-          tanggalDigunakan: sp.tanggalDigunakan || nowStr,
-          petugasPemasangan: sp.petugasPemasangan || operator
-        }));
-      }
-
-      const resolusi = options.resolusiAkhir || options.catatanAdmin || `Perbaikan selesai dikerjakan oleh ${operator}.`;
-      const note = `Penyelesaian (Resolution & Closure): ${resolusi}. Status Tiket: Closed/Selesai. Status Aset: ${statusFinal} (${lokasiFinal}).`;
-
-      tickets[index] = {
-        ...ticket,
-        status: 'Closed',
-        tanggalSelesai: nowStr,
-        sukuCadangList: updatedSukuCadang,
-        kondisiAkhirAset: statusFinal as any,
-        resolusiAkhir: resolusi,
-        catatanAdmin: note,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: 'Closed',
-            timestamp: nowStr,
-            catatan: note,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      if (asset) {
-        this.updateAssetStatus(
-          asset.barcode,
-          statusFinal,
-          lokasiFinal,
-          true,
-          `Aset selesai ditangani. Status: ${statusFinal}, Penempatan: ${lokasiFinal} (Tiket: ${ticket.id})`
-        );
-      }
-
-      this.addLog({
-        id: `LOG-${Date.now()}`,
-        timestamp: nowStr,
-        barcode: ticket.barcode,
-        namaBarang: ticket.namaBarang,
-        jenisTransaksi: 'Selesai Perbaikan',
-        lokasi: lokasiFinal,
-        keterangan: `Tiket ${ticket.id} Closed / Selesai. Status aset diperbarui menjadi "${statusFinal}" di ${lokasiFinal}.`,
-        petugas: operator
-      });
-
-      return {
-        success: true,
-        message: `Tiket ${ticket.id} Closed! Status aset kini diperbarui menjadi "${statusFinal}" di ${lokasiFinal}.`
-      };
-    }
-
-    if (action === 'ubah-pic') {
-      if (!options.picTeknisiBaru) return { success: false, message: 'Pilih PIC teknisi baru!' };
-      const matched = this.getTechnicians().find(t => t.role === options.picTeknisiBaru);
-      const newTechName = options.namaPicBaru || matched?.name || 'Teknisi PUSDATIN';
-      const newTechId = matched?.id;
-
-      tickets[index] = {
-        ...ticket,
-        picTeknisi: options.picTeknisiBaru,
-        namaPicTeknisi: newTechName,
-        assignedTechnicianId: newTechId,
-        penugasanOtomatis: false,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: ticket.status,
-            timestamp: nowStr,
-            catatan: `Penugasan dialihkan oleh ${operator} ke ${options.picTeknisiBaru} (${newTechName}).`,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      this.addLog({
-        id: `LOG-${Date.now()}`,
-        timestamp: nowStr,
-        barcode: ticket.barcode,
-        namaBarang: ticket.namaBarang,
-        jenisTransaksi: 'Penugasan Teknisi',
-        lokasi: ticket.lokasi,
-        keterangan: `Pengalihan tugas tiket ${ticket.id} ke ${options.picTeknisiBaru} (${newTechName})`,
-        petugas: operator
-      });
-
-      return {
-        success: true,
-        message: `Penugasan tiket berhasil dialihkan ke ${newTechName} (${options.picTeknisiBaru})!`
-      };
-    }
-
-    if (action === 'delegasikan') {
-      const targetId = options.targetTechnicianId;
-      if (!targetId) return { success: false, message: 'Pilih teknisi/programmer tujuan delegasi!' };
-      const targetTech = this.getTechnicians().find(t => t.id === targetId);
-      if (!targetTech) return { success: false, message: 'Teknisi target tidak ditemukan!' };
-
-      const delegationNote = options.catatanAdmin || `Tiket didelegasikan dari ${operator} ke ${targetTech.name} (${targetTech.role})`;
-
-      tickets[index] = {
-        ...ticket,
-        status: ticket.status === 'Open' || ticket.status === 'Baru' ? 'Assigned' : ticket.status,
-        picTeknisi: targetTech.role,
-        namaPicTeknisi: targetTech.name,
-        assignedTechnicianId: targetTech.id,
-        delegasiDari: operator,
-        catatanDelegasi: delegationNote,
-        tanggalDelegasi: nowStr,
-        riwayatStatus: [
-          ...currentHistory,
-          {
-            status: ticket.status === 'Open' || ticket.status === 'Baru' ? 'Assigned' : ticket.status,
-            timestamp: nowStr,
-            catatan: `DELEGASI TIKET: Didelegasikan oleh ${operator} kepada ${targetTech.name} (${targetTech.role}). Catatan: ${delegationNote}`,
-            petugas: operator
-          }
-        ]
-      };
-      this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-      this.addLog({
-        id: `LOG-${Date.now()}`,
-        timestamp: nowStr,
-        barcode: ticket.barcode,
-        namaBarang: ticket.namaBarang,
-        jenisTransaksi: 'Penugasan Teknisi',
-        lokasi: ticket.lokasi,
-        keterangan: `Delegasi tugas tiket ${ticket.id} kepada ${targetTech.name} (${targetTech.role}) oleh ${operator}`,
-        petugas: operator
-      });
-
-      return {
-        success: true,
-        message: `Tiket berhasil didelegasikan kepada ${targetTech.name} (${targetTech.role})!`
-      };
-    }
-
-    return { success: false, message: 'Aksi tidak valid.' };
-  }
-
-  // --- USER REQUEST 4: MONITORING & PENGADAAN SUKU CADANG ---
-  public static getAllSpareParts(): SparePartWithTicket[] {
-    const tickets = this.getDamageTickets();
-    const result: SparePartWithTicket[] = [];
-
-    tickets.forEach(ticket => {
-      if (ticket.sukuCadangList && ticket.sukuCadangList.length > 0) {
-        ticket.sukuCadangList.forEach(sp => {
-          result.push({
-            sparePartId: sp.id,
-            namaKomponen: sp.namaKomponen,
-            statusPengadaan: sp.statusPengadaan || 'Belum Dibeli',
-            ticketId: ticket.id,
-            ticketStatus: ticket.status,
-            urgensi: ticket.urgensi || 'Sedang',
-            barcode: ticket.barcode,
-            namaBarang: ticket.namaBarang,
-            lokasi: ticket.lokasi,
-            pelapor: ticket.pelapor,
-            picTeknisi: ticket.picTeknisi,
-            namaPicTeknisi: ticket.namaPicTeknisi,
-            assignedTechnicianId: ticket.assignedTechnicianId,
-            tanggalKebutuhan: sp.tanggalKebutuhan || ticket.tanggalLapor,
-            tanggalBeli: sp.tanggalBeli,
-            tanggalDigunakan: sp.tanggalDigunakan,
-            catatan: sp.catatan
-          });
-        });
-      } else if (ticket.namaSukuCadang && ticket.status === 'Menunggu Suku Cadang') {
-        const parts = ticket.namaSukuCadang.split(',').map(p => p.trim()).filter(Boolean);
-        parts.forEach((p, idx) => {
-          result.push({
-            sparePartId: `SP-${ticket.id}-${idx + 1}`,
-            namaKomponen: p,
-            statusPengadaan: 'Belum Dibeli',
-            ticketId: ticket.id,
-            ticketStatus: ticket.status,
-            urgensi: ticket.urgensi || 'Sedang',
-            barcode: ticket.barcode,
-            namaBarang: ticket.namaBarang,
-            lokasi: ticket.lokasi,
-            pelapor: ticket.pelapor,
-            picTeknisi: ticket.picTeknisi,
-            namaPicTeknisi: ticket.namaPicTeknisi,
-            assignedTechnicianId: ticket.assignedTechnicianId,
-            tanggalKebutuhan: ticket.tanggalLapor
-          });
-        });
-      }
-    });
-
-    return result;
-  }
-
-  public static updateSparePartStatus(
-    ticketId: string,
-    sparePartId: string,
-    newStatus: SparePartStatus,
-    operatorName?: string,
-    notes?: string
-  ): { success: boolean; message: string } {
-    const tickets = this.getDamageTickets();
-    const ticketIdx = tickets.findIndex(t => t.id === ticketId);
-    if (ticketIdx === -1) return { success: false, message: 'Tiket tidak ditemukan!' };
-
-    const ticket = tickets[ticketIdx];
-    const nowStr = new Date().toLocaleString('id-ID');
-    const operator = operatorName || this.getActiveTechnician()?.name || 'Admin PUSDATIN';
-
-    let partFound = false;
-    let partName = '';
-
-    if (ticket.sukuCadangList && ticket.sukuCadangList.length > 0) {
-      ticket.sukuCadangList = ticket.sukuCadangList.map(sp => {
-        if (sp.id === sparePartId || sp.id.endsWith(sparePartId)) {
-          partFound = true;
-          partName = sp.namaKomponen;
-          return {
-            ...sp,
-            statusPengadaan: newStatus,
-            tanggalBeli: newStatus === 'Sudah Dibeli' ? nowStr : sp.tanggalBeli,
-            tanggalDigunakan: newStatus === 'Sudah Digunakan' ? nowStr : sp.tanggalDigunakan,
-            petugasPengadaan: newStatus === 'Sudah Dibeli' ? operator : sp.petugasPengadaan,
-            petugasPemasangan: newStatus === 'Sudah Digunakan' ? operator : sp.petugasPemasangan,
-            catatan: notes || sp.catatan
-          };
-        }
-        return sp;
-      });
-    }
-
-    if (!partFound) {
-      return { success: false, message: 'Komponen suku cadang tidak ditemukan pada tiket.' };
-    }
-
-    const historyNote = `[SUKU CADANG] Komponen "${partName}" diperbarui menjadi: ${newStatus} oleh ${operator}${notes ? ' (' + notes + ')' : ''}`;
-
-    ticket.riwayatStatus = [
-      ...(ticket.riwayatStatus || []),
-      {
-        status: ticket.status,
-        timestamp: nowStr,
-        catatan: historyNote,
-        petugas: operator
-      }
-    ];
-
-    tickets[ticketIdx] = ticket;
-    this.save(STORAGE_KEYS.DAMAGES, tickets);
-
-    this.addLog({
-      id: `LOG-${Date.now()}`,
-      timestamp: nowStr,
-      barcode: ticket.barcode,
-      namaBarang: ticket.namaBarang,
-      jenisTransaksi: 'Suku Cadang',
-      lokasi: ticket.lokasi,
-      keterangan: historyNote,
-      petugas: operator
-    });
-
-    return {
-      success: true,
-      message: `Status suku cadang "${partName}" berhasil diubah menjadi "${newStatus}"!`
-    };
-  }
-
-  // --- USER REQUEST 5: KINERJA PIC & STATISTIK REKAPITULASI ---
-  public static getPicPerformanceReport(): PicPerformanceReport[] {
-    const technicians = this.getTechnicians();
-    const tickets = this.getDamageTickets();
-
-    return technicians.map(tech => {
-      const assignedTickets = tickets.filter(
-        t => t.assignedTechnicianId === tech.id || t.picTeknisi === tech.role
-      );
-
-      const resolved = assignedTickets.filter(t => t.status === 'Selesai' || t.status === 'Rusak Total').length;
-      const inProgress = assignedTickets.filter(t => t.status === 'Perbaikan' || t.status === 'Diterima').length;
-      const waitingParts = assignedTickets.filter(t => t.status === 'Menunggu Suku Cadang').length;
-      const delegated = tickets.filter(t => t.delegasiDari && t.delegasiDari.includes(tech.name)).length;
-      const resolutionRate = assignedTickets.length > 0 ? Math.round((resolved / assignedTickets.length) * 100) : 100;
-
-      return {
-        technicianId: tech.id,
-        technicianName: tech.name,
-        name: tech.name,
-        role: tech.role,
-        level: tech.level,
-        totalAssigned: assignedTickets.length,
-        totalResolved: resolved,
-        totalInProgress: inProgress,
-        totalWaitingParts: waitingParts,
-        totalDelegated: delegated,
-        resolutionRate
-      };
-    });
-  }
-
-  // --- ACTIVITY LOGS ---
+  // --- LOG AKTIVITAS (Tabel 4) ---
   public static getLogs(): ActivityLog[] {
-    return this.load<ActivityLog[]>(STORAGE_KEYS.LOGS, INITIAL_LOGS);
+    return this.load<ActivityLog[]>(STORAGE_KEYS.LOGS, []);
   }
 
   public static addLog(log: ActivityLog): void {
@@ -2224,23 +2879,21 @@ export class AppDatabase {
     this.save(STORAGE_KEYS.LOGS, [log, ...logs]);
   }
 
-  // --- STATISTICS (Enhancement B.6: Metrik Perbaikan Terperinci) ---
+  // --- STATISTIK & EXECUTIVE DASHBOARD (F-DASH-03, 5.5) ---
   public static getStatistics(): AppStatistics {
     const assets = this.getAssets();
     const loans = this.getLoans();
     const damages = this.getDamageTickets();
-
+    const proposals = this.getSystemProposals();
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Identify overdue loans: status 'Disetujui' and tglKembali < todayStr
-    const overdueLoans = loans.filter(l => l.status === 'Disetujui' && l.tglKembali < todayStr);
+    const overdueLoans = loans.filter(l => (l.status === 'Diserahkan' || l.status === 'Terlambat') && l.tglKembali && l.tglKembali < todayStr);
 
     let tersedia = 0;
     let digunakan = 0;
     let dipinjam = 0;
-    let rusak = 0;
-    let diperbaiki = 0;
-    let rusakTotal = 0;
+    let maintenance = 0;
+    let tidakLayak = 0;
     const kategoriMap: Record<string, number> = {};
     const lokasiMap: Record<string, number> = {};
 
@@ -2248,9 +2901,8 @@ export class AppDatabase {
       if (a.status === 'Tersedia') tersedia++;
       else if (a.status === 'Digunakan') digunakan++;
       else if (a.status === 'Dipinjam') dipinjam++;
-      else if (a.status === 'Rusak') rusak++;
-      else if (a.status === 'Diperbaiki') diperbaiki++;
-      else if (a.status === 'Rusak Total') rusakTotal++;
+      else if (a.status === 'Maintenance') maintenance++;
+      else if (a.status === 'Tidak Layak') tidakLayak++;
 
       const kat = a.kategori || 'Lainnya';
       kategoriMap[kat] = (kategoriMap[kat] || 0) + 1;
@@ -2259,38 +2911,71 @@ export class AppDatabase {
       lokasiMap[lok] = (lokasiMap[lok] || 0) + 1;
     });
 
-    const totalPinjamMenunggu = loans.filter(l => l.status === 'Menunggu').length;
-    const totalAntreanTiket = damages.filter(d => d.status === 'Baru' || d.status === 'Diterima').length;
+    const totalPinjamMenunggu = loans.filter(l => l.status === 'Diajukan').length;
+    const totalAntreanTiket = damages.filter(d => d.status === 'Open/Unassigned' || d.status === 'Assigned').length;
+    const totalSedangDiperbaiki = damages.filter(d => d.status === 'In Progress').length;
+    const totalMenungguSparepart = damages.filter(d => d.status === 'Pending – Menunggu Suku Cadang').length;
 
-    // Requirement B.6:
-    // 1. Jumlah aset sedang proses perbaikan
-    const totalSedangDiperbaiki = damages.filter(d => d.status === 'Perbaikan').length;
+    // SLA Achievement
+    const closedTickets = damages.filter(d => d.status === 'Resolved' || d.status === 'Closed – Auto' || d.status === 'Closed – Manual');
+    const totalSlaOverdue = damages.filter(d => d.slaStatus === 'Overdue').length;
+    const onTimeClosed = closedTickets.filter(d => d.slaStatus !== 'Overdue').length;
+    const slaAchievementRate = closedTickets.length > 0 ? Math.round((onTimeClosed / closedTickets.length) * 100) : 95;
 
-    // 2. Jumlah aset sudah masuk ke PUSDATIN tetapi belum dilakukan proses perbaikan oleh tim teknis
-    const totalMasukPusdatinBelumDiperbaiki = damages.filter(
-      d => (d.status === 'Baru' || d.status === 'Diterima') && d.metodePerbaikan === 'Dibawa ke PUSDATIN'
-    ).length;
-
-    const totalMenungguSparepart = damages.filter(d => d.status === 'Menunggu Suku Cadang').length;
+    const totalPengajuanSistem = proposals.length;
+    const pengajuanDalamPengembangan = proposals.filter(p => p.status === 'status_pengembangan').length;
 
     return {
       totalAset: assets.length,
       tersedia,
       digunakan,
       dipinjam,
-      rusak,
-      diperbaiki,
-      rusakTotal,
+      maintenance,
+      tidakLayak,
       totalPinjamMenunggu,
       totalPinjamTerlambat: overdueLoans.length,
       totalAntreanTiket,
       totalSedangDiperbaiki,
-      totalMasukPusdatinBelumDiperbaiki,
       totalMenungguSparepart,
+      totalSlaOverdue,
+      slaAchievementRate,
+      totalPengajuanSistem,
+      pengajuanDalamPengembangan,
       kategoriMap,
       lokasiMap,
       overdueLoans
     };
+  }
+
+  public static getPicPerformanceReport(): PicPerformanceReport[] {
+    const users = this.getUsers().filter(u => u.role !== 'ACT-01' && u.role !== 'ACT-10');
+    const tickets = this.getDamageTickets();
+
+    return users.map(u => {
+      const assigned = tickets.filter(t => t.assignedTechnicianId === u.id || t.picTeknisi === u.roleName);
+      const resolved = assigned.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual').length;
+      const inProgress = assigned.filter(t => t.status === 'In Progress').length;
+      const waitingParts = assigned.filter(t => t.status === 'Pending – Menunggu Suku Cadang').length;
+      const delegated = tickets.filter(t => t.delegasiDari && t.delegasiDari.includes(u.nama)).length;
+      const onTime = assigned.filter(t => t.slaStatus !== 'Overdue').length;
+
+      const resolutionRate = assigned.length > 0 ? Math.round((resolved / assigned.length) * 100) : 100;
+      const slaOnTimeRate = assigned.length > 0 ? Math.round((onTime / assigned.length) * 100) : 100;
+
+      return {
+        technicianId: u.id,
+        technicianName: u.nama,
+        name: u.nama,
+        role: u.roleName,
+        totalAssigned: assigned.length,
+        totalResolved: resolved,
+        totalInProgress: inProgress,
+        totalWaitingParts: waitingParts,
+        totalDelegated: delegated,
+        resolutionRate,
+        slaOnTimeRate
+      };
+    });
   }
 
   // --- KEPALA PUSDATIN CONFIG ---
@@ -2305,55 +2990,63 @@ export class AppDatabase {
     this.save(STORAGE_KEYS.KEPALA, { nama, nip });
   }
 
-  // --- GOOGLE APPS SCRIPT URL ---
-  public static getGasUrl(): string {
-    return localStorage.getItem(STORAGE_KEYS.GAS_URL) || '';
-  }
+  // --- PIC DETERMINATION (BR-007) ---
+  public static determinePic(deviceOrCategoryOrDesc: string): { role: TechnicianRole; name: string } {
+    const text = (deviceOrCategoryOrDesc || '').toLowerCase();
 
-  public static setGasUrl(url: string): void {
-    localStorage.setItem(STORAGE_KEYS.GAS_URL, url.trim());
-  }
-
-  // --- BACKUP & RESTORE ---
-  public static exportAllDataAsJson(): string {
-    const data = {
-      version: '3.0',
-      exportDate: new Date().toISOString(),
-      assets: this.getAssets(),
-      loans: this.getLoans(),
-      damages: this.getDamageTickets(),
-      logs: this.getLogs(),
-      masterLocations: this.getMasterLocations(),
-      masterCategories: this.getMasterCategories(),
-      kepala: this.getKepalaPusdatin()
-    };
-    return JSON.stringify(data, null, 2);
-  }
-
-  public static importDataFromJson(jsonStr: string): { success: boolean; message: string } {
-    try {
-      const parsed = JSON.parse(jsonStr);
-      if (Array.isArray(parsed.assets)) this.save(STORAGE_KEYS.ASSETS, parsed.assets);
-      if (Array.isArray(parsed.loans)) this.save(STORAGE_KEYS.LOANS, parsed.loans);
-      if (Array.isArray(parsed.damages)) this.save(STORAGE_KEYS.DAMAGES, parsed.damages);
-      if (Array.isArray(parsed.logs)) this.save(STORAGE_KEYS.LOGS, parsed.logs);
-      if (Array.isArray(parsed.masterLocations)) this.save(STORAGE_KEYS.MASTER_LOCATIONS, parsed.masterLocations);
-      if (Array.isArray(parsed.masterCategories)) this.save(STORAGE_KEYS.MASTER_CATEGORIES, parsed.masterCategories);
-      if (parsed.kepala) this.save(STORAGE_KEYS.KEPALA, parsed.kepala);
-      return { success: true, message: 'Basis data berhasil dipulihkan dari file JSON!' };
-    } catch (e: any) {
-      return { success: false, message: `Gagal membaca file JSON: ${e.message}` };
+    if (
+      text.includes('wifi') ||
+      text.includes('wi-fi') ||
+      text.includes('jaringan') ||
+      text.includes('switch') ||
+      text.includes('router') ||
+      text.includes('mikrotik') ||
+      text.includes('lan') ||
+      text.includes('cloud') ||
+      text.includes('fiber')
+    ) {
+      return { role: 'Cloud & Infrastructure Engineer', name: 'Ir. Faisal Hakim, M.T.' };
     }
+
+    if (
+      text.includes('aplikasi') ||
+      text.includes('siakad') ||
+      text.includes('portal') ||
+      text.includes('software') ||
+      text.includes('database') ||
+      text.includes('sql') ||
+      text.includes('mbkm') ||
+      text.includes('api')
+    ) {
+      return { role: 'System Analyst & Data Governance Specialist', name: 'Novi Andriani, M.Kom.' };
+    }
+
+    if (
+      text.includes('security') ||
+      text.includes('keamanan') ||
+      text.includes('hack') ||
+      text.includes('virus') ||
+      text.includes('malware') ||
+      text.includes('email') ||
+      text.includes('phishing') ||
+      text.includes('firewall')
+    ) {
+      return { role: 'Cyber Security Officer', name: 'Rian Hidayat, M.Kom.' };
+    }
+
+    return { role: 'IT Support & Helpdesk Specialist', name: 'Aditiya Ahmad Fadila, S.Kom.' };
   }
 
+  // --- RESET & RESTORE ---
   public static resetToDefaultSeed(): void {
     this.save(STORAGE_KEYS.ASSETS, INITIAL_ASSETS);
     this.save(STORAGE_KEYS.LOANS, INITIAL_LOANS);
     this.save(STORAGE_KEYS.DAMAGES, INITIAL_DAMAGES);
-    this.save(STORAGE_KEYS.LOGS, INITIAL_LOGS);
-    this.save(STORAGE_KEYS.MASTER_LOCATIONS, INITIAL_LOCATIONS);
-    this.save(STORAGE_KEYS.MASTER_CATEGORIES, INITIAL_CATEGORIES);
-    this.setKepalaPusdatin('Dr. Ir. H. Ahmad Dahlan, M.T.', 'NIDN. 0418077501');
+    this.save(STORAGE_KEYS.BUKU_PENERIMAAN, INITIAL_BUKU_PENERIMAAN);
+    this.save(STORAGE_KEYS.BUKU_PENGELUARAN, INITIAL_BUKU_PENGELUARAN);
+    this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, INITIAL_SYSTEM_PROPOSALS);
+    this.save(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+    this.save(STORAGE_KEYS.AUDIT_TRAIL, INITIAL_AUDIT_TRAIL);
+    this.save(STORAGE_KEYS.USERS, SEED_USERS);
   }
 }
-

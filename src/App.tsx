@@ -6,7 +6,12 @@ import { UserDashboard } from './components/UserPortal/UserDashboard';
 import { LoanForm } from './components/UserPortal/LoanForm';
 import { DamageReportForm } from './components/UserPortal/DamageReportForm';
 import { TicketTracker } from './components/UserPortal/TicketTracker';
+import { SystemProposalForm } from './components/UserPortal/SystemProposalForm';
 import { AdminDashboard } from './components/AdminPortal/AdminDashboard';
+import { ExecutiveDashboard } from './components/AdminPortal/ExecutiveDashboard';
+import { BukuPenerimaanView } from './components/AdminPortal/BukuPenerimaanView';
+import { BukuPengeluaranView } from './components/AdminPortal/BukuPengeluaranView';
+import { BukuInventarisRekapView } from './components/AdminPortal/BukuInventarisRekapView';
 import { LoanManagement } from './components/AdminPortal/LoanManagement';
 import { DamageTicketManagement } from './components/AdminPortal/DamageTicketManagement';
 import { AssetInventory } from './components/AdminPortal/AssetInventory';
@@ -16,22 +21,27 @@ import { MonthlyReportPdf } from './components/AdminPortal/MonthlyReportPdf';
 import { MasterDataManagement } from './components/AdminPortal/MasterDataManagement';
 import { PicDashboard } from './components/AdminPortal/PicDashboard';
 import { SparePartsManagementView } from './components/AdminPortal/SparePartsManagementView';
+import { SystemProposalManagement } from './components/AdminPortal/SystemProposalManagement';
+import { AuditTrailView } from './components/AdminPortal/AuditTrailView';
 import { AdminLoginModal } from './components/Modals/AdminLoginModal';
 import { EmailNotificationModal } from './components/Modals/EmailNotificationModal';
+import { ActorSwitcherModal } from './components/ActorSwitcherModal';
+import { AppUser } from './types';
 
 export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean>(() => {
     return sessionStorage.getItem('pusdatin_admin_auth') === 'true';
   });
 
-  const [activeRole, setActiveRole] = useState<'user' | 'admin'>('user');
-  const [activeTab, setActiveTab] = useState<string>('dashboard-civitas');
+  const [activeRole, setActiveRole] = useState<'user' | 'admin'>('admin');
+  const [activeTab, setActiveTab] = useState<string>('dashboard-pimpinan');
   const [activeTrackId, setActiveTrackId] = useState<string>('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Modals
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [isActorModalOpen, setIsActorModalOpen] = useState(false);
 
   // Statistics
   const [stats, setStats] = useState(() => AppDatabase.getStatistics());
@@ -48,9 +58,9 @@ export default function App() {
     setIsAdmin(true);
     sessionStorage.setItem('pusdatin_admin_auth', 'true');
     setActiveRole('admin');
-    const tech = AppDatabase.getActiveTechnician();
-    if (tech && !tech.isFullAccess) {
-      setActiveTab('dashboard-pic');
+    const user = AppDatabase.getActiveUser();
+    if (user.role === 'ACT-01' || user.role === 'ACT-02') {
+      setActiveTab('dashboard-pimpinan');
     } else {
       setActiveTab('dashboard');
     }
@@ -59,7 +69,8 @@ export default function App() {
   const handleLogout = () => {
     setIsAdmin(false);
     sessionStorage.removeItem('pusdatin_admin_auth');
-    AppDatabase.setActiveTechnician(null);
+    const civitas = AppDatabase.getUsers().find(u => u.role === 'ACT-10');
+    if (civitas) AppDatabase.setActiveUser(civitas.id);
     setActiveRole('user');
     setActiveTab('dashboard-civitas');
   };
@@ -67,9 +78,9 @@ export default function App() {
   const handleSwitchRole = (role: 'user' | 'admin') => {
     setActiveRole(role);
     if (role === 'admin') {
-      const tech = AppDatabase.getActiveTechnician();
-      if (tech && !tech.isFullAccess) {
-        setActiveTab('dashboard-pic');
+      const user = AppDatabase.getActiveUser();
+      if (user.role === 'ACT-01' || user.role === 'ACT-02') {
+        setActiveTab('dashboard-pimpinan');
       } else {
         setActiveTab('dashboard');
       }
@@ -82,15 +93,30 @@ export default function App() {
     if (searchTicketId) {
       setActiveTrackId(searchTicketId);
     }
-    const tech = AppDatabase.getActiveTechnician();
-    if (tech && !tech.isFullAccess && activeRole === 'admin') {
-      // Restricted PIC can only access their dashboard and their damage tickets
-      if (tabId !== 'dashboard-pic' && tabId !== 'kelola-tiket') {
-        setActiveTab('dashboard-pic');
-        return;
+    setActiveTab(tabId);
+  };
+
+  const handleSelectActor = (user: AppUser) => {
+    refreshData();
+    if (user.role === 'ACT-10') {
+      setActiveRole('user');
+      setActiveTab('dashboard-civitas');
+    } else {
+      setIsAdmin(true);
+      sessionStorage.setItem('pusdatin_admin_auth', 'true');
+      setActiveRole('admin');
+      if (user.role === 'ACT-01' || user.role === 'ACT-02') {
+        setActiveTab('dashboard-pimpinan');
+      } else if (user.role === 'ACT-03') {
+        setActiveTab('dashboard');
+      } else if (user.role === 'ACT-04' || user.role === 'ACT-05' || user.role === 'ACT-09') {
+        setActiveTab('kelola-tiket');
+      } else if (user.role === 'ACT-06' || user.role === 'ACT-07' || user.role === 'ACT-08') {
+        setActiveTab('pengajuan-sistem');
+      } else {
+        setActiveTab('dashboard');
       }
     }
-    setActiveTab(tabId);
   };
 
   return (
@@ -104,6 +130,7 @@ export default function App() {
         onLogout={handleLogout}
         onOpenEmailLogs={() => setIsEmailModalOpen(true)}
         onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
+        onOpenActorSwitcher={() => setIsActorModalOpen(true)}
         pendingLoanCount={stats.totalPinjamMenunggu}
         overdueCount={stats.totalPinjamTerlambat}
       />
@@ -120,6 +147,7 @@ export default function App() {
           pendingDamageCount={stats.totalAntreanTiket}
           overdueCount={stats.totalPinjamTerlambat}
           onOpenLogin={() => setIsLoginModalOpen(true)}
+          onOpenActorSwitcher={() => setIsActorModalOpen(true)}
         />
 
         {/* Main Viewport Content */}
@@ -153,15 +181,28 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'pengajuan-sistem-user' && (
+                <SystemProposalForm
+                  onSuccessSubmit={() => {
+                    refreshData();
+                  }}
+                  onNavigateTab={handleSelectTab}
+                />
+              )}
+
               {activeTab === 'cek-progres' && (
                 <TicketTracker initialSearchId={activeTrackId} />
               )}
             </div>
           )}
 
-          {/* ADMIN PORTAL VIEWS */}
+          {/* ADMIN & STAFF PORTAL VIEWS */}
           {activeRole === 'admin' && (
             <div className="max-w-6xl mx-auto space-y-6">
+              {activeTab === 'dashboard-pimpinan' && (
+                <ExecutiveDashboard onNavigateTab={handleSelectTab} />
+              )}
+
               {activeTab === 'dashboard' && (
                 <AdminDashboard
                   stats={stats}
@@ -175,12 +216,32 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'buku-penerimaan' && (
+                <BukuPenerimaanView onDataChanged={refreshData} />
+              )}
+
+              {activeTab === 'buku-pengeluaran' && (
+                <BukuPengeluaranView onDataChanged={refreshData} />
+              )}
+
+              {activeTab === 'buku-inventaris-rekap' && (
+                <BukuInventarisRekapView onDataChanged={refreshData} />
+              )}
+
               {activeTab === 'seluruh-aset' && (
                 <AllAssetsMasterView onDataChanged={refreshData} />
               )}
 
               {activeTab === 'suku-cadang' && (
                 <SparePartsManagementView onDataChanged={refreshData} />
+              )}
+
+              {activeTab === 'pengajuan-sistem' && (
+                <SystemProposalManagement onDataChanged={refreshData} />
+              )}
+
+              {activeTab === 'audit-trail' && (
+                <AuditTrailView />
               )}
 
               {activeTab === 'kelola-pinjam' && (
@@ -217,6 +278,12 @@ export default function App() {
       <EmailNotificationModal
         isOpen={isEmailModalOpen}
         onClose={() => setIsEmailModalOpen(false)}
+      />
+
+      <ActorSwitcherModal
+        isOpen={isActorModalOpen}
+        onClose={() => setIsActorModalOpen(false)}
+        onSelectUser={handleSelectActor}
       />
     </div>
   );
