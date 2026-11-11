@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Informasi Aset PUSDATIN UMC",
+  "description": "Sistem Informasi Manajemen Aset, Peminjaman, Tiket Kerusakan, dan Pelaporan Bulanan Universitas Muhammadiyah Cirebon.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

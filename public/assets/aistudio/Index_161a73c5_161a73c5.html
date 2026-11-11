@@ -1,0 +1,1830 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Sistem Informasi Aset PUSDATIN UMC</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  
+  <style>
+    :root {
+      --primary-red: #DA2424;
+      --hover-red: #B51B1B;
+      --bg-color: #F4F6F9;
+    }
+    body { background-color: var(--bg-color); font-family: 'Segoe UI', sans-serif; overflow-x: hidden; margin: 0; }
+    
+    .sidebar { 
+      height: 100vh; width: 260px; position: fixed; 
+      background-color: var(--primary-red); color: white; padding-top: 20px; 
+      z-index: 1050; transition: transform 0.3s ease; display: flex; flex-direction: column;
+      overflow-y: auto; overflow-x: hidden;
+    }
+    .sidebar-top-content { flex: 1; }
+    .sidebar .px-3 { margin-top: auto; padding-bottom: 20px; }
+    .sidebar::-webkit-scrollbar { width: 5px; }
+    .sidebar::-webkit-scrollbar-track { background: #b51b1b; }
+    .sidebar::-webkit-scrollbar-thumb { background: #f1f1f1; border-radius: 10px; }
+    .sidebar .logo { text-align: center; padding: 10px 15px; margin-bottom: 20px; }
+    .sidebar .logo h4 { font-weight: bold; margin:0; font-size: 18px; letter-spacing: 0.5px; }
+    .sidebar .logo p { font-size: 11px; margin:5px 0 0 0; opacity: 0.9; }
+    
+    .sidebar a { padding: 12px 20px; text-decoration: none; font-size: 14px; color: white; display: block; border-left: 4px solid transparent; transition: 0.2s; cursor: pointer; }
+    .sidebar a:hover, .sidebar a.active { background-color: var(--hover-red); border-left: 4px solid #FFF; font-weight: 500; }
+    .sidebar a i { margin-right: 12px; width: 20px; text-align: center; }
+    
+    .menu-terkunci { background-color: rgba(0, 0, 0, 0.15); border-left: 4px solid transparent !important; }
+    .menu-terkunci i.fa-lock { float: right; margin-top: 3px; font-size: 12px; opacity: 0.7; }
+
+    .mobile-header {
+      display: none; background-color: white; padding: 10px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1040; justify-content: space-between; align-items: center;
+    }
+    .mobile-header .brand-title { font-weight: bold; color: var(--primary-red); margin: 0; font-size: 16px; }
+    .btn-toggle-sidebar { background: none; border: none; font-size: 22px; color: #333; cursor: pointer; }
+
+    .content { margin-left: 260px; padding: 40px; transition: margin-left 0.3s ease; }
+    .section { display: none; }
+    .section.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    
+    .sidebar-backdrop { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1045; }
+
+    @media (max-width: 991.98px) {
+      .mobile-header { display: flex; }
+      .sidebar { transform: translateX(-100%); }
+      .content { margin-left: 0; padding: 20px; padding-top: 80px; }
+      .sidebar.show { transform: translateX(0); }
+      .sidebar-backdrop.show { display: block; }
+    }
+    
+    .dash-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); text-align: center; border-top: 5px solid var(--primary-red); margin-bottom: 25px; }
+    .dash-card h3 { font-weight: 800; color: #333; margin-top: 10px; font-size: 38px; }
+    .dash-card p { color: #6c757d; margin: 0; font-weight: 600; font-size: 14px; }
+    .dash-card i { font-size: 20px; margin-bottom: 8px; display: inline-block; }
+    
+    .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); background: #fff; }
+    .form-label { font-weight: 600; color: #333; margin-bottom: 8px; }
+    .form-control, .form-select { padding: 10px 15px; border-radius: 8px; border: 1px solid #ced4da; }
+    .btn-purple { background-color: #6f42c1; color: white; border: none; padding: 12px 25px; border-radius: 8px; font-weight: 600; }
+    .btn-purple:hover { background-color: #5936a2; color: white; }
+    
+    /* Trik CSS khusus saat cetak PDF agar baris tidak terpotong (page-break) */
+    .cetak-pdf-mode tr { page-break-inside: avoid !important; }
+    .cetak-pdf-mode td, .cetak-pdf-mode th { page-break-inside: avoid !important; }
+
+    /* =====================================================================
+       CETAK LABEL THERMAL  (stiker 52 x 25 mm, printer POS-58 / EPPOS)
+       ---------------------------------------------------------------------
+       - Printer struk 58 mm hanya bisa mencetak selebar 48 mm, jadi isi label
+         dibuat 46 mm dan diletakkan di tengah kertas.
+       - Tinggi halaman (@page) = tinggi stiker + celah antar stiker, supaya
+         setiap cetakan maju tepat 1 stiker. UKUR dengan penggaris: jarak dari
+         tepi atas stiker ke tepi atas stiker berikutnya (umumnya 28 mm).
+         Angka itu diatur dari menu Cetak Barcode > Kalibrasi Printer Label.
+       - Kalau posisi cetak kurang pas, geser lewat --offset-x / --offset-y.
+       ===================================================================== */
+    #printArea { display: none; }   /* disembunyikan di layar, hanya tampil saat cetak */
+
+    @media print {
+      @page { size: 58mm 28mm; margin: 0; }   /* cadangan; tinggi sebenarnya diatur dari JS (STIKER_PITCH_MM) */
+
+      :root { --offset-x: -0mm; --offset-y: -7mm; }
+
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; width: 58mm; }
+      body > *:not(#printArea) { display: none !important; }
+
+      #printArea { display: block !important; position: static; width: 58mm; margin: 0; padding: 0; }
+
+      /* 1 tiket = 1 halaman (tinggi halaman 28mm) */
+      .thermal-ticket {
+        position: relative;
+        left: var(--offset-x); top: var(--offset-y);
+        width: 46mm; height: 25mm;
+        margin: 0 auto;                     /* sisa 3mm di bawah = celah antar stiker */
+        padding: 1.5mm 0 0 0;
+        box-sizing: border-box;
+        overflow: hidden;
+        background: #fff; color: #000;
+        text-align: center;
+        font-family: Arial, Helvetica, sans-serif;
+        line-height: 1.1;
+        break-after: page; page-break-after: always;
+      }
+      .thermal-ticket:last-child { break-after: auto; page-break-after: auto; }
+
+      .thermal-barcode { height: 11mm; margin: 0; padding: 0; line-height: 0; }
+      .thermal-barcode svg { display: block; margin: 0 auto; }   /* ukuran (mm) diatur dari JS */
+
+      .thermal-title {
+        margin-top: 1mm;
+        font-size: 8pt; font-weight: bold;
+        max-height: 6.4mm; overflow: hidden;                      /* maksimal 2 baris */
+        word-break: break-word;
+      }
+      .thermal-code {
+        margin-top: 0.8mm;
+        font-size: 9pt; font-weight: bold; letter-spacing: 0.3mm;
+      }
+
+      /* --- halaman kalibrasi: penggaris --- */
+      .thermal-ruler { position: relative; width: 46mm; margin: 0 auto; overflow: hidden;
+                       break-after: page; page-break-after: always; font-family: Arial, Helvetica, sans-serif; }
+      .thermal-ruler:last-child { break-after: auto; page-break-after: auto; }
+      .thermal-ruler .rl { position: absolute; left: 0; height: 0; border-top: 0.25mm solid #000; }
+      .thermal-ruler .rn { position: absolute; left: 9mm; font-size: 7pt; font-weight: bold; line-height: 1; margin-top: -1.2mm; }
+      .thermal-ruler .rt { position: absolute; left: 16mm; top: 11mm; font-size: 6pt; line-height: 1.2; }
+      /* --- halaman kosong untuk memajukan kertas --- */
+      .thermal-feed { width: 46mm; margin: 0 auto; }
+    }
+
+    /* ===== UPLOAD FOTO BARCODE STYLES ===== */
+    .btn-foto {
+      background-color: #198754; color: white; border: none;
+      border-radius: 8px; padding: 10px 14px; font-size: 15px;
+      cursor: pointer; transition: 0.2s; flex-shrink: 0; white-space: nowrap;
+    }
+    .btn-foto:hover { background-color: #157347; }
+    .input-scan-group { display: flex; gap: 8px; align-items: center; max-width: 500px; margin: 0 auto; }
+    .input-scan-group .form-control { flex: 1; }
+    .scan-info { font-size: 13px; color: #6c757d; text-align: center; margin-top: 8px; }
+    
+    #previewFoto { max-width: 100%; max-height: 220px; border-radius: 8px; border: 2px dashed #dee2e6; display: none; margin: 10px auto; display: none; }
+    .upload-area { border: 2px dashed #0d6efd; border-radius: 12px; padding: 20px; text-align: center; background: #f8f9ff; cursor: pointer; transition: 0.2s; }
+    .upload-area:hover { background: #eef0ff; border-color: #0b5ed7; }
+    .upload-area i { font-size: 2rem; color: #0d6efd; margin-bottom: 8px; }
+    #hasilBacaBarcode { font-size: 1.1rem; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <div class="mobile-header">
+    <button class="btn-toggle-sidebar" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
+    <p class="brand-title">PUSDATIN UMC</p>
+    <div style="width: 22px;"></div>
+  </div>
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
+
+  <div class="sidebar" id="sidebarMenu">
+    <div class="sidebar-top-content">
+      <div class="logo">
+        <h4><i class="fa-solid fa-layer-group"></i> PUSDATIN UMC</h4>
+        <p>Pusat Data Teknologi & Informasi</p>
+      </div>
+      <hr style="border-color: rgba(255,255,255,0.15);">
+      
+      <a class="nav-link active" onclick="navigasiMenu('dashboard')"><i class="fa-solid fa-chart-simple"></i> Dashboard</a>
+            
+      <a class="nav-link" onclick="navigasiMenu('riwayat-perbaikan')"><i class="fa-solid fa-clock-rotate-left"></i> Cek Aset</a>
+      <a class="nav-link" onclick="navigasiMenu('ajukan-pinjam')"><i class="fa-solid fa-handshake"></i> Pinjam Aset</a>
+      <a class="nav-link" onclick="navigasiMenu('lapor-kerusakan')"><i class="fa-solid fa-bug"></i> Lapor Kerusakan</a>
+      <a class="nav-link" onclick="navigasiMenu('cek-progres'); muatProgresTiket();"><i class="fa-solid fa-list-check"></i> Cek Progres Laporan</a>
+            
+      <div id="menuAdminWrapper" style="display: none;">
+        <hr style="border-color: rgba(255,255,255,0.15); margin: 5px 0;">
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('kelola-tiket')">
+          <i class="fa-solid fa-ticket"></i> Kelola Tiket Rusak
+          <span id="badgeTiketBaru" class="badge bg-danger rounded-pill ms-2" style="display: none; font-size: 0.7rem;">0</span>
+        </a>
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('laporan')"><i class="fa-solid fa-file-lines"></i> Laporan</a>
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('barang-masuk')"><i class="fa-solid fa-box-archive"></i> Barang Masuk</a>
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('transaksi', 'Keluar')"><i class="fa-solid fa-right-from-bracket"></i> Barang Keluar</a>
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('transaksi', 'Rusak/Perbaikan')"><i class="fa-solid fa-screwdriver-wrench"></i> Rusak/Perbaikan</a>
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('transaksi', 'Pinjam')"><i class="fa-solid fa-handshake"></i> Peminjaman</a>
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('kelola-pinjam')"><i class="fa-solid fa-list-check"></i> Kelola Peminjaman</a>
+        <a class="nav-link menu-terkunci" onclick="navigasiMenu('cetak-barcode')"><i class="fa-solid fa-barcode"></i> Cetak Barcode</a>
+        </div>
+    </div>
+
+    <div class="px-3 mb-4" id="areaTombolAuth">
+      <button class="btn btn-sm btn-outline-light w-100 py-2 shadow-sm" onclick="bukaModalLogin()"><i class="fa-solid fa-lock-open"></i> Login Admin</button>
+    </div>
+  </div>
+
+  <div class="content">
+    
+    <div id="dashboard" class="section active">
+      <div class="row" id="dashboardCards"></div>
+      
+      <div class="row mt-2">
+        <div class="col-md-6 mb-3">
+          <div class="card p-4 h-100 shadow-sm border-0" style="border-top: 4px solid #f0ad4e !important;">
+            <h5 class="mb-3 text-secondary fw-bold"><i class="fa-solid fa-folder text-warning me-2"></i> Jumlah Aset per Kategori</h5>
+            <div id="kategoriListArea" class="row"></div>
+          </div>
+        </div>
+        
+        <div class="col-md-6 mb-3">
+          <div class="card p-4 h-100 shadow-sm border-0" style="border-top: 4px solid #0d6efd !important;">
+            <h5 class="mb-3 text-secondary fw-bold"><i class="fa-solid fa-map-location-dot text-primary me-2"></i> Jumlah Aset per Lokasi</h5>
+            <div id="lokasiListArea" class="row"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="ajukan-pinjam" class="section">
+      <div class="card p-4">
+        <h4 class="mb-4 fw-bold"><i class="fa-solid fa-handshake text-info"></i> Formulir Pengajuan Peminjaman Aset</h4>
+        <form id="formPeminjaman" onsubmit="event.preventDefault(); kirimPeminjaman();">
+          <div class="row mb-3">
+            <div class="col-md-6"><label class="form-label">Nama Peminjam</label><input type="text" id="pinjamNama" class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label">NIDN / NIK / NIM</label><input type="text" id="pinjamNIK" class="form-control" required></div>
+          </div>
+          <div class="row mb-3">
+            <div class="col-md-6"><label class="form-label">Unit Kerja / Prodi</label><input type="text" id="pinjamUnit" class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label">No. HP / Kontak</label><input type="text" id="pinjamKontak" class="form-control" required></div>
+          </div>
+          <div class="row mb-3">
+            <div class="col-md-8"><label class="form-label">Jenis Barang (Contoh: Laptop, Kabel HDMI)</label><input type="text" id="pinjamJenis" class="form-control" placeholder="Bisa sebutkan lebih dari 1 jenis" required></div>
+            <div class="col-md-4"><label class="form-label">Jumlah Total Barang</label><input type="number" id="pinjamJumlah" class="form-control" min="1" required></div>
+          </div>
+          <div class="row mb-4">
+            <div class="col-md-6"><label class="form-label">Tgl Rencana Pinjam</label><input type="date" id="pinjamMulai" class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label">Tgl Rencana Kembali</label><input type="date" id="pinjamSelesai" class="form-control" required></div>
+          </div>
+          <button type="submit" class="btn btn-info text-white fw-bold" id="btnKirimPinjam"><i class="fa-solid fa-paper-plane"></i> Ajukan Peminjaman</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="kelola-pinjam" class="section">
+      <div class="card p-4">
+        <h4 class="mb-3 fw-bold"><i class="fa-solid fa-list-check text-info"></i> Manajemen Pengajuan Peminjaman</h4>
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover align-middle" style="font-size:13px;">
+            <thead class="table-dark text-center">
+              <tr><th>ID Tiket</th><th>Peminjam (Unit)</th><th>Barang & Jumlah</th><th>Jadwal Pinjam</th><th>Status</th><th>Aksi</th></tr>
+            </thead>
+            <tbody id="tbodyPinjamAdmin"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+   
+    <div class="modal fade" id="modalProsesPinjam" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Proses Tiket Peminjaman</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="prosesPinjamId"><input type="hidden" id="prosesPinjamNama">
+            <div class="mb-3">
+              <label class="form-label">Keputusan Admin</label>
+              <select id="aksiPinjam" class="form-select" onchange="toggleFormPinjam()">
+                <option value="terima">Setujui & Siapkan Barang</option>
+                <option value="tolak">Tolak Pengajuan</option>
+                <option value="kembali">Barang Dikembalikan (Selesaikan Tiket)</option>
+              </select>
+            </div>
+            
+            <div id="areaSetujuPinjam">
+              <div class="mb-3 p-3 bg-light border rounded">
+                <label class="form-label fw-bold">1. Input Barcode Barang (Pisahkan dengan koma jika > 1)</label>
+                <div class="input-group">
+                  <input type="text" id="inputBarcodePinjam" class="form-control" placeholder="Scan Barcode...">
+                  <button class="btn btn-secondary" type="button" onclick="cekNamaBarcodePinjam()">Cari Nama Barang</button>
+                </div>
+                <textarea id="hasilNamaBarangPinjam" class="form-control mt-2" rows="2" readonly placeholder="Nama barang otomatis terisi di sini..."></textarea>
+              </div>
+              <div class="row mb-3">
+                <div class="col-6"><label class="form-label">Kondisi Barang</label><input type="text" id="kondisiPinjam" class="form-control" placeholder="Baik / Baru / Normal"></div>
+                <div class="col-6"><label class="form-label">Nama Petugas Peminjaman</label><input type="text" id="petugasPinjam" class="form-control" placeholder="Nama Admin..."></div>
+              </div>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Keterangan / Alasan (Opsional/Wajib jika Tolak)</label>
+              <textarea id="catatanPinjam" rows="2" class="form-control"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-primary" onclick="submitProsesPinjam()">Simpan Perubahan</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="areaCetakFormPinjam" class="bg-white p-4" style="display:none; width:100%; color:black;">
+      <div style="text-align:center; margin-bottom:20px; border-bottom: 2px solid #000; padding-bottom:10px;">
+        <h3 style="margin:0; font-weight:bold;">PUSDATIN UNIVERSITAS MUHAMMADIYAH CIREBON</h3>
+        <h4 id="judulCetakPinjam" style="margin:5px 0 0 0;">FORMULIR PEMINJAMAN ASET</h4>
+      </div>
+      <table style="width:100%; margin-bottom:20px; font-size:14px;">
+        <tr><td width="30%"><strong>ID Tiket</strong></td><td width="5%">:</td><td id="cetakTkt">-</td></tr>
+        <tr><td><strong>Nama Peminjam</strong></td><td>:</td><td id="cetakNama">-</td></tr>
+        <tr><td><strong>NIDN/NIK/NIM</strong></td><td>:</td><td id="cetakNik">-</td></tr>
+        <tr><td><strong>Unit Kerja/Prodi</strong></td><td>:</td><td id="cetakUnit">-</td></tr>
+        <tr><td><strong>Barang (Jumlah)</strong></td><td>:</td><td id="cetakBarang">-</td></tr>
+        <tr><td><strong>Kondisi Barang</strong></td><td>:</td><td id="cetakKondisi">-</td></tr>
+        <tr><td><strong>Tanggal Pinjam</strong></td><td>:</td><td id="cetakTglPinjam">-</td></tr>
+        <tr><td><strong>Rencana Kembali</strong></td><td>:</td><td id="cetakTglKembali">-</td></tr>
+      </table>
+      <table style="width:100%; text-align:center; margin-top:50px; font-size:14px;">
+        <tr>
+          <td width="33%">Peminjam,<br><br><br><br><b id="ttdPeminjam">(..........................)</b></td>
+          <td width="33%">Petugas PUSDATIN,<br><br><br><br><b id="ttdPetugas">(..........................)</b></td>
+          <td width="33%">Mengetahui,<br>Kepala PUSDATIN<br><br><br><b>(..........................)</b></td>
+        </tr>
+      </table>
+    </div>
+
+    <div id="barang-masuk" class="section">
+      <div class="card p-4">
+        <h4 class="mb-4 fw-bold"><i class="fa-solid fa-box text-danger"></i> Input Barang Masuk</h4>
+        <form id="formMasuk" onsubmit="event.preventDefault(); submitMasuk();">
+          <div class="mb-3">
+            <label class="form-label">Nama Barang</label>
+            <input type="text" id="nmBarang" class="form-control" placeholder="Contoh: Ruijie Access Point" required>
+          </div>
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label">Kategori</label>
+              <input type="text" id="katBarang" list="listKategori" class="form-control" placeholder="-- Pilih Kategori --" required>
+              <datalist id="listKategori"></datalist>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Lokasi</label>
+              <input type="text" id="lokasiBarang" list="listLokasi" class="form-control" placeholder="-- Pilih Lokasi --" required>
+              <datalist id="listLokasi"></datalist>
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label">Jumlah</label>
+            <input type="number" id="jmlBarang" class="form-control" min="1" value="1" required>
+          </div>
+          <button type="submit" class="btn btn-purple" id="btnSimpanMasuk"><i class="fa-solid fa-save"></i> Simpan & Generate Barcode</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="transaksi" class="section">
+      <div class="card p-4">
+        <h4 class="mb-4 fw-bold" id="transTitle">Scan Barcode</h4>
+        <div class="mb-4 bg-light p-4 border rounded text-center">
+          <label class="form-label fw-bold d-block mb-2">Arahkan Kursor & Tembak Barcode Scanner Di Sini</label>
+          <div class="input-scan-group">
+            <input type="text" id="scanBarcode" class="form-control form-control-lg text-center" style="border: 2px solid var(--primary-red);" placeholder="Scan / Ketik Barcode Aset" onkeypress="handleScan(event)">
+            <button class="btn-foto" onclick="bukaUploadFoto('scanBarcode', function(v){ handleScanDariUpload(v); })" title="Upload foto barcode"><i class="fa-solid fa-camera"></i> Foto</button>
+          </div>
+          <p class="scan-info mt-2"><i class="fa-solid fa-circle-info"></i> Gunakan scanner fisik, ketik manual, atau <strong>foto barcode dari HP</strong></p>
+        </div>
+
+        <div id="formTransaksiArea" style="display:none;" class="p-3 border rounded bg-white">
+          <div class="row mb-3">
+            <div class="col-md-6"><p class="mb-0 text-muted">Nama Aset:</p><h5 id="detNama" class="fw-bold">-</h5></div>
+            <div class="col-md-6"><p class="mb-0 text-muted">Status & Lokasi Saat Ini:</p><h5 id="detStatus">-</h5></div>
+          </div>
+          <form id="formAction" onsubmit="event.preventDefault();">
+            <input type="hidden" id="transBarcode">
+            <input type="hidden" id="transJenis">
+            <div class="mb-3" id="areaLokasiBaru" style="display:none;">
+              <label class="form-label">Lokasi Aset Ditempatkan (Tujuan)</label>
+              <input type="text" id="lokasiBaru" list="listLokasi" class="form-control" placeholder="Pilih lokasi dropdown">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Keterangan Tambahan / Riwayat</label>
+              <input type="text" id="ketTransaksi" class="form-control" placeholder="Tulis catatan di sini...">
+            </div>
+            <div id="btnAksiArea"></div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div id="laporan" class="section">
+      <div class="card p-4 mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <h4 class="fw-bold m-0"><i class="fa-solid fa-file-contract text-danger"></i> Laporan Distribusi Aset</h4>
+          <button class="btn btn-danger btn-sm" onclick="cetakPDFLaporanDinamis()"><i class="fa-solid fa-file-pdf"></i> Cetak PDF Laporan</button>
+        </div>
+        
+        <div class="bg-light p-3 border rounded mb-3">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-2">
+              <label class="form-label small fw-bold">Dari Tanggal</label>
+              <input type="date" id="filterTglMulai" class="form-control form-control-sm" onchange="jalankanPenyaringanUlang()">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-bold">Sampai Tanggal</label>
+              <input type="date" id="filterTglSelesai" class="form-control form-control-sm" onchange="jalankanPenyaringanUlang()">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-bold">Kategori Barang</label>
+              <select id="filterKategoriDropdown" class="form-select form-select-sm" onchange="jalankanPenyaringanUlang()">
+                <option value="semua">-- Semua Kategori --</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-bold">Lokasi Barang</label>
+              <select id="filterLokasiDropdown" class="form-select form-select-sm" onchange="jalankanPenyaringanUlang()">
+                <option value="semua">-- Semua Lokasi --</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-sm btn-secondary w-100" onclick="resetFilterTambahan()"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="p-2 border rounded mb-3 d-flex flex-wrap gap-1 justify-content-center bg-white">
+          <button class="btn btn-sm btn-dark filter-btn" id="btn-all" onclick="saringLaporan('semua')">Status Aset Terkini (Semua)</button>
+          <button class="btn btn-sm btn-outline-secondary filter-btn" id="btn-masuk" onclick="saringLaporan('Masuk')">Riwayat Masuk</button>
+          <button class="btn btn-sm btn-outline-primary filter-btn" id="btn-keluar" onclick="saringLaporan('Keluar')">Riwayat Keluar</button>
+          <button class="btn btn-sm btn-outline-danger filter-btn" id="btn-rusak" onclick="saringLaporan('Rusak')">Riwayat Rusak</button>
+          <button class="btn btn-sm btn-outline-warning text-dark filter-btn" id="btn-perbaikan" onclick="saringLaporan('Perbaikan')">Riwayat Perbaikan</button>
+          <button class="btn btn-sm btn-outline-success filter-btn" id="btn-selesai" onclick="saringLaporan('Selesai')">Selesai Perbaikan</button>
+          <button class="btn btn-outline-info btn-sm" id="btn-pinjam" onclick="saringLaporan('Pinjam')">Riwayat Pinjam</button>
+        </div>
+
+        <div id="areaCetakLaporan" class="p-4 bg-white rounded border">
+          <div class="text-center pb-2 mb-3 border-bottom">
+            <h4 class="fw-bold text-dark m-0">LAPORAN DISTRIBUSI & KONDISI ASET</h4>
+            <p class="text-muted small m-0 mt-1" id="subJudulCetakLaporan">Kategori Laporan: Semua Data Aset</p>
+            <p class="text-secondary small m-0 fw-bold" id="metaFilterCetakLaporan" style="font-size:12px; display:none;"></p>
+          </div>
+          <div class="table-responsive" id="tabelLaporanBungkus">
+            <div id="tabelLaporanArea"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="riwayat-perbaikan" class="section">
+      <div class="card p-4">
+        <h4 class="mb-4 fw-bold"><i class="fa-solid fa-clock-rotate-left text-danger"></i> Cek Aset</h4>
+        <div class="mb-4 bg-light p-4 border rounded text-center">
+          <label class="form-label fw-bold d-block mb-2">Tembak Barcode untuk Melihat Log Aset</label>
+          <div class="input-scan-group">
+            <input type="text" id="scanRiwayatBarcode" class="form-control form-control-lg text-center" style="border: 2px solid #0d6efd;" placeholder="Scan Barcode di Sini..." onkeypress="handleRiwayatScan(event)">
+            <button class="btn-foto" onclick="bukaUploadFoto('scanRiwayatBarcode', function(v){ handleRiwayatScanDariUpload(v); })" title="Upload foto barcode"><i class="fa-solid fa-camera"></i> Foto</button>
+          </div>
+          <p class="scan-info mt-2"><i class="fa-solid fa-circle-info"></i> Gunakan scanner fisik, ketik manual, atau <strong>foto barcode dari HP</strong></p>
+        </div>
+        
+        <div id="hasilRiwayatArea" style="display:none;">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="fw-bold text-secondary mb-0">Pratinjau Riwayat Mutasi</h5>
+            <button class="btn btn-dark btn-sm" onclick="cetakPDFRiwayatDinamis()"><i class="fa-solid fa-file-pdf"></i> Cetak Log</button>
+          </div>
+          <div id="areaCetakLog" class="p-3 bg-white rounded border">
+            <h4 class="fw-bold text-dark text-center pb-3 mb-3 border-bottom" id="riwayatBarangHeader">Kronologi Barang: -</h4>
+            <div class="table-responsive">
+              <table class="table table-bordered table-hover" id="tabelRiwayat">
+                <thead class="table-dark text-center">
+                  <tr><th>No</th><th>Tanggal & Waktu</th><th>Aktivitas</th><th>Lokasi</th><th>Keterangan</th></tr>
+                </thead>
+                <tbody id="tabelRiwayatBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="cetak-barcode" class="section">
+      <div class="card p-4">
+        <h4 class="mb-4 fw-bold"><i class="fa-solid fa-search"></i> Lihat Detail & Cetak Ulang Barcode</h4>
+        <div class="row g-3 align-items-center mb-4">
+          <div class="col-auto"><input type="text" id="searchBC" class="form-control" placeholder="Masukkan Barcode"></div>
+          <div class="col-auto"><button class="btn btn-dark" onclick="cariDanCetakUlang()"><i class="fa-solid fa-search"></i> Cari Data</button></div>
+        </div>
+        <div id="detailCetakUlangArea" style="display:none;" class="p-3 border rounded bg-light text-center"></div>
+      </div>
+
+      <div class="card p-4 mt-3">
+        <h5 class="fw-bold mb-2"><i class="fa-solid fa-ruler-vertical text-danger"></i> Kalibrasi Printer Label</h5>
+        <p class="small text-muted mb-3">Printer struk tidak tahu letak celah antar stiker, jadi posisi cetak harus diselaraskan satu kali (ulangi bila gulungan diganti atau kertas bergeser).</p>
+        <div class="row g-3 align-items-end mb-3">
+          <div class="col-auto">
+            <label class="form-label small mb-1">Jarak stiker ke stiker (mm)</label>
+            <input type="number" id="inputPitch" class="form-control" step="0.1" min="25" max="60" style="width:150px;">
+          </div>
+          <div class="col-auto"><button type="button" class="btn btn-outline-dark" onclick="simpanPitchStiker()">Simpan</button></div>
+          <div class="col-auto"><button type="button" class="btn btn-dark" onclick="cetakPenggaris()"><i class="fa-solid fa-print"></i> Cetak Penggaris (2 halaman)</button></div>
+        </div>
+        <div class="row g-3 align-items-end">
+          <div class="col-auto">
+            <label class="form-label small mb-1">Majukan kertas (mm)</label>
+            <input type="number" id="inputMajukan" class="form-control" step="0.5" min="1" max="60" style="width:150px;">
+          </div>
+          <div class="col-auto"><button type="button" class="btn btn-warning" onclick="majukanKertas()"><i class="fa-solid fa-arrow-up"></i> Majukan</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="lapor-kerusakan" class="section">
+      <div class="card p-4">
+        <h4 class="mb-4 fw-bold"><i class="fa-solid fa-bug text-danger"></i> Form Laporan Kerusakan Aset</h4>
+        <form id="formLaporRusak" onsubmit="event.preventDefault(); kirimLaporan();">
+          <div class="mb-3">
+            <label class="form-label">Barcode Aset (opsional, jika ada)</label>
+            <div class="input-group">
+              <input type="text" id="barcodeLapor" class="form-control" placeholder="Scan atau ketik barcode (kosongkan jika tidak punya)">
+              <button class="btn btn-outline-success" type="button" onclick="bukaUploadFoto('barcodeLapor', null)" title="Upload foto barcode"><i class="fa-solid fa-camera"></i> Foto</button>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nama Barang <span class="text-danger">*</span> (wajib jika barcode kosong)</label>
+            <input type="text" id="namaBarangLapor" class="form-control" placeholder="Contoh: Monitor, CPU, Kursi Kantor">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Lokasi Aset <span class="text-danger">*</span></label>
+            <input type="text" id="lokasiLapor" list="listLokasi" class="form-control" placeholder="Pilih atau ketik lokasi" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nama Pelapor (opsional)</label>
+            <input type="text" id="pelapor" class="form-control" placeholder="Nama / Unit">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Deskripsi Kerusakan <span class="text-danger">*</span></label>
+            <textarea id="deskripsiRusak" rows="4" class="form-control" placeholder="Jelaskan kerusakan..." required></textarea>
+          </div>
+          <button type="submit" class="btn btn-danger" id="btnKirimLaporan"><i class="fa-solid fa-paper-plane"></i> Kirim Laporan</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="cek-progres" class="section">
+      <div class="card p-4">
+        <h4 class="mb-4 fw-bold text-dark"><i class="fa-solid fa-list-check text-danger"></i> Cek Progres Laporan / Tiket</h4>
+        <div id="halaman-cek-progres">
+            <div class="row mb-4" style="margin-bottom: 20px;">
+          <div class="col-md-6 mb-3">
+            <div class="card shadow py-2" style="border-left: 5px solid #f6c23e; background: #fffdf5; padding: 15px; border-radius: 5px;">
+              <div style="font-size: 11px; font-weight: bold; color: #f6c23e; text-transform: uppercase; margin-bottom: 5px;">
+                Total Antrean Laporan Kampus
+              </div>
+              <div id="txtAntrean" style="font-size: 24px; font-weight: bold; color: #5a5c69;">
+                Memuat...
+              </div>
+            </div>
+          </div>
+    
+    <div class="col-md-6 mb-3">
+      <div class="card shadow py-2" style="border-left: 5px solid #4e73df; background: #f8f9fc; padding: 15px; border-radius: 5px;">
+        <div style="font-size: 11px; font-weight: bold; color: #4e73df; text-transform: uppercase; margin-bottom: 5px;">
+          Sedang Dalam Perbaikan
+        </div>
+        <div id="txtDiproses" style="font-size: 24px; font-weight: bold; color: #5a5c69;">
+          Memuat...
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+        <div class="mb-4 bg-light p-4 border rounded text-center">
+          <label class="form-label fw-bold d-block mb-2">Tembak Barcode atau Ketik ID Tiket untuk Melihat Progres Laporan</label>
+          <div class="input-scan-group">
+            <input type="text" id="inputProgresTiket" class="form-control form-control-lg text-center" style="border: 2px solid var(--primary-red);" placeholder="Scan Barcode / Ketik TKT-..." onkeypress="handleProgresScan(event)">
+            <button class="btn-foto" onclick="bukaUploadFoto('inputProgresTiket', function(v){ document.getElementById('inputProgresTiket').value=v; eksekusiCariProgres(); })" title="Upload foto barcode"><i class="fa-solid fa-camera"></i> Foto</button>
+          </div>
+          <p class="scan-info mt-2"><i class="fa-solid fa-circle-info"></i> Gunakan scanner fisik, ketik manual, atau <strong>foto barcode dari HP</strong></p>
+          <button type="button" class="btn btn-danger mt-3 px-4 fw-bold shadow-sm" onclick="eksekusiCariProgres()"><i class="fa-solid fa-magnifying-glass"></i> Cari Progres</button>
+        </div>
+        
+        <div id="hasilProgresArea" style="display:none;">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="fw-bold text-secondary mb-0">Pratinjau Status Penanganan Tiket</h5>
+          </div>
+          <div class="p-3 bg-white rounded border">
+            <div class="table-responsive">
+              <table class="table table-bordered table-hover align-middle m-0">
+                <thead class="table-dark text-center">
+                  <tr>
+                    <th>No</th>
+                    <th>ID Tiket</th>
+                    <th>Tanggal Lapor</th>
+                    <th>Nama Barang / Aset</th>
+                    <th>Pelapor</th>
+                    <th>Deskripsi Kerusakan</th>
+                    <th>Status Progres</th>
+                    <th>Catatan Tindakan Admin</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyProgresTiket">
+                  </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div id="kelola-tiket" class="section">
+      <div class="card p-4">
+        <h4 class="mb-3 fw-bold"><i class="fa-solid fa-ticket text-warning"></i> Manajemen Tiket Kerusakan</h4>
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover align-middle" style="font-size:13px;">
+            <thead class="table-dark text-center">
+              <tr><th>No</th><th>ID Tiket</th><th>Barcode</th><th>Nama Barang</th><th>Pelapor</th><th>Lokasi</th><th>Deskripsi</th><th>Tgl Lapor</th><th>Status</th><th>Tgl Selesai</th><th>Catatan</th><th>Aksi</th></tr>
+            </thead>
+            <tbody id="tbodyTiketAdmin"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+    <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="4000">
+      <div class="toast-header bg-success text-white">
+        <i class="fa-solid fa-circle-check me-2"></i><strong class="me-auto">Notifikasi</strong><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastMessage"></div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalProsesTiket" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Proses Tiket</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="prosesIdTiket">
+          
+          <div class="mb-2">
+            <label class="form-label">Pilih Aksi</label>
+            <select id="aksiTiket" class="form-select">
+              <option value="terima">Terima & Ubah Status Aset menjadi Rusak</option>
+              <option value="perbaikan">Proses Perbaikan (Ubah Status Aset menjadi Diperbaiki)</option>
+              <option value="selesai">Selesai (Aset Kembali Normal)</option>
+            </select>
+          </div>
+          
+          <div class="mb-2" id="opsiMetodePerbaikan" style="display:none;">
+            <label class="form-label d-block"><strong>Metode Penanganan Barang:</strong></label>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="radMetode" id="radLokasi" value="false" checked>
+              <label class="form-check-label" for="radLokasi">🛠️ Perbaikan di Lokasi</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="radMetode" id="radPusdatin" value="true">
+              <label class="form-check-label" for="radPusdatin">📦 Bawa ke Ruang PUSDATIN</label>
+            </div>
+          </div>
+
+          <div class="mb-2" id="opsiStatusAset" style="display:none;">
+            <label class="form-label">Status Aset Baru (jika selesai)</label>
+            <select id="statusAsetBaru" class="form-select">
+              <option value="Tersedia">Tersedia</option>
+              <option value="Diperbaiki">Diperbaiki (Belum Selesai)</option>
+            </select>
+          </div>
+          
+          <div class="mb-2">
+            <label class="form-label">Catatan Admin</label>
+            <textarea id="catatanAdminTiket" rows="2" class="form-control"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" onclick="submitProsesTiket()">Simpan Perubahan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalLogin" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title fw-bold"><i class="fa-solid fa-shield-halved"></i> Verifikasi Admin</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small">Masukkan Password Sistem</label>
+            <input type="password" id="inputPassword" class="form-control text-center" placeholder="••••••••" onkeypress="if(event.key==='Enter') cekPasswordAdmin()">
+          </div>
+          <div id="pesanSalah" class="text-danger small text-center mb-2" style="display:none;">Password salah, coba lagi!</div>
+          <button type="button" class="btn btn-danger w-100 fw-bold" onclick="cekPasswordAdmin()">Buka Akses Menu</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalBarcode" data-bs-backdrop="static" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title fw-bold">Barcode Berhasil Dibuat</h5><button type="button" class="btn-close" data-bs-dismiss="modal" onclick="loadDashboard()"></button></div>
+        <div class="modal-body text-center overflow-auto" style="max-height: 380px;" id="modalBarcodeBody"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="loadDashboard()">Tutup</button>
+          <button type="button" class="btn btn-success" onclick="window.print()"><i class="fa-solid fa-print"></i> Print Tiket Barcode</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="printArea"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  
+  <script>
+    function parseCustomDate(dateStr) {
+      if (!dateStr) return null;
+      let parts = dateStr.toString().trim().split(/[\s\/\:-]+/); 
+      
+      if (parts.length >= 3) {
+        if (parts[0].length === 4) {
+          return new Date(parts[0], parts[1]-1, parts[2], parts[3]||0, parts[4]||0);
+        } else if (parts[2].length === 4) {
+          return new Date(parts[2], parts[1]-1, parts[0], parts[3]||0, parts[4]||0);
+        }
+      }
+      return new Date(dateStr);
+    }
+    
+    function formatTanggalIndo(dateStr) {
+      if (!dateStr) return '-';
+      let d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr; 
+
+      let dDate = String(d.getDate()).padStart(2, '0');
+      let dMonth = String(d.getMonth() + 1).padStart(2, '0');
+      let dYear = d.getFullYear();
+      let h = String(d.getHours()).padStart(2, '0');
+      let m = String(d.getMinutes()).padStart(2, '0');
+
+      if (h === '00' && m === '00') {
+         return `${dDate}/${dMonth}/${dYear}`;
+      } else {
+         return `${dDate}/${dMonth}/${dYear} ${h}:${m}`;
+      }
+    }
+
+    let currentTransType = "";
+    let dataMasterLaporan = null;
+    let currentStatusCriteria = "semua"; 
+    let currentNamaBarangRiwayat = "";
+    let currentBarcodeRiwayat = "";
+    let isAdminLoggedIn = false;
+    let intervalBadge;
+
+    function showToast(message, type = 'success') {
+      let toastEl = document.getElementById('liveToast');
+      let toastHeader = toastEl.querySelector('.toast-header');
+      let icon = toastHeader.querySelector('i');
+      let title = toastHeader.querySelector('strong');
+      toastHeader.classList.remove('bg-danger', 'bg-warning', 'bg-success');
+      
+      if (type === 'success') { toastHeader.classList.add('bg-success'); icon.className = 'fa-solid fa-circle-check me-2'; title.innerText = 'Sukses'; }
+      else if (type === 'error') { toastHeader.classList.add('bg-danger'); icon.className = 'fa-solid fa-circle-exclamation me-2'; title.innerText = 'Error'; }
+      else { toastHeader.classList.add('bg-warning'); icon.className = 'fa-solid fa-triangle-exclamation me-2'; title.innerText = 'Peringatan'; }
+      
+      document.getElementById('toastMessage').innerHTML = message;
+      new bootstrap.Toast(toastEl, { autohide: true, delay: 4000 }).show();
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebarMenu').classList.toggle('show');
+      document.getElementById('sidebarBackdrop').classList.toggle('show');
+    }
+
+   function navigasiMenu(sectionId, transTypeOpt) {
+      const menuTerproteksi = ['laporan', 'barang-masuk', 'transaksi', 'cetak-barcode', 'kelola-tiket', 'kelola-pinjam'];
+      
+      // Cek apakah menu yang diklik adalah menu khusus admin tapi belum login
+      if (menuTerproteksi.includes(sectionId) && !isAdminLoggedIn) {
+        bukaModalLogin();
+        return;
+      }
+
+      // Perintah untuk menampilkan konten menu yang diklik
+      showSection(sectionId);
+
+      // Jika menu transaksi yang dipilih, set tipe transaksinya
+      if (transTypeOpt) {
+        setTransType(transTypeOpt);
+      }
+
+      // Tambahkan loadPinjamAdmin() saat klik kelola-pinjam
+      if (sectionId === 'kelola-pinjam' && isAdminLoggedIn) {
+        loadPinjamAdmin();
+      }
+    }
+
+    function bukaModalLogin() {
+      document.getElementById('inputPassword').value = '';
+      document.getElementById('pesanSalah').style.display = 'none';
+      new bootstrap.Modal(document.getElementById('modalLogin')).show();
+    }
+
+    function kirimPeminjaman() {
+      let btn = document.getElementById('btnKirimPinjam');
+      btn.disabled = true; btn.innerHTML = 'Mengirim...';
+      let data = {
+        nama: document.getElementById('pinjamNama').value, nik: document.getElementById('pinjamNIK').value,
+        unit: document.getElementById('pinjamUnit').value, kontak: document.getElementById('pinjamKontak').value,
+        jenisBarang: document.getElementById('pinjamJenis').value, jumlah: document.getElementById('pinjamJumlah').value,
+        tglPinjam: document.getElementById('pinjamMulai').value, tglKembali: document.getElementById('pinjamSelesai').value
+      };
+      google.script.run.withSuccessHandler(function(res){
+        alert(res.pesan); document.getElementById('formPeminjaman').reset();
+        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Ajukan Peminjaman';
+      }).buatTiketPeminjaman(data);
+    }
+
+    // Untuk Admin Load Data
+    var masterDataPinjam = [];
+    function loadPinjamAdmin() {
+    let tbody = document.getElementById("tbodyPinjamAdmin"); 
+    // Tambahkan indikator loading di sini
+    tbody.innerHTML = "<tr><td colspan='6' class='text-center py-3'><div class='spinner-border spinner-border-sm text-info'></div> Memuat data peminjaman...</td></tr>";
+
+    google.script.run
+      .withSuccessHandler(function(data) {
+        tbody.innerHTML = ""; 
+
+        // Jaga-jaga jika data berbentuk string JSON dari backend
+        if (typeof data === 'string') data = JSON.parse(data);
+
+        if(!data || data.length === 0) {
+          tbody.innerHTML = "<tr><td colspan='6' class='text-center text-muted'>Belum ada data peminjaman</td></tr>";
+          return;
+        }
+
+        masterDataPinjam = data; 
+
+        data.forEach(function(row) {
+          let tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${row.id}</td>
+            <td>${row.peminjam} (${row.unit})</td>
+            <td>${row.barangPinjaman} (${row.jumlah} Unit)</td>
+            <td>${row.tglPinjam} - ${row.tglKembali}</td>
+            <td><span class="badge ${row.status === 'Disetujui' ? 'bg-success' : (row.status === 'Menunggu' ? 'bg-warning text-dark' : 'bg-secondary')}">${row.status}</span></td>
+            <td><button class="btn btn-sm btn-primary" onclick="bukaModalPinjam('${row.id}')">Proses</button></td>
+          `;
+          tbody.appendChild(tr);
+        });
+      })
+      .withFailureHandler(function(error) {
+        // Tampilkan error ke layar, bukan hanya console
+        tbody.innerHTML = `<tr><td colspan='6' class='text-center text-danger'>Gagal memuat data: ${error.message}</td></tr>`;
+      })
+      .getAllTiketPeminjaman(); 
+}
+    
+
+
+    function bukaModalPinjam(id) {
+      let t = masterDataPinjam.find(x => x.id === id);
+      document.getElementById('prosesPinjamId').value = t.id;
+      document.getElementById('prosesPinjamNama').value = t.peminjam;
+      document.getElementById('aksiPinjam').value = 'terima';
+      document.getElementById('inputBarcodePinjam').value = t.barcode || "";
+      document.getElementById('hasilNamaBarangPinjam').value = t.namaBarangT || "";
+      document.getElementById('kondisiPinjam').value = t.kondisi || "";
+      document.getElementById('petugasPinjam').value = t.petugas || "";
+      document.getElementById('catatanPinjam').value = "";
+      toggleFormPinjam();
+      new bootstrap.Modal(document.getElementById('modalProsesPinjam')).show();
+    }
+
+    function toggleFormPinjam() {
+      let aksi = document.getElementById('aksiPinjam').value;
+      document.getElementById('areaSetujuPinjam').style.display = (aksi === 'terima') ? 'block' : 'none';
+    }
+
+    function cekNamaBarcodePinjam() {
+      let bcValue = document.getElementById('inputBarcodePinjam').value;
+      let arrBc = bcValue.split(",");
+      let namaHasil = [];
+      let diproses = 0;
+      arrBc.forEach(function(bc) {
+        if(bc.trim()) {
+          google.script.run.withSuccessHandler(function(detail) {
+            diproses++;
+            if(detail) namaHasil.push(detail.nama);
+            if(diproses === arrBc.filter(x => x.trim()).length) {
+              document.getElementById('hasilNamaBarangPinjam').value = namaHasil.join(", ");
+            }
+          }).getDetailAset(bc.trim());
+        }
+      });
+    }
+
+    function submitProsesPinjam() {
+      let data = {
+        idTiket: document.getElementById('prosesPinjamId').value, peminjam: document.getElementById('prosesPinjamNama').value,
+        aksi: document.getElementById('aksiPinjam').value, barcode: document.getElementById('inputBarcodePinjam').value,
+        namaBarang: document.getElementById('hasilNamaBarangPinjam').value, kondisi: document.getElementById('kondisiPinjam').value,
+        petugas: document.getElementById('petugasPinjam').value, catatan: document.getElementById('catatanPinjam').value
+      };
+      google.script.run.withSuccessHandler(function(res) {
+        alert(res.pesan); bootstrap.Modal.getInstance(document.getElementById('modalProsesPinjam')).hide(); loadPinjamAdmin();
+      }).prosesTiketPeminjaman(data);
+    }
+
+    // Fitur Cetak PDF Peminjaman/Pengembalian
+    function cetakFormPinjam(id, jenis) {
+      let t = masterDataPinjam.find(x => x.id === id);
+      if(!t) return;
+      
+      document.getElementById('judulCetakPinjam').innerText = jenis === 'Kembali' ? 'FORMULIR PENGEMBALIAN ASET' : 'FORMULIR PEMINJAMAN ASET';
+      document.getElementById('cetakTkt').innerText = t.id;
+      document.getElementById('cetakNama').innerText = t.peminjam;
+      document.getElementById('cetakNik').innerText = t.nik;
+      document.getElementById('cetakUnit').innerText = t.unit;
+      document.getElementById('cetakBarang').innerText = t.namaBarangT + " (" + t.jumlah + " Unit) - BC: " + t.barcode;
+      document.getElementById('cetakKondisi').innerText = t.kondisi;
+      document.getElementById('cetakTglPinjam').innerText = t.tglPinjam;
+      
+      let tglKembaliTeks = t.tglKembali;
+      if(jenis === 'Kembali') tglKembaliTeks += " (Aktual Kembali: " + t.tglDikembalikan + ")";
+      document.getElementById('cetakTglKembali').innerText = tglKembaliTeks;
+      
+      document.getElementById('ttdPeminjam').innerText = "(" + t.peminjam + ")";
+      document.getElementById('ttdPetugas').innerText = "(" + (t.petugas || "Admin PUSDATIN") + ")";
+      
+      let el = document.getElementById('areaCetakFormPinjam');
+      el.style.display = 'block';
+      
+      html2pdf().set({
+        margin: 1, filename: 'Form_' + jenis + '_' + t.peminjam.replace(/\s+/g,'_') + '.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+      }).from(el).save().then(function(){
+        el.style.display = 'none';
+      });
+    }
+
+    function cekPasswordAdmin() {
+      let pwInput = document.getElementById('inputPassword').value;
+      if (pwInput === "admin123") {
+        isAdminLoggedIn = true;
+        bootstrap.Modal.getInstance(document.getElementById('modalLogin')).hide();
+        document.getElementById('menuAdminWrapper').style.display = 'block';
+        document.getElementById('areaTombolAuth').innerHTML = `<button class="btn btn-sm btn-dark w-100 py-2" onclick="logoutAdmin()"><i class="fa-solid fa-right-from-bracket"></i> Logout Admin</button>`;
+        updateBadgeTiketBaru();
+        intervalBadge = setInterval(updateBadgeTiketBaru, 30000);
+      } else {
+        document.getElementById('pesanSalah').style.display = 'block';
+      }
+    }
+
+    function logoutAdmin() {
+      isAdminLoggedIn = false;
+      document.getElementById('menuAdminWrapper').style.display = 'none';
+      document.getElementById('areaTombolAuth').innerHTML = `<button class="btn btn-sm btn-outline-light w-100 py-2" onclick="bukaModalLogin()"><i class="fa-solid fa-lock-open"></i> Login Admin</button>`;
+      showSection('dashboard');
+      if (intervalBadge) clearInterval(intervalBadge);
+      document.getElementById('badgeTiketBaru').style.display = 'none';
+    }
+
+    function showSection(id) {
+      document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      document.querySelectorAll('.sidebar .nav-link').forEach(el => el.classList.remove('active'));
+      
+      let links = document.querySelectorAll('.sidebar .nav-link');
+      links.forEach(link => {
+        if(link.getAttribute('onclick') && link.getAttribute('onclick').includes(`'${id}'`)) link.classList.add('active');
+      });
+      
+      if(id === 'dashboard') loadDashboard();
+      if(id === 'laporan') loadLaporanAwal();
+      if(id === 'transaksi') {
+        document.getElementById('formTransaksiArea').style.display = 'none';
+        document.getElementById('scanBarcode').value = '';
+        setTimeout(() => document.getElementById('scanBarcode').focus(), 150);
+      }
+      if(id === 'riwayat-perbaikan') {
+        document.getElementById('hasilRiwayatArea').style.display = 'none';
+        document.getElementById('scanRiwayatBarcode').value = '';
+        setTimeout(() => document.getElementById('scanRiwayatBarcode').focus(), 150);
+      }
+    }
+
+    window.onload = function() {
+      google.script.run.withSuccessHandler(function(data) {
+        let dlKat = document.getElementById('listKategori');
+        let dlLok = document.getElementById('listLokasi');
+        dlKat.innerHTML = ''; dlLok.innerHTML = '';
+        
+        let selectKat = document.getElementById('filterKategoriDropdown');
+        let selectLok = document.getElementById('filterLokasiDropdown');
+        
+        selectKat.innerHTML = '<option value="semua">-- Semua Kategori --</option>';
+        selectLok.innerHTML = '<option value="semua">-- Semua Lokasi --</option>';
+
+        data.kategori.forEach(k => {
+          dlKat.innerHTML += `<option value="${k}">`;
+          selectKat.innerHTML += `<option value="${k}">${k}</option>`;
+        });
+        
+        data.lokasi.forEach(l => {
+          dlLok.innerHTML += `<option value="${l}">`;
+          selectLok.innerHTML += `<option value="${l}">${l}</option>`;
+        });
+      }).getReferensi();
+      
+      loadDashboard();
+      muatAngkaStatistik(); 
+      setInterval(muatAngkaStatistik, 30000); 
+    };
+
+    function updateBadgeTiketBaru() {
+      if (!isAdminLoggedIn) return;
+      google.script.run.withSuccessHandler(function(jumlah) {
+        let badge = document.getElementById('badgeTiketBaru');
+        if (jumlah > 0) { badge.innerText = jumlah; badge.style.display = 'inline-block'; } 
+        else { badge.style.display = 'none'; }
+      }).getJumlahTiketBaru();
+    }
+
+    function loadDashboard() {
+      document.getElementById('dashboardCards').innerHTML = '<div class="col-12 text-center my-4"><div class="spinner-border text-danger"></div></div>';
+      
+      google.script.run.withSuccessHandler(function(stats) {
+        document.getElementById('dashboardCards').innerHTML = `
+          <div class="col-md-4"><div class="dash-card"><i class="fa-solid fa-building text-dark"></i><p>Total Aset</p><h3>${stats.total}</h3></div></div>
+          <div class="col-md-4"><div class="dash-card"><i class="fa-solid fa-square-check text-success"></i><p>Asset Tersedia</p><h3>${stats.tersedia}</h3></div></div>
+          <div class="col-md-4"><div class="dash-card"><i class="fa-solid fa-display text-primary"></i><p>Asset Digunakan</p><h3>${stats.digunakan}</h3></div></div>
+          <div class="col-md-4"><div class="dash-card"><i class="fa-solid fa-triangle-exclamation text-danger"></i><p>Asset Rusak</p><h3>${stats.rusak}</h3></div></div>
+          <div class="col-md-4"><div class="dash-card"><i class="fa-solid fa-hammer text-warning"></i><p>Asset Perbaikan</p><h3>${stats.diperbaiki}</h3></div></div>
+          <div class="col-md-4"><div class="dash-card"><i class="fa-solid fa-clipboard-list text-info"></i><p>Asset Dipinjam</p><h3>${stats.dipinjam}</h3></div></div>
+        `;
+        
+        let katHtml = '';
+        for (let k in stats.kategori) {
+          katHtml += `
+            <div class="col-12 mb-2">
+              <div class="p-2 border rounded bg-light d-flex justify-content-between align-items-center">
+                <span class="text-truncate me-2" style="max-width:200px;" title="${k}"><b>${k}</b></span>
+                <span class="badge bg-warning text-dark rounded-pill shadow-sm">${stats.kategori[k]} Unit</span>
+              </div>
+            </div>`;
+        }
+        document.getElementById('kategoriListArea').innerHTML = katHtml || '<p class="text-muted">Belum ada data kategori.</p>';
+
+        let lokHtml = '';
+        for (let l in stats.lokasi) {
+          lokHtml += `
+            <div class="col-12 mb-2">
+              <div class="p-2 border rounded bg-light d-flex justify-content-between align-items-center">
+                <span class="text-truncate me-2" style="max-width:200px;" title="${l}"><b>${l}</b></span>
+                <span class="badge bg-primary rounded-pill shadow-sm">${stats.lokasi[l]} Unit</span>
+              </div>
+            </div>`;
+        }
+        document.getElementById('lokasiListArea').innerHTML = lokHtml || '<p class="text-muted">Belum ada data lokasi.</p>';
+        
+      }).getDashboardData();
+    }
+
+    function generateBarcodeImage(text) {
+      let canvas = document.createElement('canvas');
+      try {
+        JsBarcode(canvas, text, { format: "EAN8", width: 4, height: 120, displayValue: true, fontSize: 28, margin: 8, background: "#ffffff", lineColor: "#000000" });
+        return canvas.toDataURL("image/png");
+      } catch (e) {
+        console.error(e);
+        return "";
+      }
+    }
+
+    // =====================================================================
+    // BARCODE UNTUK CETAK THERMAL
+    // - Dibuat sebagai SVG (vektor), BUKAN gambar canvas, supaya tidak buram.
+    // - width = 1  -> 1 satuan = 1 modul; lebar sebenarnya diatur dalam mm.
+    // - Lebar modul dipilih kelipatan 0.125 mm (= 1 dot printer 203 dpi),
+    //   jadi tiap garis tepat 2/3/4 dot. Lebar 1.5 px (kode lama) jatuh di
+    //   pecahan dot sehingga garisnya abu-abu / tebal-tipis tidak rata.
+    // =====================================================================
+    var BARCODE_AREA_MM = 44;    // lebar maksimal barcode di dalam stiker
+    var BARCODE_TINGGI_MM = 11;  // tinggi barcode
+
+    function generateBarcodeKecil(text) {
+      try {
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        JsBarcode(svg, text, {
+          format: "CODE128", width: 1, height: 50, displayValue: false,
+          margin: 0, background: "#ffffff", lineColor: "#000000"
+        });
+        var modul = parseFloat(svg.getAttribute('viewBox').split(' ')[2]);   // 8 digit -> 79 modul
+        var mm = 0.5;                                                         // 4 dot
+        if (modul * mm > BARCODE_AREA_MM) mm = 0.375;                         // 3 dot
+        if (modul * mm > BARCODE_AREA_MM) mm = 0.25;                          // 2 dot
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        svg.setAttribute('preserveAspectRatio', 'none');
+        svg.setAttribute('shape-rendering', 'crispEdges');
+        svg.style.width = (modul * mm) + 'mm';
+        svg.style.height = BARCODE_TINGGI_MM + 'mm';
+        return svg.outerHTML;
+      } catch (e) {
+        console.error(e);
+        return "";
+      }
+    }
+
+    function escapeHTML(s) {
+      return String(s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    // Satu tiket = satu stiker. Dipakai oleh submitMasuk() dan printSingle().
+    function buatTiketThermal(barcode, nama) {
+      return '<div class="thermal-ticket">' +
+               '<div class="thermal-barcode">' + generateBarcodeKecil(barcode) + '</div>' +
+               '<div class="thermal-title">' + escapeHTML(nama) + '</div>' +
+               '<div class="thermal-code">' + escapeHTML(barcode) + '</div>' +
+             '</div>';
+    }
+
+    function submitMasuk() {
+      let btn = document.getElementById('btnSimpanMasuk');
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Menyimpan...'; btn.disabled = true;
+      let data = { namaBarang: document.getElementById('nmBarang').value, kategori: document.getElementById('katBarang').value, jumlah: document.getElementById('jmlBarang').value, lokasi: document.getElementById('lokasiBarang').value };
+
+      google.script.run.withSuccessHandler(function(barcodes) {
+        btn.innerHTML = '<i class="fa-solid fa-save"></i> Simpan & Generate Barcode'; btn.disabled = false;
+        if (!barcodes || barcodes.length === 0) return;
+        document.getElementById('formMasuk').reset();
+        
+        let modalBody = document.getElementById('modalBarcodeBody');
+        let printArea = document.getElementById('printArea');
+        modalBody.innerHTML = ''; printArea.innerHTML = '';
+        
+        barcodes.forEach((item) => {
+          let imgDataUrl = generateBarcodeImage(item.barcode);
+          modalBody.innerHTML += `<div class="mb-4 p-2 border rounded bg-light"><img src="${imgDataUrl}" class="img-fluid"><div class="fw-bold mt-2">${item.nama}</div></div>`;
+          printArea.innerHTML += buatTiketThermal(item.barcode, item.nama);
+        });
+        new bootstrap.Modal(document.getElementById('modalBarcode')).show();
+      }).simpanBarangMasuk(data);
+    }
+
+    function setTransType(type) {
+      currentTransType = type;
+      let title = "";
+      if(type === 'Keluar') title = "<i class='fa-solid fa-right-from-bracket text-warning'></i> Penginputan Barang Keluar";
+      if(type === 'Rusak/Perbaikan') title = "<i class='fa-solid fa-screwdriver-wrench text-danger'></i> Manajemen Rusak / Perbaikan";
+      if(type === 'Pinjam') title = "<i class='fa-solid fa-handshake text-info'></i> Manajemen Peminjaman Aset";
+      document.getElementById('transTitle').innerHTML = title;
+    }
+
+    function handleScan(e) {
+      if(e.key === 'Enter') {
+        let code = e.target.value.trim(); if(code === "") return;
+        google.script.run.withSuccessHandler(function(detail) {
+          if(!detail) { alert("Barcode tidak terdaftar!"); document.getElementById('scanBarcode').value = ''; return; }
+          document.getElementById('formTransaksiArea').style.display = 'block';
+          document.getElementById('transBarcode').value = detail.barcode;
+          document.getElementById('detNama').innerHTML = detail.nama;
+          document.getElementById('detStatus').innerHTML = `<span class="badge bg-dark">${detail.status}</span> di <b>${detail.lokasi}</b>`;
+          
+          let btnArea = document.getElementById('btnAksiArea'); btnArea.innerHTML = '';
+          if(currentTransType === 'Keluar') {
+            document.getElementById('transJenis').value = 'Keluar';
+            document.getElementById('areaLokasiBaru').style.display = 'block';
+            btnArea.innerHTML = `<button type="button" onclick="eksekusiTransaksi()" class="btn btn-warning fw-bold text-white"><i class="fa-solid fa-share"></i> Proses Barang Keluar</button>`;
+          } else if(currentTransType === 'Rusak/Perbaikan') {
+            document.getElementById('areaLokasiBaru').style.display = 'none';
+            btnArea.innerHTML = `
+              <button type="button" class="btn btn-danger me-2 fw-bold" onclick="setJenis('Rusak'); eksekusiTransaksi();">Laporkan Rusak</button>
+              <button type="button" class="btn btn-primary me-2 fw-bold" onclick="setJenis('Perbaikan'); eksekusiTransaksi();">Bawa ke Perbaikan</button>
+              <button type="button" class="btn btn-success fw-bold" onclick="setJenis('Selesai Perbaikan'); eksekusiTransaksi();">Selesai Diperbaiki</button>
+            `;
+          } else if(currentTransType === 'Pinjam') {
+            document.getElementById('areaLokasiBaru').style.display = 'block';
+            btnArea.innerHTML = `
+              <button type="button" class="btn btn-info me-2 text-white fw-bold" onclick="setJenis('Pinjam'); eksekusiTransaksi();">Proses Pinjam</button>
+              <button type="button" class="btn btn-success fw-bold" onclick="setJenis('Kembali'); eksekusiTransaksi();">Dikembalikan</button>
+            `;
+          }
+        }).getDetailAset(code);
+      }
+    }
+
+    function setJenis(jenis) { document.getElementById('transJenis').value = jenis; }
+
+    function eksekusiTransaksi() {
+      let data = { barcode: document.getElementById('transBarcode').value, jenis: document.getElementById('transJenis').value, lokasi: document.getElementById('lokasiBaru').value, keterangan: document.getElementById('ketTransaksi').value };
+      google.script.run.withSuccessHandler(function(res) {
+        alert(res.pesan);
+        document.getElementById('formTransaksiArea').style.display = 'none';
+        document.getElementById('scanBarcode').value = '';
+        document.getElementById('formAction').reset();
+        document.getElementById('scanBarcode').focus();
+      }).prosesTransaksi(data);
+    }
+
+    function loadLaporanAwal() {
+      document.getElementById('tabelLaporanArea').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-danger"></div></div>';
+      google.script.run.withSuccessHandler(function(response) { dataMasterLaporan = response; resetFilterTambahan(); }).getDataLaporanGabungan();
+    }
+
+    function jalankanPenyaringanUlang() { saringLaporan(currentStatusCriteria); }
+    
+    function resetFilterTambahan() {
+      document.getElementById('filterTglMulai').value = ''; 
+      document.getElementById('filterTglSelesai').value = '';
+      document.getElementById('filterKategoriDropdown').value = 'semua'; 
+      document.getElementById('filterLokasiDropdown').value = 'semua';
+      saringLaporan('semua');
+    }
+
+    // ==========================================================
+    // UPDATE SCRIPT UNTUK LAPORAN (Menambahkan Kolom No)
+    // ==========================================================
+    function saringLaporan(kriteria) {
+      if(!dataMasterLaporan) return;
+      currentStatusCriteria = kriteria;
+      
+      let tglMulaiStr = document.getElementById('filterTglMulai').value;
+      let tglSelesaiStr = document.getElementById('filterTglSelesai').value;
+      let katDipilih = document.getElementById('filterKategoriDropdown').value;
+      let lokDipilih = document.getElementById('filterLokasiDropdown').value;
+      
+      let tglMulai = tglMulaiStr ? new Date(tglMulaiStr) : null;
+      if (tglMulai) tglMulai.setHours(0, 0, 0, 0); 
+      
+      let tglSelesai = tglSelesaiStr ? new Date(tglSelesaiStr) : null;
+      if (tglSelesai) tglSelesai.setHours(23, 59, 59, 999);
+
+      let subJudulEl = document.getElementById('subJudulCetakLaporan');
+      let metaEl = document.getElementById('metaFilterCetakLaporan');
+      
+      let teksKriteria = "Semua Data Aset (Kondisi Saat Ini)";
+      if(kriteria === 'Masuk') teksKriteria = "Laporan Transaksi Barang Masuk";
+      if(kriteria === 'Keluar') teksKriteria = "Laporan Transaksi Barang Keluar";
+      if(kriteria === 'Rusak') teksKriteria = "Laporan Riwayat Barang Rusak";
+      if(kriteria === 'Perbaikan') teksKriteria = "Laporan Proses Perbaikan Aset";
+      if(kriteria === 'Selesai') teksKriteria = "Laporan Selesai Perbaikan";
+      if(kriteria === 'Pinjam') teksKriteria = "Laporan Riwayat Peminjaman Aset";
+      
+      subJudulEl.innerHTML = `Kategori Laporan: <b>${teksKriteria}</b>`;
+
+      let teksMeta = "";
+      if(katDipilih !== 'semua') teksMeta += `Kategori: ${katDipilih} | `;
+      if(lokDipilih !== 'semua') teksMeta += `Lokasi: ${lokDipilih} | `;
+      if(tglMulai || tglSelesai) {
+        let fMulai = tglMulaiStr ? tglMulaiStr.split('-').reverse().join('/') : 'Awal';
+        let fSelesai = tglSelesaiStr ? tglSelesaiStr.split('-').reverse().join('/') : 'Akhir';
+        teksMeta += `Periode: ${fMulai} s/d ${fSelesai}`;
+      }
+      
+      if(teksMeta.endsWith(" | ")) teksMeta = teksMeta.slice(0, -3); 
+      if(teksMeta !== "") { metaEl.innerHTML = teksMeta; metaEl.style.display = "block"; } 
+      else { metaEl.style.display = "none"; }
+
+      let html = '<table class="table table-striped table-bordered text-center align-middle m-0"><thead><tr class="table-dark">';
+      
+      if(kriteria !== 'semua') {
+        // PENAMBAHAN KOLOM "No" UNTUK TABEL RIWAYAT
+        html += '<th style="width: 50px;">No</th><th>Tanggal Transaksi</th><th>Barcode</th><th>Nama Barang</th><th>Kategori</th><th>Jenis Transaksi</th><th>Lokasi Terakhir</th><th>Catatan</th></tr></thead><tbody>';
+        let logs = dataMasterLaporan.riwayat; 
+        let adaData = false;
+        
+        let targetTransaksi = [];
+        if(kriteria === 'Masuk') targetTransaksi = ['Masuk'];
+        if(kriteria === 'Keluar') targetTransaksi = ['Keluar'];
+        if(kriteria === 'Rusak') targetTransaksi = ['Rusak', 'Lapor Rusak', 'Tiket Diterima'];
+        if(kriteria === 'Perbaikan') targetTransaksi = ['Perbaikan', 'Mulai Perbaikan'];
+        if(kriteria === 'Selesai') targetTransaksi = ['Selesai Perbaikan'];
+        if(kriteria === 'Pinjam') targetTransaksi = ['Pinjam', 'Kembali'];
+
+        let nomor = 1; // Variabel Penomoran
+
+        for(let i=1; i<logs.length; i++) {
+          let trxLog = logs[i][3] ? logs[i][3].toString() : "";
+          if(!targetTransaksi.includes(trxLog)) continue;
+
+          let barCodeLog = logs[i][1]; 
+          let lokasiLog = logs[i][4] ? logs[i][4].toString() : "-";
+          let kategoriBarangLog = "-";
+          
+          let masterAset = dataMasterLaporan.aset;
+          for(let j=1; j<masterAset.length; j++){ 
+            if(masterAset[j][0] == barCodeLog){ kategoriBarangLog = masterAset[j][2]; break; } 
+          }
+          
+          if (katDipilih !== 'semua' && kategoriBarangLog !== katDipilih) continue;
+          if (lokDipilih !== 'semua' && lokasiLog !== lokDipilih) continue;
+
+          if(tglMulai || tglSelesai) {
+            let tglLogRaw = logs[i][0];
+            if(!tglLogRaw) continue;
+            let itemDate = parseCustomDate(tglLogRaw); 
+            if(tglMulai && itemDate < tglMulai) continue; 
+            if(tglSelesai && itemDate > tglSelesai) continue;
+          }
+          
+          adaData = true;
+          let badgeStyle = 'bg-secondary';
+          if(['Masuk', 'Selesai Perbaikan', 'Kembali'].includes(trxLog)) badgeStyle = 'bg-success';
+          else if(['Keluar', 'Pinjam'].includes(trxLog)) badgeStyle = 'bg-primary';
+          else if(['Rusak', 'Lapor Rusak'].includes(trxLog)) badgeStyle = 'bg-danger';
+          else badgeStyle = 'bg-warning text-dark';
+
+          let tglTampil = formatTanggalIndo(logs[i][0]);
+          
+          // Memasukkan angka nomor pada baris pertama kolom
+          html += `<tr><td>${nomor++}</td><td>${tglTampil}</td><td>${logs[i][1]}</td><td>${logs[i][2]}</td><td>${kategoriBarangLog}</td><td><span class="badge ${badgeStyle}">${trxLog}</span></td><td>${lokasiLog}</td><td>${logs[i][5] || '-'}</td></tr>`;
+        }
+        if(!adaData) html += `<tr><td colspan="8" class="text-muted py-3">Tidak ditemukan riwayat transaksi.</td></tr>`;
+      } 
+      else {
+        // PENAMBAHAN KOLOM "No" UNTUK TABEL SEMUA ASET
+        let headerAset = dataMasterLaporan.aset[0];
+        html += '<th style="width: 50px;">No</th>'; // Tambah Header No
+        headerAset.forEach(h => html += `<th>${h}</th>`);
+        html += '</tr></thead><tbody>';
+        
+        let aset = dataMasterLaporan.aset; 
+        let adaData = false;
+        let nomor = 1; // Variabel Penomoran
+        
+        for(let i=1; i<aset.length; i++) {
+          let kategoriBarang = aset[i][2];
+          let lokasiBarang = aset[i][4] ? aset[i][4].toString() : "";
+          
+          if(katDipilih !== 'semua' && kategoriBarang !== katDipilih) continue;
+          if(lokDipilih !== 'semua' && lokasiBarang !== lokDipilih) continue;
+          
+          if(tglMulai || tglSelesai) {
+            let tglAsetRaw = aset[i][5]; 
+            if(!tglAsetRaw) continue;
+            let itemDate = parseCustomDate(tglAsetRaw); 
+            if(tglMulai && itemDate < tglMulai) continue; 
+            if(tglSelesai && itemDate > tglSelesai) continue;
+          }
+          
+          adaData = true; 
+          html += '<tr>';
+          html += `<td>${nomor++}</td>`; // Menampilkan nomor
+
+          aset[i].forEach((cell, idx) => {
+             let nilaiCell = cell || '-';
+             if(idx === 5 && cell) {
+                nilaiCell = formatTanggalIndo(cell);
+             }
+
+             if(idx === 3) {
+               let badgeColor = cell === "Tersedia" ? "bg-success" : cell === "Digunakan" ? "bg-primary" : cell === "Rusak" ? "bg-danger" : cell === "Diperbaiki" ? "bg-warning text-dark" : "bg-info text-white";
+               html += `<td><span class="badge ${badgeColor}">${cell}</span></td>`;
+             } else { html += `<td>${nilaiCell}</td>`; }
+          });
+          html += '</tr>';
+        }
+        // Colspan ditambah 1 (headerAset.length + 1)
+        if(!adaData) html += `<tr><td colspan="${headerAset.length + 1}" class="text-muted py-3">Tidak ditemukan data aset.</td></tr>`;
+      }
+      html += '</tbody></table>';
+      document.getElementById('tabelLaporanArea').innerHTML = html;
+    }
+
+    function handleRiwayatScan(e) {
+      if(e.key === 'Enter') {
+        let code = e.target.value.trim(); if(code === "") return;
+        document.getElementById('tabelRiwayatBody').innerHTML = '<tr><td colspan="5" class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> Mencari data...</td></tr>';
+        document.getElementById('hasilRiwayatArea').style.display = 'block';
+
+        google.script.run.withSuccessHandler(function(logs) {
+          let tbody = document.getElementById('tabelRiwayatBody'); tbody.innerHTML = '';
+          if(!logs || logs.length === 0) {
+            document.getElementById('riwayatBarangHeader').innerHTML = `Log Barcode: ${code} <span class="text-danger">(Belum ada riwayat aktivitas)</span>`;
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Tidak ada rekaman aktivitas.</td></tr>';
+            return;
+          }
+          currentNamaBarangRiwayat = logs[0].nama; currentBarcodeRiwayat = logs[0].barcode;
+          document.getElementById('riwayatBarangHeader').innerHTML = `<div>${logs[0].nama}</div><small class="text-secondary">Barcode: <b>${logs[0].barcode}</b></small>`;
+          
+          let nomor = 1;
+          logs.forEach(function(log) {
+            let badgeStyle = log.transaksi === "Masuk" ? "bg-light text-dark border" : log.transaksi === "Keluar" ? "bg-primary" : log.transaksi === "Rusak" ? "bg-danger" : log.transaksi === "Perbaikan" ? "bg-warning text-dark" : "bg-success";
+            let tglTampilRiwayat = formatTanggalIndo(log.waktu);
+
+            tbody.innerHTML += `<tr><td class="text-center">${nomor++}</td><td class="text-center">${tglTampilRiwayat}</td><td class="text-center"><span class="badge ${badgeStyle}">${log.transaksi}</span></td><td>${log.lokasi || '-'}</td><td>${log.keterangan || '-'}</td></tr>`;
+          });
+          document.getElementById('scanRiwayatBarcode').value = '';
+        }).getRiwayatSpesifik(code);
+      }
+    }
+
+    function kirimLaporan() {
+      let btn = document.getElementById('btnKirimLaporan');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Mengirim...';
+      
+      let data = { barcode: document.getElementById('barcodeLapor').value.trim(), namaBarang: document.getElementById('namaBarangLapor').value.trim(), lokasi: document.getElementById('lokasiLapor').value.trim(), pelapor: document.getElementById('pelapor').value.trim(), deskripsi: document.getElementById('deskripsiRusak').value.trim() };
+      
+      google.script.run.withSuccessHandler(function(res) {
+        alert(res.pesan); document.getElementById('formLaporRusak').reset();
+        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Kirim Laporan';
+      }).buatLaporanKerusakan(data);
+    }
+
+    function loadTiketAdmin() {
+      let tbody = document.getElementById('tbodyTiketAdmin');
+      tbody.innerHTML = '<tr><td colspan="12" class="text-center">Memuat data tiket...</td></tr>';
+      google.script.run.withSuccessHandler(function(list) {
+        tbody.innerHTML = '';
+        if(list.length === 0) { tbody.innerHTML = '<tr><td colspan="12" class="text-center">Tidak ada tiket.</td></tr>'; return; }
+        
+        let nomor = 1;
+        list.forEach(t => {
+          let badgeColor = t.status === 'Baru' ? 'bg-danger' : (t.status === 'Selesai' ? 'bg-success' : 'bg-warning text-dark');
+          
+          let formatTglLapor = formatTanggalIndo(t.tanggalLapor);
+          let formatTglSelesai = formatTanggalIndo(t.tanggalSelesai);
+
+          tbody.innerHTML += `
+            <tr>
+              <td class="text-center">${nomor++}</td>
+              <td><b>${t.id}</b></td><td>${t.barcode}</td><td>${t.namaBarang}</td><td>${t.pelapor}</td><td>${t.lokasi}</td><td>${t.deskripsi}</td><td>${formatTglLapor}</td>
+              <td><span class="badge ${badgeColor}">${t.status}</span></td><td>${formatTglSelesai}</td><td>${t.catatanAdmin || '-'}</td>
+              <td><button class="btn btn-sm btn-primary py-1" onclick="bukaModalTiket('${t.id}')">Proses</button></td>
+            </tr>`;
+        });
+      }).getAllTiketKerusakan();
+    }
+
+    function bukaModalTiket(id) {
+      document.getElementById('prosesIdTiket').value = id;
+      document.getElementById('aksiTiket').value = 'terima';
+      document.getElementById('opsiStatusAset').style.display = 'none';
+      document.getElementById('opsiMetodePerbaikan').style.display = 'none'; 
+      document.getElementById('catatanAdminTiket').value = '';
+      
+      document.getElementById('aksiTiket').onchange = function() {
+        document.getElementById('opsiStatusAset').style.display = this.value === 'selesai' ? 'block' : 'none';
+        document.getElementById('opsiMetodePerbaikan').style.display = this.value === 'perbaikan' ? 'block' : 'none';
+      };
+      new bootstrap.Modal(document.getElementById('modalProsesTiket')).show();
+    }
+
+    function submitProsesTiket() {
+      let dibawaKePusdatin = "false";
+      let radPusdatin = document.getElementById('radPusdatin');
+      if (radPusdatin && radPusdatin.checked) {
+        dibawaKePusdatin = "true";
+      }
+
+      let data = { 
+        idTiket: document.getElementById('prosesIdTiket').value, 
+        aksi: document.getElementById('aksiTiket').value, 
+        catatanAdmin: document.getElementById('catatanAdminTiket').value, 
+        statusAsetBaru: document.getElementById('statusAsetBaru').value,
+        dibawaKePusdatin: dibawaKePusdatin 
+      };
+
+      google.script.run.withSuccessHandler(function(res) {
+        alert(res.pesan); 
+        bootstrap.Modal.getInstance(document.getElementById('modalProsesTiket')).hide();
+        loadTiketAdmin(); 
+        updateBadgeTiketBaru();
+      }).prosesTiketKerusakan(data);
+    }
+
+    function handleProgresScan(e) {
+      if(e.key === 'Enter') {
+        eksekusiCariProgres();
+      }
+    }
+
+    function eksekusiCariProgres() {
+      let code = document.getElementById('inputProgresTiket').value.trim();
+      if(code === "") return;
+      
+      let areaHasil = document.getElementById('hasilProgresArea');
+      let tbody = document.getElementById('tbodyProgresTiket');
+      
+      areaHasil.style.display = 'block';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm text-danger me-2"></div> Mencari berkas tiket di server...</td></tr>';
+      
+      google.script.run.withSuccessHandler(function(list) {
+        tbody.innerHTML = '';
+        
+        if(!list || list.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" class="text-center text-danger fw-bold py-3"><i class="fa-solid fa-circle-xmark"></i> Data tidak ditemukan. Pastikan nomor Barcode atau ID Tiket sudah benar!</td></tr>';
+          return;
+        }
+        
+        let nomor = 1;
+        list.forEach(function(t) {
+          let badgeColor = (t.status === 'Baru' || t.status === 'Menunggu') ? 'bg-danger' : 
+                           (t.status === 'Selesai' || t.status === 'Dikembalikan' || t.status === 'Disetujui') ? 'bg-success' : 'bg-warning text-dark';
+          
+          tbody.innerHTML += `
+            <tr>
+              <td class="text-center">${nomor++}</td>
+              <td><b class="text-danger">${t.id}</b><br><span class="badge bg-secondary" style="font-size:10px;">${t.jenisLayanan}</span></td>
+              <td class="small text-muted">${t.tglLapor}</td>
+              <td><strong>${t.item}</strong></td>
+              <td>${t.pelapor}</td>
+              <td>${t.info}</td>
+              <td><span class="badge ${badgeColor}">${t.status}</span></td>
+              <td><small class="text-muted">${t.catatanAdmin || '-'}</small></td>
+            </tr>`;
+        });
+        
+        document.getElementById('inputProgresTiket').value = '';
+        document.getElementById('inputProgresTiket').focus();
+        
+      }).withFailureHandler(function(err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-3">Terjadi masalah koneksi: ${err.message}</td></tr>`;
+      }).getProgresSpesifik(code);
+    }
+
+    function muatProgresTiket() {
+      if (document.getElementById('cariProgresInput')) {
+        document.getElementById('cariProgresInput').value = '';
+      }
+      document.getElementById('tbodyProgresTiket').innerHTML = `
+        <tr>
+          <td colspan="8" class="text-center text-muted">Silakan masukkan ID Tiket atau Barcode terlebih dahulu, lalu klik Cari.</td>
+        </tr>`;
+    }
+
+    function cariDanCetakUlang() {
+      let bc = document.getElementById('searchBC').value.trim();
+      google.script.run.withSuccessHandler(function(detail) {
+        if(!detail) { alert("Data tidak ditemukan!"); return; }
+        let area = document.getElementById('detailCetakUlangArea'); area.style.display = "block";
+        area.innerHTML = `<h5><b>${detail.nama}</b></h5><button class="btn btn-sm btn-success" onclick="printSingle('${detail.barcode}', '${detail.nama}')"><i class="fa-solid fa-print"></i> Cetak Barcode</button>`;
+      }).getDetailAset(bc);
+    }
+
+    function printSingle(barcode, nama) {
+      document.getElementById('printArea').innerHTML = buatTiketThermal(barcode, nama);
+      window.print();
+    }
+
+    // =========================================================================
+    // FUNGSI EXPORT PDF TERBARU (Anti-Terpotong Horizontal & Vertikal)
+    // =========================================================================
+    function cetakPDFRiwayatDinamis() { exportPDF('areaCetakLog', `Riwayat_${currentBarcodeRiwayat}.pdf`); }
+    function cetakPDFLaporanDinamis() { exportPDF('areaCetakLaporan', `Laporan_${currentStatusCriteria}.pdf`); }
+    
+    function exportPDF(elementId, filename) {
+      var element = document.getElementById(elementId);
+      
+      // Ambil elemen div yang membungkus tabel (class table-responsive)
+      var divTabel = element.querySelector('.table-responsive');
+      
+      // MENCEGAH TERPOTONG HORIZONTAL (Menyempurnakan render ke PDF)
+      if (divTabel) {
+        divTabel.classList.remove('table-responsive'); 
+        divTabel.style.overflow = 'visible'; 
+      }
+      
+      // Tambahkan efek cetak-pdf-mode (dari CSS) agar baris tidak terbelah di tengah
+      element.classList.add('cetak-pdf-mode');
+
+      var opt = {
+        margin:       0.3,
+        filename:     filename,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2 },
+        jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' },
+        pagebreak:    { mode: ['css', 'legacy'] }
+      };
+
+      html2pdf().set(opt).from(element).save().then(function() {
+        // KEMBALIKAN KE KONDISI SEMULA SETELAH DOWNLOAD SELESAI
+        if (divTabel) {
+          divTabel.classList.add('table-responsive');
+          divTabel.style.overflow = '';
+        }
+        element.classList.remove('cetak-pdf-mode');
+      });
+    }
+
+    function muatAngkaStatistik() {
+      var elAntrean = document.getElementById("txtAntrean");
+      var elDiproses = document.getElementById("txtDiproses");
+      
+      if (!elAntrean || !elDiproses) return;
+
+      google.script.run
+        .withSuccessHandler(function(stats) {
+          if (stats) {
+            elAntrean.innerText = (stats.totalAntrean || 0) + " Tiket";
+            elDiproses.innerText = (stats.sedangDiproses || 0) + " Tiket";
+          }
+        })
+        .withFailureHandler(function(err) {
+          console.error("Gagal mengambil data dari Sheets: ", err);
+          elAntrean.innerText = "0 Tiket";
+          elDiproses.innerText = "0 Tiket";
+        })
+        .getStatistikPerbaikan(); 
+    }
+  </script>
+  <!-- ===== MODAL UPLOAD FOTO BARCODE ===== -->
+  <div class="modal fade" id="modalUploadFoto" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-success text-white py-2">
+          <h5 class="modal-title fw-bold"><i class="fa-solid fa-camera me-2"></i>Foto Barcode dari HP</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="resetModalUpload()"></button>
+        </div>
+        <div class="modal-body p-3">
+
+          <!-- Input file tersembunyi — accept="image/*;capture=camera" supaya HP langsung buka kamera -->
+          <input type="file" id="inputFileFoto" accept="image/*" capture="environment" style="display:none;" onchange="prosesGambarBarcode(event)">
+
+          <!-- Area klik untuk ambil foto / pilih dari galeri -->
+          <div class="upload-area mb-3" onclick="document.getElementById('inputFileFoto').click()">
+            <i class="fa-solid fa-camera d-block"></i>
+            <p class="mb-1 fw-bold text-primary">Ketuk untuk Foto / Pilih Gambar</p>
+            <p class="text-muted small mb-0">Arahkan kamera ke barcode, atau pilih foto dari galeri HP</p>
+          </div>
+
+          <!-- Preview gambar yang dipilih -->
+          <img id="previewFoto" src="" alt="Preview" style="max-width:100%; max-height:200px; border-radius:8px; display:none; margin:0 auto; display:none;">
+
+          <!-- Status hasil baca -->
+          <div id="statusBaca" class="text-center mt-3" style="display:none;">
+            <div id="spinnerBaca" class="mb-2"><div class="spinner-border text-success spinner-border-sm me-2"></div> Membaca barcode dari gambar...</div>
+            <div id="hasilBacaBarcode" class="alert py-2" style="display:none;"></div>
+          </div>
+
+        </div>
+        <div class="modal-footer py-2 gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" onclick="resetModalUpload()"><i class="fa-solid fa-xmark"></i> Batal</button>
+          <button type="button" class="btn btn-success btn-sm" id="btnGunakanHasil" style="display:none;" onclick="gunakanHasilScan()"><i class="fa-solid fa-check"></i> Gunakan Barcode Ini</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== UPLOAD FOTO BARCODE LOGIC =====
+    let uploadTargetInputId = null;
+    let uploadCallbackFn = null;
+    let hasilBarcodeUpload = null;
+
+    function bukaUploadFoto(inputId, callbackFn) {
+      uploadTargetInputId = inputId;
+      uploadCallbackFn = callbackFn;
+      hasilBarcodeUpload = null;
+      resetModalUpload();
+      new bootstrap.Modal(document.getElementById('modalUploadFoto')).show();
+    }
+
+    function resetModalUpload() {
+      document.getElementById('inputFileFoto').value = '';
+      document.getElementById('previewFoto').style.display = 'none';
+      document.getElementById('statusBaca').style.display = 'none';
+      document.getElementById('spinnerBaca').style.display = 'block';
+      document.getElementById('hasilBacaBarcode').style.display = 'none';
+      document.getElementById('btnGunakanHasil').style.display = 'none';
+      hasilBarcodeUpload = null;
+    }
+
+    function prosesGambarBarcode(event) {
+      var file = event.target.files[0];
+      if (!file) return;
+
+      // Tampilkan preview
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var preview = document.getElementById('previewFoto');
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+
+        // Tampilkan status loading
+        document.getElementById('statusBaca').style.display = 'block';
+        document.getElementById('spinnerBaca').style.display = 'block';
+        document.getElementById('hasilBacaBarcode').style.display = 'none';
+        document.getElementById('btnGunakanHasil').style.display = 'none';
+
+        // Baca barcode dari gambar menggunakan Quagga
+        Quagga.decodeSingle({
+          decoder: {
+            readers: ["ean_reader", "code_128_reader", "code_39_reader", "upc_reader", "upc_e_reader", "ean_8_reader", "codabar_reader", "i2of5_reader"]
+          },
+          locate: true,
+          src: e.target.result
+        }, function(result) {
+          document.getElementById('spinnerBaca').style.display = 'none';
+          var elHasil = document.getElementById('hasilBacaBarcode');
+          elHasil.style.display = 'block';
+
+          if (result && result.codeResult && result.codeResult.code) {
+            hasilBarcodeUpload = result.codeResult.code;
+            elHasil.className = 'alert alert-success py-2';
+            elHasil.innerHTML = '<i class="fa-solid fa-check-circle me-2"></i>Barcode terdeteksi: <strong>' + hasilBarcodeUpload + '</strong>';
+            document.getElementById('btnGunakanHasil').style.display = 'inline-block';
+          } else {
+            hasilBarcodeUpload = null;
+            elHasil.className = 'alert alert-danger py-2';
+            elHasil.innerHTML = '<i class="fa-solid fa-circle-xmark me-2"></i>Barcode tidak terbaca. Coba foto ulang dengan lebih dekat & pencahayaan cukup.<br><small class="text-muted">Tips: Pastikan barcode terlihat jelas dan tidak buram.</small>';
+          }
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function gunakanHasilScan() {
+      if (!hasilBarcodeUpload) return;
+
+      // Simpan nilai & callback dulu sebelum reset
+      var nilaiBarcode = hasilBarcodeUpload;
+      var targetId = uploadTargetInputId;
+      var cb = uploadCallbackFn;
+
+      // Tutup modal & reset
+      bootstrap.Modal.getInstance(document.getElementById('modalUploadFoto')).hide();
+      resetModalUpload();
+
+      // Isi input target
+      if (targetId) {
+        document.getElementById(targetId).value = nilaiBarcode;
+      }
+
+      // Jalankan callback setelah modal selesai menutup (animasi 300ms)
+      setTimeout(function() {
+        if (cb) {
+          cb(nilaiBarcode);
+        }
+      }, 350);
+    }
+
+    // Callback khusus untuk transaksi
+    function handleScanDariUpload(value) {
+      document.getElementById('scanBarcode').value = value;
+      handleScan({ key: 'Enter' });
+    }
+
+    // Callback khusus untuk riwayat aset
+    function handleRiwayatScanDariUpload(value) {
+      document.getElementById('scanRiwayatBarcode').value = value;
+      handleRiwayatScan({ key: 'Enter' });
+    }
+    
+  </script>
+
+  <script>
+    // =====================================================================
+    // PENGATURAN & KALIBRASI PRINTER LABEL
+    // STIKER_PITCH_MM = jarak tepi atas stiker ke tepi atas stiker berikutnya
+    //                   (tinggi stiker 25 mm + celah). Tinggi halaman cetak
+    //                   selalu disamakan dengan angka ini.
+    // =====================================================================
+    var STIKER_PITCH_MM = 28;
+    try {
+      var _p = parseFloat(localStorage.getItem('pitchStikerMM'));
+      if (_p >= 25 && _p <= 60) STIKER_PITCH_MM = _p;
+    } catch (e) {}
+
+    function setTinggiHalaman(mm) {
+      var el = document.getElementById('stylePageSize');
+      if (!el) { el = document.createElement('style'); el.id = 'stylePageSize'; document.head.appendChild(el); }
+      el.textContent = '@page { size: 58mm ' + mm + 'mm; margin: 0; }';
+    }
+    // setelah dialog cetak ditutup, kembalikan ke tinggi halaman normal
+    window.addEventListener('afterprint', function() { setTinggiHalaman(STIKER_PITCH_MM); });
+
+    function simpanPitchStiker() {
+      var v = parseFloat(document.getElementById('inputPitch').value);
+      if (!(v >= 25 && v <= 60)) { alert('Isi jarak antara 25 dan 60 mm.'); return; }
+      STIKER_PITCH_MM = v;
+      try { localStorage.setItem('pitchStikerMM', String(v)); } catch (e) {}
+      setTinggiHalaman(v);
+      showToast('Jarak stiker disimpan: ' + v + ' mm');
+    }
+
+    function cetakHalamanKhusus(html, tinggiMM) {
+      document.getElementById('printArea').innerHTML = html;
+      setTinggiHalaman(tinggiMM);
+      window.print();
+    }
+
+    // Penggaris: garis tiap 1 mm, angka tiap 5 mm, dihitung dari awal halaman.
+    function cetakPenggaris() {
+      var tinggi = STIKER_PITCH_MM, html = '';
+      for (var h = 0; h < 2; h++) {
+        html += '<div class="thermal-ruler" style="height:' + (tinggi - 0.5) + 'mm">';
+        for (var mm = 0; mm < Math.floor(tinggi); mm++) {
+          var panjang = (mm % 5 === 0) ? 8 : 4;
+          html += '<div class="rl" style="top:' + mm + 'mm;width:' + panjang + 'mm"></div>';
+          if (mm % 5 === 0) html += '<div class="rn" style="top:' + mm + 'mm">' + mm + '</div>';
+        }
+        html += '<div class="rt">mm dari awal halaman<br>(halaman ' + (h + 1) + ' dari 2)</div></div>';
+      }
+      cetakHalamanKhusus(html, tinggi);
+    }
+
+    // Mencetak halaman kosong setinggi N mm = memajukan kertas N mm.
+    function majukanKertas() {
+      var v = parseFloat(document.getElementById('inputMajukan').value);
+      if (!(v >= 1 && v <= 60)) { alert('Isi jarak antara 1 dan 60 mm.'); return; }
+      cetakHalamanKhusus('<div class="thermal-feed" style="height:' + Math.max(v - 0.5, 0.5) + 'mm"></div>', v);
+    }
+
+    setTinggiHalaman(STIKER_PITCH_MM);
+    document.getElementById('inputPitch').value = STIKER_PITCH_MM;
+  </script>
+</body>
+</html>
