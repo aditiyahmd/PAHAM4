@@ -67,7 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Note: "Ajukan Sistem Baru" only appears for Dosen or Karyawan (hidden for Mahasiswa)
   const isMahasiswa = activeUser.civitasType === 'Mahasiswa';
   const userMenuItems: MenuItem[] = [
-    { id: 'dashboard-civitas', label: 'Dashboard Layanan', icon: LayoutDashboard },
+    { id: 'dashboard-civitas', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'ajukan-pinjam', label: 'Ajukan Pinjam Aset', icon: Handshake },
     { id: 'lapor-rusak', label: 'Lapor Kerusakan', icon: AlertTriangle },
     ...(!isMahasiswa
@@ -281,46 +281,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Current Active User Profile Banner in Sidebar */}
-        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
-              <div className="text-xs font-bold text-slate-900 truncate">{activeUser.nama}</div>
-              <div className="text-[10px] text-slate-500 truncate">
-                {activeUser.roleName} ({activeUser.role})
-              </div>
-            </div>
-
-            {onOpenActorSwitcher && (
-              <button
-                type="button"
-                onClick={onOpenActorSwitcher}
-                className="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-800 border border-slate-200 rounded-md text-[10px] font-bold cursor-pointer shrink-0 transition-all shadow-2xs"
-                title="Ganti Peran Aktor"
-              >
-                Ganti Akun
-              </button>
-            )}
-          </div>
-        </div>
-
         {/* Navigation Section */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
-          {/* Quick link back to Halaman Utama */}
-          <button
-            type="button"
-            onClick={() => {
-              onNavigateHome();
-              onCloseMobile();
-            }}
-            className="w-full flex items-center justify-between px-3 py-2 mb-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-dashed border-slate-200 transition-all cursor-pointer"
-          >
-            <div className="flex items-center gap-2.5">
-              <Home className="w-4 h-4 text-slate-500" />
-              <span>Halaman Utama (Landing)</span>
-            </div>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-          </button>
 
           <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             {pageMode === 'user'

@@ -3,14 +3,8 @@ import {
   LogOut,
   Bell,
   Menu,
-  LayoutDashboard,
-  UserCheck,
-  Crown,
-  Home,
-  Users,
   LogIn
 } from 'lucide-react';
-import { AppDatabase } from '../services/db';
 
 interface HeaderProps {
   pageMode: 'landing' | 'user' | 'admin' | 'executive';
@@ -19,7 +13,7 @@ interface HeaderProps {
   onLogout: () => void;
   onOpenEmailLogs: () => void;
   onToggleMobileSidebar: () => void;
-  onOpenActorSwitcher: () => void;
+  onOpenActorSwitcher?: () => void;
   pendingLoanCount: number;
   pendingDamageCount: number;
   overdueCount?: number;
@@ -37,7 +31,6 @@ export const Header: React.FC<HeaderProps> = ({
   pendingDamageCount,
   overdueCount = 0
 }) => {
-  const activeUser = AppDatabase.getActiveUser();
   const isLoggedIn = sessionStorage.getItem('pusdatin_sso_logged_in') === 'true';
 
   return (
@@ -82,80 +75,8 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center: System Portal Switcher Tabs */}
-        <div className="hidden md:flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-          <button
-            type="button"
-            onClick={() => onNavigatePage('landing')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              pageMode === 'landing'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Home className="w-3.5 h-3.5 text-slate-600" />
-            <span>Halaman Utama</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onNavigatePage('user')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              pageMode === 'user'
-                ? 'bg-white text-emerald-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Halaman User</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onNavigatePage('admin')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              pageMode === 'admin'
-                ? 'bg-white text-red-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5 text-red-600" />
-            <span>Halaman Admin</span>
-            {pendingDamageCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 text-[10px] font-bold bg-red-600 text-white rounded-full">
-                {pendingDamageCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onNavigatePage('executive')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-              pageMode === 'executive'
-                ? 'bg-white text-amber-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Crown className="w-3.5 h-3.5 text-amber-600" />
-            <span>Halaman Eksekutif</span>
-          </button>
-        </div>
-
-        {/* Right: Actor Switcher, Logs, and Auth Status */}
+        {/* Right: Notification Logs and Auth Status */}
         <div className="flex items-center gap-2">
-          {/* Quick Actor Switcher Modal (Uji 10 Aktor RBAC) */}
-          <button
-            type="button"
-            onClick={onOpenActorSwitcher}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold border border-slate-200 shadow-2xs cursor-pointer transition-all"
-            title="Ganti Peran Aktor (ACT-01 s/d ACT-10)"
-          >
-            <Users className="w-3.5 h-3.5 text-cyan-700" />
-            <span className="hidden lg:inline">{activeUser.role} - {activeUser.roleName.split(' ')[0]}</span>
-            <span className="lg:hidden font-mono text-[10px]">{activeUser.role}</span>
-          </button>
-
           {/* Email / Notification Logs */}
           <button
             type="button"

@@ -18,7 +18,7 @@ import {
   Filter
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
-import { BukuPenerimaanItem, PenerimaanBarangSubItem, Asset } from '../../types';
+import { BukuPenerimaanItem, PenerimaanBarangSubItem, Asset, AssetStatus } from '../../types';
 import { UnifiedAssetCode } from '../QRCodeView';
 import { PdfReportService } from '../../services/pdfReportService';
 
@@ -50,6 +50,11 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
   const [selectedSubItem, setSelectedSubItem] = useState<PenerimaanBarangSubItem | null>(null);
   const [selectedAssetForQR, setSelectedAssetForQR] = useState<Asset | null>(null);
 
+  // Queue state for registering all items in multi-item receipt
+  const [registrationQueue, setRegistrationQueue] = useState<PenerimaanBarangSubItem[]>([]);
+  const [queueCurrentIndex, setQueueCurrentIndex] = useState<number>(0);
+  const [totalQueueItems, setTotalQueueItems] = useState<number>(0);
+
   // Form State: Buku Penerimaan Multi-Item
   const [formHeader, setFormHeader] = useState({
     tanggalPenerimaan: new Date().toISOString().split('T')[0],
@@ -72,12 +77,24 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     }
   ]);
 
-  // Form State: Batch Unit Registration
+  // Form State: Unit Registration Modal (Disamakan persis dengan form edit data aset Lampiran 8)
   const [batchRegForm, setBatchRegForm] = useState({
+    namaAset: '',
+    kategori: 'Komputer & Laptop',
+    jenisAset: 'Fisik' as 'Fisik' | 'Non-Fisik',
+    merekModel: '',
+    nomorSeri: '',
+    spesifikasi: '',
+    statusAwal: 'Tersedia' as AssetStatus,
     lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    statusAwal: 'Tersedia' as 'Tersedia' | 'Digunakan' | 'Dipinjam',
+    pengguna: '',
+    bidangPengguna: '',
+    tanggalPembelian: new Date().toISOString().split('T')[0],
+    nomorPoInvoice: '',
+    vendorSupplier: '',
+    hargaBeli: 0,
     masaGaransi: '2 Tahun Garansi Resmi',
-    serialNumbers: '' // comma or newline separated
+    catatan: ''
   });
 
   const categories = AppDatabase.getMasterCategories();
@@ -124,6 +141,50 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
   );
   const grandTotalUnit = formItems.reduce((sum, item) => sum + (Number(item.banyaknya) || 0), 0);
 
+  // Open Batch Unit Registration Modal with Queue support
+  const openBatchRegistration = (
+    penerimaan: BukuPenerimaanItem,
+    subItem: PenerimaanBarangSubItem,
+    queue?: PenerimaanBarangSubItem[],
+    currentIndex?: number,
+    totalItems?: number
+  ) => {
+    setSelectedPenerimaan(penerimaan);
+    setSelectedSubItem(subItem);
+
+    const activeQueue = queue && queue.length > 0 ? queue : [subItem];
+    setRegistrationQueue(activeQueue);
+    setQueueCurrentIndex(currentIndex ?? 0);
+    setTotalQueueItems(totalItems ?? activeQueue.length);
+
+    const sisa = Math.max(0, subItem.banyaknya - (subItem.terdaftarCount || 0));
+    // Pre-populate serial numbers per unit
+    const sampleSNs = Array.from(
+      { length: Math.max(sisa, 1) },
+      (_, i) => `SN-${Date.now().toString().slice(-6)}-${i + 1}`
+    ).join('\n');
+
+    setBatchRegForm({
+      namaAset: subItem.namaAset,
+      kategori: subItem.kategori || 'Komputer & Laptop',
+      jenisAset: 'Fisik',
+      merekModel: subItem.merekModel || '',
+      nomorSeri: sampleSNs,
+      spesifikasi: subItem.spesifikasi || '',
+      statusAwal: 'Tersedia',
+      lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+      pengguna: '',
+      bidangPengguna: '',
+      tanggalPembelian: penerimaan.tanggalFaktur || penerimaan.tanggalPenerimaan || new Date().toISOString().split('T')[0],
+      nomorPoInvoice: penerimaan.nomorFaktur || '',
+      vendorSupplier: penerimaan.dari || '',
+      hargaBeli: Number(subItem.hargaSatuan) || 0,
+      masaGaransi: '2 Tahun Garansi Resmi',
+      catatan: ''
+    });
+    setIsBatchRegModalOpen(true);
+  };
+
   // Submit Multi-Item Penerimaan
   const handleSubmitPenerimaan = (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,29 +224,12 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
       alert(res.message);
       setIsAddModalOpen(false);
       reloadData();
-      // Open batch registration for the first item
-      if (res.data.items && res.data.items.length > 0) {
-        openBatchRegistration(res.data, res.data.items[0]);
+      // Start batch registration queue for all items in the receipt
+      const unregItems = (res.data.items || []).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
+      if (unregItems.length > 0) {
+        openBatchRegistration(res.data, unregItems[0], unregItems, 0, unregItems.length);
       }
     }
-  };
-
-  // Open Batch Unit Registration Modal
-  const openBatchRegistration = (penerimaan: BukuPenerimaanItem, subItem: PenerimaanBarangSubItem) => {
-    setSelectedPenerimaan(penerimaan);
-    setSelectedSubItem(subItem);
-    const sisa = Math.max(0, subItem.banyaknya - (subItem.terdaftarCount || 0));
-
-    // Pre-populate sample serial numbers
-    const sampleSNs = Array.from({ length: sisa }, (_, i) => `SN-${Date.now().toString().slice(-6)}-${i + 1}`).join('\n');
-
-    setBatchRegForm({
-      lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-      statusAwal: 'Tersedia',
-      masaGaransi: '2 Tahun Garansi Resmi',
-      serialNumbers: sampleSNs
-    });
-    setIsBatchRegModalOpen(true);
   };
 
   // Submit Batch Registration
@@ -200,7 +244,7 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
       return;
     }
 
-    const snLines = batchRegForm.serialNumbers
+    const snLines = batchRegForm.nomorSeri
       .split(/[\n,]+/)
       .map(s => s.trim())
       .filter(Boolean);
@@ -212,23 +256,42 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     const res = AppDatabase.registerPenerimaanBatchUnits({
       idPenerimaan: selectedPenerimaan.idPenerimaan,
       subItemIndex: subIndex !== undefined && subIndex >= 0 ? subIndex : 0,
-      namaAset: selectedSubItem.namaAset,
-      kategori: selectedSubItem.kategori,
-      merekModel: selectedSubItem.merekModel,
-      spesifikasi: selectedSubItem.spesifikasi,
-      vendorSupplier: selectedPenerimaan.dari,
-      hargaBeli: selectedSubItem.hargaSatuan,
+      namaAset: batchRegForm.namaAset,
+      kategori: batchRegForm.kategori,
+      jenisAset: batchRegForm.jenisAset,
+      merekModel: batchRegForm.merekModel,
+      serialNumbersList: snLines,
+      spesifikasi: batchRegForm.spesifikasi,
+      vendorSupplier: batchRegForm.vendorSupplier,
+      hargaBeli: Number(batchRegForm.hargaBeli),
       lokasi: batchRegForm.lokasi,
       statusAwal: batchRegForm.statusAwal,
+      pengguna: batchRegForm.statusAwal === 'Digunakan' ? batchRegForm.pengguna : undefined,
+      bidangPengguna: batchRegForm.statusAwal === 'Digunakan' ? batchRegForm.bidangPengguna : undefined,
+      tanggalPembelian: batchRegForm.tanggalPembelian,
+      nomorPoInvoice: batchRegForm.nomorPoInvoice,
+      masaGaransi: batchRegForm.masaGaransi,
+      catatan: batchRegForm.catatan,
       count: sisa
     });
 
     if (res.success) {
-      alert(res.message);
-      setIsBatchRegModalOpen(false);
       reloadData();
-      if (res.registeredAssets && res.registeredAssets.length > 0) {
-        setSelectedAssetForQR(res.registeredAssets[0]);
+      // Check remaining unregistered items in the current receipt
+      const updatedPenerimaan = AppDatabase.getBukuPenerimaan().find(p => p.idPenerimaan === selectedPenerimaan.idPenerimaan);
+      const remainingUnreg = (updatedPenerimaan?.items || []).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
+
+      if (remainingUnreg.length > 0) {
+        const nextItem = remainingUnreg[0];
+        const nextIndex = queueCurrentIndex + 1;
+        alert(`Berhasil meregistrasi ${sisa} unit "${batchRegForm.namaAset}". Melanjutkan registrasi barang ke-${nextIndex + 1} dari ${totalQueueItems}: "${nextItem.namaAset}" (${Math.max(0, nextItem.banyaknya - (nextItem.terdaftarCount || 0))} unit)...`);
+        openBatchRegistration(updatedPenerimaan!, nextItem, remainingUnreg, nextIndex, totalQueueItems);
+      } else {
+        alert(`Seluruh ${totalQueueItems} jenis barang dalam faktur ${selectedPenerimaan.nomorFaktur} berhasil diregistrasi ke sistem inventaris!`);
+        setIsBatchRegModalOpen(false);
+        if (res.registeredAssets && res.registeredAssets.length > 0) {
+          setSelectedAssetForQR(res.registeredAssets[0]);
+        }
       }
     } else {
       alert(res.message);
@@ -486,9 +549,10 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                           <button
                             type="button"
                             onClick={() => {
-                              const unregItem = item.items?.find(it => (it.terdaftarCount || 0) < it.banyaknya) || item.items?.[0];
-                              if (unregItem) {
-                                openBatchRegistration(item, unregItem);
+                              const unregItems = (item.items || []).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
+                              const targetItem = unregItems[0] || item.items?.[0];
+                              if (targetItem) {
+                                openBatchRegistration(item, targetItem, unregItems, 0, unregItems.length || 1);
                               }
                             }}
                             className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
@@ -744,105 +808,293 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
         </div>
       )}
 
-      {/* MODAL 2: Batch Unit Registration Modal (Registrasi Setiap Aset/Unit) */}
+      {/* MODAL 2: Batch Unit Registration Modal (Disamakan persis dengan form edit data aset Lampiran 8) */}
       {isBatchRegModalOpen && selectedPenerimaan && selectedSubItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                  <span className="text-[10px] font-mono font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                    Barang {queueCurrentIndex + 1} dari {totalQueueItems}
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
                     {selectedPenerimaan.idPenerimaan}
                   </span>
-                  <h3 className="font-bold text-slate-900 text-base">Registrasi Unit Fisik Aset</h3>
+                  <h3 className="font-bold text-slate-900 text-base">Registrasi Data Aset PUSDATIN</h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Menerbitkan Kode Unik Aset (BR-001) dan Label QR Code untuk masing-masing unit
+                  Faktur: <span className="font-mono font-bold text-slate-700">{selectedPenerimaan.nomorFaktur}</span> · Menerbitkan Kode Unik Aset & QR Code otomatis
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsBatchRegModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSubmitBatchRegistration} className="space-y-4 mt-4 text-sm">
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
-                <div>
-                  <span className="text-slate-500">Barang:</span>{' '}
-                  <strong className="text-slate-900">{selectedSubItem.namaAset}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500">Kategori:</span>{' '}
-                  <span className="font-medium text-slate-700">{selectedSubItem.kategori}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Jumlah Dalam Faktur:</span>{' '}
-                  <strong className="font-mono text-slate-900">{selectedSubItem.banyaknya} Unit</strong>{' '}
-                  <span className="text-slate-400">
-                    (Sudah terdaftar: {selectedSubItem.terdaftarCount || 0} unit, Belum terdaftar:{' '}
-                    {Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0))} unit)
+            <form onSubmit={handleSubmitBatchRegistration} className="space-y-4 mt-4 text-xs">
+              {/* Header Info Banner */}
+              <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl space-y-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600">Nama Barang di Faktur: <strong className="text-slate-900">{selectedSubItem.namaAset}</strong></span>
+                  <span className="font-mono font-bold text-purple-800 text-xs">
+                    {Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0))} Unit Belum Teregistrasi
                   </span>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Total dalam Faktur: {selectedSubItem.banyaknya} unit (Sudah teregistrasi: {selectedSubItem.terdaftarCount || 0} unit)
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Nama Aset */}
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nama Aset / Perangkat <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={batchRegForm.namaAset}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, namaAset: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600"
+                  />
+                </div>
+
+                {/* Kategori */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Status Operasional Awal</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Kategori Aset <span className="text-red-600">*</span>
+                  </label>
                   <select
-                    value={batchRegForm.statusAwal}
-                    onChange={e => setBatchRegForm({ ...batchRegForm, statusAwal: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-emerald-800"
+                    value={batchRegForm.kategori}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, kategori: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
                   >
-                    <option value="Tersedia">Tersedia (Ready di Ruang PUSDATIN)</option>
-                    <option value="Digunakan">Digunakan (Langsung Terpasang)</option>
-                    <option value="Dipinjam">Dipinjam</option>
+                    {categories.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                 </div>
 
+                {/* Jenis Aset */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Masa Garansi</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Jenis Aset
+                  </label>
+                  <select
+                    value={batchRegForm.jenisAset}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, jenisAset: e.target.value as 'Fisik' | 'Non-Fisik' })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                  >
+                    <option value="Fisik">Fisik (Barang / Hardware)</option>
+                    <option value="Non-Fisik">Non-Fisik (Sistem, Jaringan, Software)</option>
+                  </select>
+                </div>
+
+                {/* Merek & Model */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Merek dan Model
+                  </label>
+                  <input
+                    type="text"
+                    value={batchRegForm.merekModel}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, merekModel: e.target.value })}
+                    placeholder="Contoh: ASUS ExpertBook B1 / HP AIO"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900"
+                  />
+                </div>
+
+                {/* Nomor Seri */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700">
+                      Nomor Seri (Serial Number)
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      {Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0)) > 1 ? '1 baris per unit' : '1 unit'}
+                    </span>
+                  </div>
+                  <textarea
+                    rows={Math.min(4, Math.max(2, Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0))))}
+                    value={batchRegForm.nomorSeri}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, nomorSeri: e.target.value })}
+                    placeholder="Masukkan nomor seri unit..."
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                {/* Spesifikasi Teknis */}
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Spesifikasi Teknis
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={batchRegForm.spesifikasi}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, spesifikasi: e.target.value })}
+                    placeholder="Keterangan spesifikasi teknis barang..."
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900"
+                  />
+                </div>
+
+                {/* Status Operasional */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Status Operasional <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    value={batchRegForm.statusAwal}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, statusAwal: e.target.value as AssetStatus })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-slate-900"
+                  >
+                    <option value="Tersedia">Tersedia (Ready di PUSDATIN)</option>
+                    <option value="Digunakan">Digunakan (Terpasang / Digunakan Unit)</option>
+                    <option value="Dipinjam">Dipinjam (Sedang Dipinjam)</option>
+                    <option value="Rusak">Rusak (Malfungsi / Butuh Perbaikan)</option>
+                    <option value="Diperbaiki">Diperbaiki (Dalam Servis Teknisi)</option>
+                    <option value="Rusak Total">Rusak Total / Afkir</option>
+                  </select>
+                </div>
+
+                {/* Lokasi Penempatan */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Lokasi Penempatan <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    list="batch-reg-locations"
+                    value={batchRegForm.lokasi}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, lokasi: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 font-semibold"
+                  />
+                  <datalist id="batch-reg-locations">
+                    {locations.map(loc => (
+                      <option key={loc} value={loc} />
+                    ))}
+                  </datalist>
+                </div>
+
+                {/* Conditional Pengguna & Bidang Pengguna */}
+                {batchRegForm.statusAwal === 'Digunakan' && (
+                  <>
+                    <div>
+                      <label className="block font-bold text-blue-900 mb-1">
+                        Nama Pengguna (User) <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={batchRegForm.pengguna}
+                        onChange={e => setBatchRegForm({ ...batchRegForm, pengguna: e.target.value })}
+                        className="w-full px-3 py-2 bg-blue-50 border border-blue-300 rounded-lg text-slate-900 font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-blue-900 mb-1">
+                        Bidang / Unit Pengguna <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={batchRegForm.bidangPengguna}
+                        onChange={e => setBatchRegForm({ ...batchRegForm, bidangPengguna: e.target.value })}
+                        className="w-full px-3 py-2 bg-blue-50 border border-blue-300 rounded-lg text-slate-900 font-semibold"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* Tanggal Pembelian */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Tanggal Pembelian
+                  </label>
+                  <input
+                    type="date"
+                    value={batchRegForm.tanggalPembelian}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, tanggalPembelian: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                {/* Nomor PO / Invoice */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nomor PO / Invoice
+                  </label>
+                  <input
+                    type="text"
+                    value={batchRegForm.nomorPoInvoice}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, nomorPoInvoice: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                {/* Nama Vendor / Supplier */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nama Vendor / Supplier
+                  </label>
+                  <input
+                    type="text"
+                    value={batchRegForm.vendorSupplier}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, vendorSupplier: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                {/* Harga Beli */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Harga Beli (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={batchRegForm.hargaBeli}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, hargaBeli: Number(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                {/* Masa Garansi */}
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Masa Garansi
+                  </label>
                   <input
                     type="text"
                     value={batchRegForm.masaGaransi}
                     onChange={e => setBatchRegForm({ ...batchRegForm, masaGaransi: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                    placeholder="Contoh: 2 Tahun Garansi Resmi ASUS"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                {/* Catatan Perubahan (Log Aktivitas) */}
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Catatan Perubahan (Log Aktivitas)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={batchRegForm.catatan}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, catatan: e.target.value })}
+                    placeholder="Keterangan perubahan..."
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Lokasi Penempatan Fisik Unit</label>
-                <select
-                  value={batchRegForm.lokasi}
-                  onChange={e => setBatchRegForm({ ...batchRegForm, lokasi: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                >
-                  {locations.map(loc => (
-                    <option key={loc} value={loc}>{loc}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Nomor Seri (Serial Number) Masing-Masing Unit
-                  </label>
-                  <span className="text-[10px] text-slate-400">1 baris per unit</span>
-                </div>
-                <textarea
-                  rows={4}
-                  value={batchRegForm.serialNumbers}
-                  onChange={e => setBatchRegForm({ ...batchRegForm, serialNumbers: e.target.value })}
-                  placeholder="Masukkan nomor seri per baris..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
-                />
-              </div>
-
+              {/* Security & Code Notification */}
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
                 <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                 <div>
@@ -850,20 +1102,28 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              {/* Action Buttons */}
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsBatchRegModalOpen(false)}
                   className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
                 >
-                  Batal
+                  {totalQueueItems > 1 && queueCurrentIndex < totalQueueItems - 1
+                    ? 'Batal / Selesai Nanti'
+                    : 'Batal'}
                 </button>
+
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5 transition-all"
                 >
-                  <PackagePlus className="w-3.5 h-3.5" />
-                  <span>Registrasi Semua Unit Ini</span>
+                  <PackagePlus className="w-4 h-4" />
+                  <span>
+                    {totalQueueItems > 1 && queueCurrentIndex < totalQueueItems - 1
+                      ? `Registrasi & Lanjut ke Barang Berikutnya (${queueCurrentIndex + 2}/${totalQueueItems})`
+                      : 'Selesai & Registrasi Unit Ini'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -958,7 +1218,10 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                                     type="button"
                                     onClick={() => {
                                       setIsDetailModalOpen(false);
-                                      openBatchRegistration(selectedPenerimaan, sub);
+                                      const unregItems = (selectedPenerimaan.items || []).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
+                                      const itemIdx = unregItems.findIndex(it => it.namaAset === sub.namaAset);
+                                      const startIdx = itemIdx >= 0 ? itemIdx : 0;
+                                      openBatchRegistration(selectedPenerimaan, sub, unregItems, startIdx, unregItems.length || 1);
                                     }}
                                     className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold cursor-pointer"
                                   >

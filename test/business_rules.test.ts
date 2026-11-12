@@ -169,4 +169,94 @@ describe('PAHAM System Pusdatin UMC - Business Rules & RBAC Verification', () =>
     const reloaded = AppDatabase.getAssetByBarcode(target.barcode);
     assert.strictEqual(reloaded?.status, 'Rusak');
   });
+
+  it('Feature 3.7: Multi-item receipt registration correctly registers all item types with Lampiran 8 fields', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const receiptRes = AppDatabase.addBukuPenerimaan({
+      tanggalPenerimaan: '2026-11-12',
+      dari: 'PT Mega Teknologi Mandiri',
+      nomorFaktur: 'INV-TEST-2ITEMS',
+      tanggalFaktur: '2026-11-12',
+      nomorBeritaAcara: 'BAST-TEST-2ITEMS',
+      tanggalBeritaAcara: '2026-11-12',
+      keterangan: 'Uji coba penginputan 2 jenis barang',
+      items: [
+        {
+          namaAset: 'Macbook Air M5',
+          kategori: 'Komputer & Laptop',
+          banyaknya: 2,
+          hargaSatuan: 20000000,
+          jumlahHarga: 40000000,
+          merekModel: 'Apple Macbook Air M5'
+        },
+        {
+          namaAset: 'Dell UltraSharp 27',
+          kategori: 'Multimedia',
+          banyaknya: 2,
+          hargaSatuan: 5000000,
+          jumlahHarga: 10000000,
+          merekModel: 'Dell U2724D'
+        }
+      ]
+    });
+
+    assert.strictEqual(receiptRes.success, true);
+    const rcv = receiptRes.data!;
+    assert.strictEqual(rcv.items?.length, 2);
+
+    // Register Item 1 (Macbook Air M5)
+    const reg1 = AppDatabase.registerPenerimaanBatchUnits({
+      idPenerimaan: rcv.idPenerimaan,
+      subItemIndex: 0,
+      namaAset: 'Macbook Air M5',
+      kategori: 'Komputer & Laptop',
+      jenisAset: 'Fisik',
+      merekModel: 'Apple Macbook Air M5',
+      serialNumbersList: ['SN-MB-001', 'SN-MB-002'],
+      spesifikasi: 'Apple M5 Chip, 16GB Unified RAM, 512GB SSD',
+      vendorSupplier: 'PT Mega Teknologi Mandiri',
+      hargaBeli: 20000000,
+      lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+      statusAwal: 'Tersedia',
+      tanggalPembelian: '2026-11-12',
+      nomorPoInvoice: 'INV-TEST-2ITEMS',
+      masaGaransi: '2 Tahun Garansi Resmi Apple',
+      count: 2
+    });
+
+    assert.strictEqual(reg1.success, true);
+    assert.strictEqual(reg1.registeredAssets.length, 2);
+    assert.strictEqual(reg1.registeredAssets[0].nomorSeri, 'SN-MB-001');
+    assert.strictEqual(reg1.registeredAssets[0].masaGaransi, '2 Tahun Garansi Resmi Apple');
+
+    // Register Item 2 (Dell UltraSharp 27)
+    const reg2 = AppDatabase.registerPenerimaanBatchUnits({
+      idPenerimaan: rcv.idPenerimaan,
+      subItemIndex: 1,
+      namaAset: 'Dell UltraSharp 27',
+      kategori: 'Multimedia',
+      jenisAset: 'Fisik',
+      merekModel: 'Dell U2724D',
+      serialNumbersList: ['SN-DELL-001', 'SN-DELL-002'],
+      spesifikasi: '27 inch QHD IPS Black 120Hz',
+      vendorSupplier: 'PT Mega Teknologi Mandiri',
+      hargaBeli: 5000000,
+      lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+      statusAwal: 'Tersedia',
+      tanggalPembelian: '2026-11-12',
+      nomorPoInvoice: 'INV-TEST-2ITEMS',
+      masaGaransi: '3 Tahun Garansi Resmi Dell',
+      count: 2
+    });
+
+    assert.strictEqual(reg2.success, true);
+    assert.strictEqual(reg2.registeredAssets.length, 2);
+    assert.strictEqual(reg2.registeredAssets[0].nomorSeri, 'SN-DELL-001');
+
+    // Verify receipt items are both fully registered
+    const updatedRcv = AppDatabase.getBukuPenerimaan().find(p => p.idPenerimaan === rcv.idPenerimaan);
+    assert.ok(updatedRcv);
+    assert.strictEqual(updatedRcv.items![0].terdaftarCount, 2);
+    assert.strictEqual(updatedRcv.items![1].terdaftarCount, 2);
+  });
 });

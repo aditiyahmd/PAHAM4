@@ -51,26 +51,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
-      {/* 1. TOP ANNOUNCEMENT BAR */}
-      <div className="bg-slate-900 text-slate-200 text-xs py-2 px-4 border-b border-slate-800">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-full bg-red-600 text-white font-bold text-[10px]">
-              RESMI UMC
-            </span>
-            <span className="text-slate-300">
-              Pusat Data dan Teknologi Informasi (PUSDATIN) Universitas Muhammadiyah Cirebon
-            </span>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] text-slate-400">
-            <span>SSO Google Kampus Terintegrasi</span>
-            <span className="hidden md:inline">•</span>
-            <span className="hidden md:inline">Kampus 1 & Kampus 2 UMC</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. HERO NAVIGATION */}
+      {/* HERO NAVIGATION */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -123,165 +104,64 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
       {/* 3. HERO SECTION */}
       <section className="relative overflow-hidden bg-gradient-to-b from-red-50/60 via-slate-50 to-white pt-12 pb-16 border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-            {/* Left Column: Heading & Quick Actions */}
-            <div className="lg:col-span-7 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-800 border border-red-200 text-xs font-bold">
-                <Sparkles className="w-3.5 h-3.5 text-red-600" />
-                <span>Portal Resmi Pelayanan Aset & Helpdesk TI Kampus</span>
-              </div>
-
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-950 tracking-tight leading-tight">
-                Sistem Tata Kelola Aset, Layanan Helpdesk & Usulan Sistem Terpadu
-              </h1>
-
-              <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl">
-                <strong>PAHAM</strong> (PUSDATIN Asset & Helpdesk Assistance Management) mengintegrasikan
-                inventarisasi aset kampus berbasis barcode/QR, peminjaman perangkat, penanganan kerusakan berstandar SLA,
-                hingga tata kelola pengajuan aplikasi baru di lingkungan Universitas Muhammadiyah Cirebon.
-              </p>
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={onLogin}
-                  className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
-                >
-                  <Lock className="w-4 h-4" />
-                  <span>Masuk dengan SSO Google</span>
-                  <ArrowRight className="w-4 h-4 ml-1" />
-                </button>
-
-                <a
-                  href="#alur-sop"
-                  className="px-5 py-3.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-xl font-bold text-sm shadow-xs transition-all flex items-center gap-2"
-                >
-                  <BookOpen className="w-4 h-4 text-slate-500" />
-                  <span>Pelajari Alur SOP</span>
-                </a>
-              </div>
-
-              {/* Quick Ticket Tracker */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs max-w-xl">
-                <div className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                  <Search className="w-3.5 h-3.5 text-red-600" />
-                  <span>Lacak Status Tiket Cepat (Peminjaman / Laporan Kerusakan):</span>
-                </div>
-                <form onSubmit={handleTrackSubmit} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={trackInput}
-                    onChange={e => setTrackInput(e.target.value)}
-                    placeholder="Masukkan Nomor Tiket (contoh: TKT-2026-..., PINJAM-...)"
-                    className="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-600 font-mono"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0"
-                  >
-                    Lacak
-                  </button>
-                </form>
-              </div>
+          <div className="max-w-3xl mx-auto text-center space-y-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-800 border border-red-200 text-xs font-bold">
+              <Sparkles className="w-3.5 h-3.5 text-red-600" />
+              <span>Portal Resmi Pelayanan Aset & Helpdesk TI Kampus</span>
             </div>
 
-            {/* Right Column: Portal Showcase Card */}
-            <div className="lg:col-span-5">
-              <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xl relative">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-3 h-3 rounded-full bg-red-500" />
-                    <div className="w-3 h-3 rounded-full bg-amber-500" />
-                    <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-mono font-bold text-slate-500 ml-1">
-                      PAHAM Multi-Portal
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">
-                    Sistem Aktif
-                  </span>
-                </div>
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-950 tracking-tight leading-tight">
+              Sistem Tata Kelola Aset, Layanan Helpdesk & Usulan Sistem Terpadu
+            </h1>
 
-                {/* 4 Portals Breakdown */}
-                <div className="space-y-3 pt-4">
-                  <div
-                    onClick={() => onSelectRoleQuick('ACT-10')}
-                    className="p-3.5 rounded-xl border border-purple-200 bg-purple-50/50 hover:bg-purple-50 transition-all cursor-pointer flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0">
-                        <Users className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">1. Halaman User (Civitas)</div>
-                        <div className="text-[11px] text-slate-500">
-                          Dosen, Karyawan & Mahasiswa UMC
-                        </div>
-                      </div>
-                    </div>
-                    <span className="text-xs font-bold text-purple-700 flex items-center gap-1">
-                      Akses <ChevronRight className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
+            <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
+              <strong>PAHAM</strong> (PUSDATIN Asset & Helpdesk Assistance Management) mengintegrasikan
+              inventarisasi aset kampus berbasis barcode/QR, peminjaman perangkat, penanganan kerusakan berstandar SLA,
+              hingga tata kelola pengajuan aplikasi baru di lingkungan Universitas Muhammadiyah Cirebon.
+            </p>
 
-                  <div
-                    onClick={() => onSelectRoleQuick('ACT-03')}
-                    className="p-3.5 rounded-xl border border-red-200 bg-red-50/50 hover:bg-red-50 transition-all cursor-pointer flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-red-600 text-white flex items-center justify-center shrink-0">
-                        <ShieldCheck className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">2. Halaman Admin & Teknisi</div>
-                        <div className="text-[11px] text-slate-500">
-                          Pimpinan PUSDATIN, IT Support, Cloud, Dev & Security
-                        </div>
-                      </div>
-                    </div>
-                    <span className="text-xs font-bold text-red-700 flex items-center gap-1">
-                      Akses <ChevronRight className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onLogin}
+                className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Masuk</span>
+                <ArrowRight className="w-4 h-4 ml-1" />
+              </button>
 
-                  <div
-                    onClick={() => onSelectRoleQuick('ACT-01')}
-                    className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/50 hover:bg-amber-50 transition-all cursor-pointer flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0">
-                        <BarChart3 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">3. Halaman Eksekutif</div>
-                        <div className="text-[11px] text-slate-500">
-                          Rektor & Wakil Rektor 1 (Dashboard Pimpinan & Master Aset)
-                        </div>
-                      </div>
-                    </div>
-                    <span className="text-xs font-bold text-amber-800 flex items-center gap-1">
-                      Akses <ChevronRight className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                </div>
+              <a
+                href="#alur-sop"
+                className="px-5 py-3.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-xl font-bold text-sm shadow-xs transition-all flex items-center gap-2"
+              >
+                <BookOpen className="w-4 h-4 text-slate-500" />
+                <span>Pelajari Alur SOP</span>
+              </a>
+            </div>
 
-                {/* Quick stats mini ribbon */}
-                <div className="grid grid-cols-3 gap-2 pt-4 mt-4 border-t border-slate-100 text-center">
-                  <div className="p-2 rounded-lg bg-slate-50">
-                    <span className="text-lg font-bold font-mono text-slate-900 block">{stats.totalAset}</span>
-                    <span className="text-[10px] text-slate-500 uppercase font-semibold">Total Aset</span>
-                  </div>
-                  <div className="p-2 rounded-lg bg-slate-50">
-                    <span className="text-lg font-bold font-mono text-emerald-600 block">{stats.tersedia}</span>
-                    <span className="text-[10px] text-slate-500 uppercase font-semibold">Siap Pakai</span>
-                  </div>
-                  <div className="p-2 rounded-lg bg-slate-50">
-                    <span className="text-lg font-bold font-mono text-red-600 block">{stats.slaAchievementRate}%</span>
-                    <span className="text-[10px] text-slate-500 uppercase font-semibold">SLA On-Time</span>
-                  </div>
-                </div>
+            {/* Quick Ticket Tracker */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs max-w-xl mx-auto text-left">
+              <div className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                <Search className="w-3.5 h-3.5 text-red-600" />
+                <span>Lacak Status Tiket Cepat (Peminjaman / Laporan Kerusakan):</span>
               </div>
+              <form onSubmit={handleTrackSubmit} className="flex gap-2">
+                <input
+                  type="text"
+                  value={trackInput}
+                  onChange={e => setTrackInput(e.target.value)}
+                  placeholder="Masukkan Nomor Tiket (contoh: TKT-2026-..., PINJAM-...)"
+                  className="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-600 font-mono"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0"
+                >
+                  Lacak
+                </button>
+              </form>
             </div>
           </div>
         </div>
@@ -586,7 +466,6 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               </p>
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
                 <p><strong>Lokasi Operasional:</strong> Gedung Laboratorium Terpadu Lantai 2, Kampus 2 UMC</p>
-                <p><strong>NOC & Ruang Server:</strong> Gedung Rektorat Kampus 1 & Kampus 2 UMC</p>
                 <p><strong>Kontak Layanan:</strong> helpdesk-pusdatin@umc.ac.id | Telp: (0231) 204276</p>
               </div>
             </div>

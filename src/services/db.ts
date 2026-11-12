@@ -1021,14 +1021,22 @@ export class AppDatabase {
     subItemIndex?: number;
     namaAset: string;
     kategori: string;
+    jenisAset?: 'Fisik' | 'Non-Fisik';
     merekModel?: string;
     nomorSeriPrefix?: string;
+    serialNumbersList?: string[];
     spesifikasi?: string;
     vendorSupplier: string;
     hargaBeli: number;
     lokasi: string;
     statusAwal?: AssetStatus;
     count: number;
+    tanggalPembelian?: string;
+    nomorPoInvoice?: string;
+    masaGaransi?: string;
+    catatan?: string;
+    pengguna?: string;
+    bidangPengguna?: string;
   }): { success: boolean; message: string; registeredAssets: Asset[] } {
     const active = this.getActiveUser();
     AccessControlService.enforce(active, 'registrasi_aset_qr', ['manage'], 'Meregistrasi unit aset dari penerimaan');
@@ -1049,9 +1057,13 @@ export class AppDatabase {
       const barcode = String(Math.floor(10000000 + Math.random() * 90000000));
       const seq = existingAssets.length + registeredAssets.length + 1;
       const kodeUnikAset = `AST-UMC-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
-      const sn = params.nomorSeriPrefix
-        ? `${params.nomorSeriPrefix}-${String(i + 1).padStart(2, '0')}`
-        : `SN-${barcode}`;
+
+      let sn = `SN-${barcode}`;
+      if (params.serialNumbersList && params.serialNumbersList[i]) {
+        sn = params.serialNumbersList[i];
+      } else if (params.nomorSeriPrefix) {
+        sn = `${params.nomorSeriPrefix}-${String(i + 1).padStart(2, '0')}`;
+      }
 
       const asset: Asset = {
         barcode,
@@ -1064,11 +1076,14 @@ export class AppDatabase {
         lokasi: params.lokasi || 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
         status: params.statusAwal || 'Tersedia',
         tanggalMasuk: targetRcv.tanggalPenerimaan || new Date().toISOString().split('T')[0],
-        tanggalPembelian: targetRcv.tanggalFaktur || targetRcv.tanggalPenerimaan,
-        nomorPoInvoice: targetRcv.nomorFaktur,
+        tanggalPembelian: params.tanggalPembelian || targetRcv.tanggalFaktur || targetRcv.tanggalPenerimaan,
+        nomorPoInvoice: params.nomorPoInvoice || targetRcv.nomorFaktur,
         vendorSupplier: params.vendorSupplier || targetRcv.dari,
-        hargaBeli: params.hargaBeli || targetRcv.hargaSatuan,
-        jenisAset: 'Fisik',
+        hargaBeli: params.hargaBeli !== undefined ? params.hargaBeli : targetRcv.hargaSatuan,
+        jenisAset: params.jenisAset || 'Fisik',
+        masaGaransi: params.masaGaransi,
+        pengguna: params.pengguna,
+        bidangPengguna: params.bidangPengguna,
         lokasiAwal: params.lokasi || 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
         idPenerimaanTerkait: params.idPenerimaan
       };
@@ -1077,13 +1092,15 @@ export class AppDatabase {
       registeredAssets.push(asset);
     }
 
-    // Update targetRcv tercatatUnitCount and sub-item registered barcodes
+    // Update targetRcv tercatatUnitCount and sub-item registered barcodes & count
     const newBarcodes = registeredAssets.map(a => a.barcode);
     targetRcv.tercatatUnitCount = (targetRcv.tercatatUnitCount || 0) + registeredAssets.length;
 
-    if (targetRcv.items && typeof params.subItemIndex === 'number' && targetRcv.items[params.subItemIndex]) {
-      const sub = targetRcv.items[params.subItemIndex];
-      sub.unitRegisteredBarcodes = [...(sub.unitRegisteredBarcodes || []), ...newBarcodes];
+    const targetSub = (targetRcv.items && typeof params.subItemIndex === 'number' && targetRcv.items[params.subItemIndex])
+      || targetRcv.items?.find(it => it.namaAset === params.namaAset);
+    if (targetSub) {
+      targetSub.unitRegisteredBarcodes = [...(targetSub.unitRegisteredBarcodes || []), ...newBarcodes];
+      targetSub.terdaftarCount = (targetSub.terdaftarCount || 0) + registeredAssets.length;
     }
 
     penerimaanList[rcvIndex] = targetRcv;
