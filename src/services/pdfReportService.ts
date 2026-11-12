@@ -1,6 +1,16 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Asset, DamageTicket, LoanTicket, SparePartItem, PicPerformanceReport } from '../types';
+import {
+  Asset,
+  DamageTicket,
+  LoanTicket,
+  SparePartItem,
+  PicPerformanceReport,
+  BukuPenerimaanItem,
+  BukuPengeluaranItem,
+  BukuAsetInventarisRekap,
+  AppStatistics
+} from '../types';
 import { KOP_OFFICIAL_BASE64 } from './kopBase64';
 
 export interface MonthlyReportParams {
@@ -533,6 +543,686 @@ export class PdfReportService {
     doc.text('Staff IT PUSDATIN UMC', 50, nameY + 4, { align: 'center' });
     if (params.nipKepala) {
       doc.text(params.nipKepala, 220, nameY + 4, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Cetak Berita Acara Serah Terima (BAST) Penerimaan Aset TI
+   */
+  public static generateBukuPenerimaanBastPdf(
+    item: BukuPenerimaanItem,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
+    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
+    const petugasNama = options?.petugas || item.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(218, 36, 36);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON', 105, 18, { align: 'center' });
+      doc.line(15, 37, 195, 37);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text('BERITA ACARA SERAH TERIMA (BAST) PENERIMAAN ASET TI', 105, 43, { align: 'center' });
+
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(185, 28, 28);
+    doc.text(`Nomor BAST: ${item.nomorBeritaAcara}`, 105, 48, { align: 'center' });
+
+    autoTable(doc, {
+      startY: 52,
+      theme: 'grid',
+      head: [['INFORMASI PENERIMAAN / FAKTUR', 'KETERANGAN']],
+      body: [
+        ['Penyedia / Vendor / Rekanan', item.dari],
+        ['Nomor Faktur / Invoice', item.nomorFaktur],
+        ['Tanggal Faktur', item.tanggalFaktur],
+        ['Tanggal Penerimaan Fisik', item.tanggalPenerimaan],
+        ['Nomor Berita Acara', item.nomorBeritaAcara],
+        ['Tanggal Berita Acara', item.tanggalBeritaAcara],
+        ['Petugas Penerima PUSDATIN', petugasNama],
+        ['Catatan / Peruntukan', item.keterangan || '-']
+      ],
+      headStyles: { fillColor: [185, 28, 28], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 60, fontStyle: 'bold' } },
+      margin: { left: 15, right: 15 }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 4;
+
+    // Rincian Barang
+    const subItems = item.items && item.items.length > 0 ? item.items : [
+      {
+        namaAset: item.namaAset,
+        kategori: item.kategori,
+        banyaknya: item.banyaknya,
+        hargaSatuan: item.hargaSatuan,
+        jumlahHarga: item.jumlahHarga,
+        unitRegisteredBarcodes: []
+      }
+    ];
+
+    const bodyRows = subItems.map((s, idx) => [
+      String(idx + 1),
+      String(s.namaAset || '-'),
+      String(s.kategori || '-'),
+      `${s.banyaknya || 0} Unit`,
+      `Rp ${(s.hargaSatuan || 0).toLocaleString('id-ID')}`,
+      `Rp ${(s.jumlahHarga || 0).toLocaleString('id-ID')}`,
+      s.unitRegisteredBarcodes && s.unitRegisteredBarcodes.length > 0
+        ? `${s.unitRegisteredBarcodes.length} Terdaftar (${s.unitRegisteredBarcodes.slice(0, 3).join(', ')}${s.unitRegisteredBarcodes.length > 3 ? '...' : ''})`
+        : 'Tercatat'
+    ]);
+
+    const totalQty = subItems.reduce((acc, curr) => acc + (curr.banyaknya || 0), 0);
+    const grandTotal = subItems.reduce((acc, curr) => acc + (curr.jumlahHarga || 0), 0);
+
+    bodyRows.push([
+      'TOTAL',
+      'Akumulasi Barang Diterima',
+      '-',
+      `${totalQty} Unit`,
+      '-',
+      `Rp ${grandTotal.toLocaleString('id-ID')}`,
+      '-'
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      theme: 'grid',
+      head: [['No', 'Nama Perangkat / Aset', 'Kategori', 'Qty', 'Harga Satuan', 'Jumlah Harga', 'Registrasi Unit']],
+      body: bodyRows,
+      headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 7.5, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        3: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+        4: { cellWidth: 28, halign: 'right' },
+        5: { cellWidth: 32, halign: 'right', fontStyle: 'bold' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 8;
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Cirebon, ${todayDateStr}`, 145, currentY);
+
+    const signY = currentY + 6;
+    doc.text('Pihak Penyedia / Pengirim,', 45, signY, { align: 'center' });
+    doc.text('Petugas Penerima PUSDATIN,', 150, signY, { align: 'center' });
+
+    const nameY = signY + 24;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`( ${item.dari} )`, 45, nameY, { align: 'center' });
+    doc.text(`( ${petugasNama} )`, 150, nameY, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text('Mengetahui / Menyetujui,', 105, nameY + 8, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text('Kepala PUSDATIN UMC', 105, nameY + 12, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 105, nameY + 30, { align: 'center' });
+    if (kepalaNip) doc.text(kepalaNip, 105, nameY + 34, { align: 'center' });
+
+    return doc;
+  }
+
+  /**
+   * Cetak Rekapitulasi Buku Penerimaan Bulanan
+   */
+  public static generateBukuPenerimaanMonthlyPdf(
+    items: BukuPenerimaanItem[],
+    monthStr: string,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; title?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
+    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
+    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text(`REKAPITULASI BUKU PENERIMAAN ASET TI - BULAN ${monthStr.toUpperCase()}`, 148.5, 38, { align: 'center' });
+
+    const tableRows = items.map((it, idx) => [
+      String(idx + 1),
+      String(it.tanggalPenerimaan || '-'),
+      String(it.dari || '-'),
+      String(it.nomorFaktur || '-'),
+      String(it.namaAset || (it.items ? `${it.items.length} Macam Barang` : '-')),
+      String(it.kategori || (it.items ? it.items[0]?.kategori || 'Multi' : '-')),
+      `${it.banyaknya || (it.items ? it.items.reduce((s, x) => s + (x.banyaknya || 0), 0) : 0)} Unit`,
+      `Rp ${(it.hargaSatuan || 0).toLocaleString('id-ID')}`,
+      `Rp ${(it.jumlahHarga || 0).toLocaleString('id-ID')}`,
+      String(it.nomorBeritaAcara || '-')
+    ]);
+
+    const grandQty = items.reduce((s, it) => s + (it.banyaknya || 0), 0);
+    const grandNilai = items.reduce((s, it) => s + (it.jumlahHarga || 0), 0);
+
+    tableRows.push([
+      'TOTAL',
+      '-',
+      '-',
+      '-',
+      'Akumulasi Penerimaan',
+      '-',
+      `${grandQty} Unit`,
+      '-',
+      `Rp ${grandNilai.toLocaleString('id-ID')}`,
+      '-'
+    ]);
+
+    autoTable(doc, {
+      startY: 44,
+      theme: 'grid',
+      head: [['No', 'Tgl Terima', 'Vendor/Rekanan', 'No Faktur', 'Nama Perangkat', 'Kategori', 'Qty', 'Harga Satuan', 'Jumlah Harga', 'Nomor BAST']],
+      body: tableRows,
+      headStyles: { fillColor: [185, 28, 28], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 7.5, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        6: { halign: 'center', fontStyle: 'bold' },
+        7: { halign: 'right' },
+        8: { halign: 'right', fontStyle: 'bold' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text('Petugas Pengelola Aset,', 50, signY + 6, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Cetak Berita Acara Serah Terima Pengeluaran Aset TI
+   */
+  public static generateBukuPengeluaranBastPdf(
+    item: BukuPengeluaranItem,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
+    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
+    const petugasNama = options?.petugas || item.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(218, 36, 36);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 105, 18, { align: 'center' });
+      doc.line(15, 37, 195, 37);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text('BERITA ACARA PENGELUARAN & PENYERAHAN ASET TI', 105, 43, { align: 'center' });
+
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(185, 28, 28);
+    doc.text(`ID Pengeluaran: ${item.idPengeluaran}`, 105, 48, { align: 'center' });
+
+    autoTable(doc, {
+      startY: 52,
+      theme: 'grid',
+      head: [['INFORMASI PENGELUARAN ASET', 'KETERANGAN']],
+      body: [
+        ['Tanggal Penyerahan Fisik', item.tanggalPenyerahan],
+        ['Peruntukan / Unit Kerja Tujuan', item.untuk],
+        ['Jenis Pengeluaran', item.jenisPengeluaran],
+        ['Petugas PUSDATIN', petugasNama],
+        ['Catatan Keperluan', item.keterangan || '-']
+      ],
+      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 60, fontStyle: 'bold' } },
+      margin: { left: 15, right: 15 }
+    });
+
+    const subItems = item.items && item.items.length > 0 ? item.items : [
+      {
+        barcode: item.barcode,
+        kodeUnikAset: item.kodeUnikAset,
+        namaAset: item.namaAset,
+        lokasi: item.untuk
+      }
+    ];
+
+    const bodyRows = subItems.map((s, idx) => [
+      String(idx + 1),
+      s.kodeUnikAset,
+      s.barcode,
+      s.namaAset,
+      s.lokasi || item.untuk
+    ]);
+
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 4,
+      theme: 'grid',
+      head: [['No', 'Kode Unik Aset', 'Barcode', 'Nama Perangkat / Aset', 'Lokasi Penempatan']],
+      body: bodyRows,
+      headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { fontStyle: 'bold' } },
+      margin: { left: 15, right: 15 }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 8;
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Cirebon, ${todayDateStr}`, 145, currentY);
+
+    const signY = currentY + 6;
+    doc.text('Pihak Penerima Unit Kerja,', 45, signY, { align: 'center' });
+    doc.text('Petugas Penyerah PUSDATIN,', 150, signY, { align: 'center' });
+
+    const nameY = signY + 24;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`( ${item.untuk} )`, 45, nameY, { align: 'center' });
+    doc.text(`( ${petugasNama} )`, 150, nameY, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text('Mengetahui / Menyetujui,', 105, nameY + 8, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text('Kepala PUSDATIN UMC', 105, nameY + 12, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 105, nameY + 30, { align: 'center' });
+    if (kepalaNip) doc.text(kepalaNip, 105, nameY + 34, { align: 'center' });
+
+    return doc;
+  }
+
+  /**
+   * Cetak Buku Aset Inventaris (Rekapitulasi Saldo & Rincian)
+   */
+  public static generateBukuInventarisPdf(
+    rekapList: BukuAsetInventarisRekap[],
+    assets: Asset[],
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
+    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
+    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('BUKU ASET INVENTARIS TI - REKAPITULASI SALDO STOK KAMPUS', 148.5, 38, { align: 'center' });
+
+    const rekapRows = rekapList.map(r => [
+      r.kategori,
+      `${r.totalMasuk} Unit`,
+      `${r.totalKeluar} Unit`,
+      `${r.stokTersedia} Unit`,
+      `Tersedia: ${r.rincianStatus.tersedia} | Dipinjam: ${r.rincianStatus.dipinjam} | Digunakan: ${r.rincianStatus.digunakan} | Servis: ${r.rincianStatus.maintenance + r.rincianStatus.tidakLayak}`,
+      `Rp ${r.nilaiAsetTotal.toLocaleString('id-ID')}`
+    ]);
+
+    const totalMasukAll = rekapList.reduce((s, r) => s + r.totalMasuk, 0);
+    const totalKeluarAll = rekapList.reduce((s, r) => s + r.totalKeluar, 0);
+    const totalStokAll = rekapList.reduce((s, r) => s + r.stokTersedia, 0);
+    const totalNilaiAll = rekapList.reduce((s, r) => s + r.nilaiAsetTotal, 0);
+
+    rekapRows.push([
+      'TOTAL KESELURUHAN',
+      `${totalMasukAll} Unit`,
+      `${totalKeluarAll} Unit`,
+      `${totalStokAll} Unit`,
+      `Total ${assets.length} Unit Tercatat Aktif`,
+      `Rp ${totalNilaiAll.toLocaleString('id-ID')}`
+    ]);
+
+    autoTable(doc, {
+      startY: 44,
+      theme: 'grid',
+      head: [['Kategori Aset', 'Total Masuk', 'Total Keluar', 'Saldo Stok Siap', 'Rincian Status Operasional', 'Total Nilai Aset']],
+      body: rekapRows,
+      headStyles: { fillColor: [147, 51, 234], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 7.5, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: 'bold' },
+        1: { halign: 'center' },
+        2: { halign: 'center' },
+        3: { halign: 'center', fontStyle: 'bold' },
+        5: { halign: 'right', fontStyle: 'bold' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text('Petugas Pengelola Inventaris,', 50, signY + 6, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Cetak Master Aset TI (filter berdasarkan bulan, kategori, atau lokasi)
+   */
+  public static generateMasterAsetPdf(
+    assets: Asset[],
+    filterDesc: string,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
+    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
+    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(`DAFTAR MASTER ASET TI KAMPUS - FILTER: ${filterDesc.toUpperCase()}`, 148.5, 38, { align: 'center' });
+
+    const rows = assets.map((a, idx) => [
+      String(idx + 1),
+      a.kodeUnikAset,
+      a.barcode,
+      a.nama,
+      a.merekModel || '-',
+      a.kategori,
+      a.lokasi,
+      a.pengguna ? `${a.pengguna} (${a.bidangPengguna || '-'})` : '-',
+      a.tanggalMasuk,
+      a.status
+    ]);
+
+    autoTable(doc, {
+      startY: 44,
+      theme: 'grid',
+      head: [['No', 'Kode Unik', 'Barcode', 'Nama Perangkat', 'Merek/Model', 'Kategori', 'Lokasi Penempatan', 'Pengguna', 'Tgl Masuk', 'Status']],
+      body: rows,
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      styles: { fontSize: 7, cellPadding: 1.8 },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { fontStyle: 'bold' },
+        9: { fontStyle: 'bold' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text('Petugas Pengelola Aset,', 50, signY + 6, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Cetak Kebutuhan Suku Cadang berdasarkan Status
+   */
+  public static generateSparePartsPdf(
+    parts: any[],
+    statusTitle: string,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
+    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
+    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(`LAPORAN KEBUTUHAN & STATUS PENGADAAN SUKU CADANG (${statusTitle.toUpperCase()})`, 148.5, 38, { align: 'center' });
+
+    const rows = parts.map((p, idx) => [
+      String(idx + 1),
+      p.ticketId || '-',
+      p.namaKomponen,
+      p.namaBarang,
+      p.lokasi || '-',
+      p.urgensi || 'Sedang',
+      p.statusPengadaan,
+      p.namaPicTeknisi || p.picTeknisi || '-',
+      p.catatan || '-'
+    ]);
+
+    autoTable(doc, {
+      startY: 44,
+      theme: 'grid',
+      head: [['No', 'ID Tiket', 'Nama Suku Cadang', 'Aset Terdampak', 'Lokasi', 'Urgensi', 'Status Pengadaan', 'Teknisi PIC', 'Catatan']],
+      body: rows,
+      headStyles: { fillColor: [217, 119, 6], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { fontStyle: 'bold' },
+        6: { fontStyle: 'bold' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text('Petugas Pengadaan Suku Cadang,', 50, signY + 6, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Cetak Laporan Eksekutif Dashboard Pimpinan
+   */
+  public static generateExecutiveDashboardPdf(
+    stats: AppStatistics,
+    monthStr: string,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; rektorNama?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
+    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
+    const rektorNama = options?.rektorNama || 'Prof. Dr. H. Arif Nurudin, M.T.';
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON', 105, 18, { align: 'center' });
+      doc.line(15, 37, 195, 37);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('LAPORAN EKSEKUTIF DASHBOARD PIMPINAN TI', 105, 43, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Periode: ${monthStr.toUpperCase()} | Sistem Informasi PAHAM PUSDATIN UMC`, 105, 48, { align: 'center' });
+
+    autoTable(doc, {
+      startY: 53,
+      theme: 'grid',
+      head: [['METRIK UTAMA TI KAMPUS', 'NILAI / JUMLAH', 'KETERANGAN']],
+      body: [
+        ['Total Master Aset TI', `${stats.totalAset} Unit`, 'Akumulasi perangkat tercatat di kampus'],
+        ['Aset Siap Pakai (Tersedia)', `${stats.tersedia} Unit`, 'Standby di Ruang PUSDATIN / Lab'],
+        ['Aset Sedang Digunakan', `${stats.digunakan} Unit`, 'Terpasang operasional unit kerja'],
+        ['Aset Sedang Dipinjam', `${stats.dipinjam} Unit`, 'Peminjaman civitas akademika'],
+        ['Aset Dalam Perbaikan / Servis', `${stats.maintenance || 0} Unit`, 'Proses reparasi & suku cadang'],
+        ['Antrean Tiket Gangguan Masuk', `${stats.totalAntreanTiket} Tiket`, 'Tiket helpdesk baru & perlu ditangani'],
+        ['Tiket Melewati Batas SLA', `${stats.totalSlaOverdue} Tiket`, stats.totalSlaOverdue === 0 ? 'Optimal (Tidak ada overdue)' : 'Perlu atensi teknis'],
+        ['Tingkat Kepatuhan SLA', `${stats.slaAchievementRate}%`, 'Persentase penyelesaian tepat waktu'],
+        ['Peminjaman Menunggu Persetujuan', `${stats.totalPinjamMenunggu} Pengajuan`, 'Menunggu verifikasi admin'],
+        ['Peminjaman Terlambat Kembali', `${stats.totalPinjamTerlambat} Unit`, stats.totalPinjamTerlambat === 0 ? 'Tertib' : 'Peringatan otomatis aktif'],
+        ['Pengajuan Sistem Baru', `${stats.totalPengajuanSistem} Usulan`, `Dalam pengembangan: ${stats.pengajuanDalamPengembangan} sistem`]
+      ],
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 7.5, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 70, fontStyle: 'bold' },
+        1: { cellWidth: 40, halign: 'center', fontStyle: 'bold', textColor: [185, 28, 28] }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 10;
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(`Cirebon, ${todayDateStr}`, 145, currentY);
+
+    const signY = currentY + 6;
+    doc.text('Mengetahui, Rektor / Pimpinan Universitas', 45, signY, { align: 'center' });
+    doc.text('Kepala PUSDATIN UMC,', 150, signY, { align: 'center' });
+
+    const nameY = signY + 24;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`( ${rektorNama} )`, 45, nameY, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 150, nameY, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(kepalaNip, 150, nameY + 4, { align: 'center' });
     }
 
     return doc;

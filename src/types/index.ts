@@ -42,6 +42,7 @@ export type LoanStatus =
   | 'Diserahkan'
   | 'Terlambat'
   | 'Dikembalikan'
+  | 'Diterima Kembali'
   | 'Ditutup'
   // Legacy aliases:
   | 'Menunggu'
@@ -117,6 +118,7 @@ export interface AppUser {
   phone: string;
   statusAkun: 'Aktif' | 'Nonaktif';
   sumberData: 'SSO Google' | 'LDAP' | 'SIAKAD' | 'SDM';
+  civitasType?: 'Dosen' | 'Karyawan' | 'Mahasiswa';
   avatar?: string;
   password?: string;
   specialty?: string;
@@ -128,6 +130,31 @@ export interface AppUser {
 }
 
 export type TechnicianUser = AppUser;
+
+// Sub-item for multi-item receipt
+export interface PenerimaanBarangSubItem {
+  idSubItem?: string;
+  namaAset: string;
+  kategori: string;
+  banyaknya: number;
+  hargaSatuan: number;
+  jumlahHarga: number;
+  merekModel?: string;
+  spesifikasi?: string;
+  unitRegisteredBarcodes?: string[];
+  terdaftarCount?: number;
+  jumlah?: number;
+}
+
+// Sub-item for multi-item distribution
+export interface PengeluaranBarangSubItem {
+  barcode: string;
+  kodeUnikAset: string;
+  namaAset: string;
+  kategori?: string;
+  lokasi?: string;
+  jumlah?: number;
+}
 
 // 8.2 Tabel 3: Aset TI
 export interface Asset {
@@ -158,34 +185,51 @@ export interface Asset {
 // 8.2 Tabel 7: Buku Penerimaan Aset
 export interface BukuPenerimaanItem {
   idPenerimaan: string; // id_penerimaan
+  id?: string;
   tanggalPenerimaan: string;
   dari: string;
   nomorFaktur: string;
   tanggalFaktur: string;
-  namaAset: string;
-  kategori: string;
-  banyaknya: number;
-  hargaSatuan: number;
-  jumlahHarga: number; // BR-003: banyaknya × harga_satuan (otomatis)
+  namaAset?: string;
+  namaBarang?: string;
+  sumberPenerimaan?: string;
+  kategori?: string;
+  banyaknya?: number;
+  jumlah?: number;
+  hargaSatuan?: number;
+  jumlahHarga?: number; // BR-003: banyaknya × harga_satuan (otomatis)
+  totalNilai?: number;
+  hargaTotal?: number;
   nomorBeritaAcara: string;
   tanggalBeritaAcara: string;
   keterangan: string;
   tercatatUnitCount?: number;
   petugas?: string;
+  items?: PenerimaanBarangSubItem[];
 }
 
 // 8.2 Tabel 8: Buku Pengeluaran Aset
 export interface BukuPengeluaranItem {
   idPengeluaran: string; // id_pengeluaran
+  id?: string;
   tanggalPenyerahan: string;
+  tanggalPengeluaran?: string;
   kodeUnikAset: string;
   barcode: string;
   namaAset: string;
+  namaBarang?: string;
+  nomorSurat?: string;
+  tujuanPengeluaran?: string;
+  diterimaOleh?: string;
+  kategori?: string;
+  jumlah?: number;
   untuk: string;
   jenisPengeluaran: 'Penggunaan' | 'Peminjaman';
   idTiketPeminjaman?: string;
   keterangan: string;
   petugas?: string;
+  items?: PengeluaranBarangSubItem[];
+  subItems?: PengeluaranBarangSubItem[];
 }
 
 // 8.2 Tabel 9: Buku Aset Inventaris (Rekapitulasi)
@@ -194,6 +238,7 @@ export interface BukuAsetInventarisRekap {
   totalMasuk: number;
   totalKeluar: number;
   stokTersedia: number; // BR-005: total_masuk - total_keluar
+  jumlahAset?: number;
   nilaiAsetTotal: number;
   rincianStatus: {
     tersedia: number;

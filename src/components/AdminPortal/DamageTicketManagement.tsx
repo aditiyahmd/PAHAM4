@@ -58,6 +58,9 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const [selectedTicket, setSelectedTicket] = useState<DamageTicket | null>(null);
 
   // SOP 5-Tahap Modal action types
+  const currentUser = AppDatabase.getActiveUser();
+  const canAccessTahap2 = currentUser?.role === 'ACT-02' || currentUser?.role === 'ACT-03';
+
   const [actionType, setActionType] = useState<
     | 'verifikasi-delegasi'
     | 'jadwalkan-inspeksi'
@@ -68,7 +71,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     | 'selesai'
     | 'ubah-pic'
     | 'delegasikan'
-  >('verifikasi-delegasi');
+  >('jadwalkan-inspeksi');
 
   // Modal form states
   const [catatanAdmin, setCatatanAdmin] = useState('');
@@ -275,11 +278,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const openProcessModal = (t: DamageTicket, specificAction?: typeof actionType) => {
     setSelectedTicket(t);
 
-    let defaultAction: typeof actionType = 'verifikasi-delegasi';
+    let defaultAction: typeof actionType = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     if (specificAction) {
       defaultAction = specificAction;
     } else if (t.status === 'Open' || t.status === 'Baru') {
-      defaultAction = 'verifikasi-delegasi';
+      defaultAction = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     } else if (t.status === 'Assigned' || t.status === 'Diterima') {
       defaultAction = 'jadwalkan-inspeksi';
     } else if (t.status === 'In Progress' || t.status === 'Perbaikan') {
@@ -949,32 +952,31 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 onChange={e => setActionType(e.target.value as any)}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-600"
               >
-                <option value="verifikasi-delegasi">
-                  Tahap 2: Verifikasi & Delegasi oleh Admin (Triage & Dispatch)
-                </option>
+                {canAccessTahap2 && (
+                  <option value="verifikasi-delegasi">
+                    Tahap 2: Verifikasi Kelengkapan & Penugasan PIC Teknisi (Pimpinan / Admin)
+                  </option>
+                )}
                 <option value="jadwalkan-inspeksi">
-                  Tahap 3: Pemeriksaan & Penjadwalan oleh Teknisi (Inspection)
+                  Tahap 3: Pemeriksaan & Penjadwalan oleh Teknisi
                 </option>
                 <option value="perbaikan">
-                  Tahap 4: Mulai Tindakan Perbaikan (Execution)
+                  Tahap 4: Mulai Tindakan Perbaikan
                 </option>
                 <option value="suku-cadang">
-                  Tahap 4 (Cabang B1): Butuh Suku Cadang &rarr; Pending Procurement
-                </option>
-                <option value="lanjut-perbaikan">
-                  Tahap 4 (Lanjutan B1): Komponen Tiba, Lanjutkan Perbaikan
+                  Tahap 4.a: Butuh Suku Cadang &rarr; Pending Procurement
                 </option>
                 <option value="rusak-total">
-                  Tahap 4 (Cabang B2): Rusak Total (Beyond Economic Repair) &rarr; Afkir
+                  Tahap 4.b: Rusak Total (Beyond Economic Repair) &rarr; Afkir
+                </option>
+                <option value="lanjut-perbaikan">
+                  Tahap 5: Lanjutkan Perbaikan
                 </option>
                 <option value="selesai">
-                  Tahap 5: Penyelesaian & Pembaruan Status (Resolution & Closure)
+                  Tahap 6: Penyelesaian & Pembaruan Status
                 </option>
                 <option value="delegasikan">
-                  Internal: Delegasikan Tiket ke Teknisi Lain
-                </option>
-                <option value="ubah-pic">
-                  Internal: Alihkan Peran PIC Bidang Lain
+                  Internal: Alihkan Tiket ke Teknisi Lain
                 </option>
               </select>
             </div>
@@ -1143,7 +1145,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
                     <PackageSearch className="w-4 h-4 text-amber-700" />
-                    <span>Cabang B1: Kebutuhan Penggantian Suku Cadang</span>
+                    <span>Tahap 4.a: Butuh Suku Cadang &rarr; Pending Procurement</span>
                   </div>
                   <span className="text-[10px] px-2 py-0.5 bg-amber-200 text-amber-900 font-bold rounded-full">
                     {komponenList.length} Komponen Terdata
@@ -1225,12 +1227,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               </div>
             )}
 
-            {/* Sub-form Tahap 4 (Lanjutan B1): Komponen Tiba, Lanjut Perbaikan */}
+            {/* Sub-form Tahap 5: Lanjutkan Perbaikan */}
             {actionType === 'lanjut-perbaikan' && (
               <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-900">
                   <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                  <span>Komponen Tiba &mdash; Lanjutkan Tindakan Perbaikan</span>
+                  <span>Tahap 5: Komponen Tiba &mdash; Lanjutkan Tindakan Perbaikan</span>
                 </div>
                 <p className="text-[11px] text-emerald-800 leading-relaxed">
                   Suku cadang yang diajukan telah tiba. Teknisi akan melanjutkan proses pemasangan komponen dan perakitan. Status tiket akan kembali menjadi <strong>In Progress / Sedang Diproses</strong>.
@@ -1238,12 +1240,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               </div>
             )}
 
-            {/* Sub-form Tahap 4 (Cabang B2): Rusak Total (Beyond Economic Repair) */}
+            {/* Sub-form Tahap 4.b: Rusak Total (Beyond Economic Repair) */}
             {actionType === 'rusak-total' && (
               <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-rose-900">
                   <AlertOctagon className="w-4 h-4 text-rose-700" />
-                  <span>Cabang B2: Rusak Total (Beyond Economic Repair) &rarr; Afkir / Write-Off</span>
+                  <span>Tahap 4.b: Rusak Total (Beyond Economic Repair) &rarr; Afkir</span>
                 </div>
                 <p className="text-[11px] text-rose-800 leading-relaxed">
                   Teknisi mendiagnosis barang tidak dapat diselamatkan secara teknis atau biaya perbaikan melampaui nilai ekonomis aset. Proses perbaikan dihentikan, barang masuk gudang afkir/penghapusan. Status Aset otomatis menjadi <strong>Rusak Total / Afkir</strong> dan Tiket menjadi <strong>Closed / Selesai</strong>.
@@ -1256,7 +1258,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 space-y-3.5">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-900">
                   <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                  <span>Tahap 5: Penyelesaian & Pembaruan Status (Resolution & Closure)</span>
+                  <span>Tahap 6: Penyelesaian & Pembaruan Status (Resolution & Closure)</span>
                 </div>
 
                 <div>
@@ -1324,7 +1326,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-violet-900">
                   <Users className="w-4 h-4 text-violet-700" />
-                  <span>Delegasi Tiket ke Rekan Teknisi</span>
+                  <span>Internal: Alihkan Tiket ke Teknisi Lain</span>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">

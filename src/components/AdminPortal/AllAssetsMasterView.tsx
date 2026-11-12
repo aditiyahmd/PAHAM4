@@ -25,22 +25,32 @@ import {
   Building,
   DollarSign,
   FileText,
-  ShieldCheck
+  ShieldCheck,
+  Calendar,
+  ArrowUpDown
 } from 'lucide-react';
+import { PdfReportService } from '../../services/pdfReportService';
 
 interface AllAssetsMasterViewProps {
   onDataChanged: () => void;
+  isReadOnly?: boolean;
 }
 
-export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onDataChanged }) => {
+export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
+  onDataChanged,
+  isReadOnly = false
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('Semua');
   const [selectedKategori, setSelectedKategori] = useState<string>('Semua');
   const [selectedLokasi, setSelectedLokasi] = useState<string>('Semua');
+  const [filterBulanMasuk, setFilterBulanMasuk] = useState<string>('');
+  const [sortBulanMasuk, setSortBulanMasuk] = useState<'desc' | 'asc' | 'none'>('desc');
+
   const [viewingBarcodeAsset, setViewingBarcodeAsset] = useState<Asset | null>(null);
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null);
 
-  // Comprehensive Edit modal state matching all Part A fields
+  // Edit modal state
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [editNama, setEditNama] = useState('');
   const [editKategori, setEditKategori] = useState('');
@@ -67,26 +77,42 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
   const categories = Array.from(new Set([...masterCategories, ...assets.map(a => a.kategori)])).filter(Boolean);
   const locations = Array.from(new Set([...masterLocations, ...assets.map(a => a.lokasi)])).filter(Boolean);
 
-  const filteredAssets = assets.filter(a => {
-    const q = searchTerm.toLowerCase();
-    const matchesSearch =
-      a.nama.toLowerCase().includes(q) ||
-      a.barcode.includes(searchTerm) ||
-      a.lokasi.toLowerCase().includes(q) ||
-      (a.merekModel && a.merekModel.toLowerCase().includes(q)) ||
-      (a.nomorSeri && a.nomorSeri.toLowerCase().includes(q)) ||
-      (a.pengguna && a.pengguna.toLowerCase().includes(q)) ||
-      (a.bidangPengguna && a.bidangPengguna.toLowerCase().includes(q)) ||
-      (a.nomorPoInvoice && a.nomorPoInvoice.toLowerCase().includes(q)) ||
-      (a.vendorSupplier && a.vendorSupplier.toLowerCase().includes(q)) ||
-      (a.spesifikasi && a.spesifikasi.toLowerCase().includes(q));
+  const filteredAssets = assets
+    .filter(a => {
+      const q = searchTerm.toLowerCase();
+      const matchesSearch =
+        a.nama.toLowerCase().includes(q) ||
+        a.barcode.includes(searchTerm) ||
+        (a.kodeUnikAset && a.kodeUnikAset.toLowerCase().includes(q)) ||
+        a.lokasi.toLowerCase().includes(q) ||
+        (a.merekModel && a.merekModel.toLowerCase().includes(q)) ||
+        (a.nomorSeri && a.nomorSeri.toLowerCase().includes(q)) ||
+        (a.pengguna && a.pengguna.toLowerCase().includes(q)) ||
+        (a.bidangPengguna && a.bidangPengguna.toLowerCase().includes(q)) ||
+        (a.nomorPoInvoice && a.nomorPoInvoice.toLowerCase().includes(q)) ||
+        (a.vendorSupplier && a.vendorSupplier.toLowerCase().includes(q)) ||
+        (a.spesifikasi && a.spesifikasi.toLowerCase().includes(q));
 
-    const matchesStatus = selectedStatus === 'Semua' || a.status === selectedStatus;
-    const matchesKategori = selectedKategori === 'Semua' || a.kategori === selectedKategori;
-    const matchesLokasi = selectedLokasi === 'Semua' || a.lokasi === selectedLokasi;
+      const matchesStatus = selectedStatus === 'Semua' || a.status === selectedStatus;
+      const matchesKategori = selectedKategori === 'Semua' || a.kategori === selectedKategori;
+      const matchesLokasi = selectedLokasi === 'Semua' || a.lokasi === selectedLokasi;
+      const matchesBulan = filterBulanMasuk
+        ? (a.tanggalMasuk && a.tanggalMasuk.startsWith(filterBulanMasuk)) ||
+          (a.tanggalPembelian && a.tanggalPembelian.startsWith(filterBulanMasuk))
+        : true;
 
-    return matchesSearch && matchesStatus && matchesKategori && matchesLokasi;
-  });
+      return matchesSearch && matchesStatus && matchesKategori && matchesLokasi && matchesBulan;
+    })
+    .sort((a, b) => {
+      if (sortBulanMasuk === 'none') return 0;
+      const dateA = a.tanggalMasuk || a.tanggalPembelian || '';
+      const dateB = b.tanggalMasuk || b.tanggalPembelian || '';
+      if (sortBulanMasuk === 'desc') {
+        return dateB.localeCompare(dateA);
+      } else {
+        return dateA.localeCompare(dateB);
+      }
+    });
 
   const countByStatus = {
     total: assets.length,
@@ -95,7 +121,6 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
     dipinjam: assets.filter(a => a.status === 'Dipinjam').length,
     rusak: assets.filter(a => a.status === 'Rusak').length,
     diperbaiki: assets.filter(a => a.status === 'Diperbaiki').length,
-    berfungsiKembali: assets.filter(a => a.status === 'Berfungsi Kembali').length,
     rusakTotal: assets.filter(a => a.status === 'Rusak Total').length
   };
 
@@ -155,12 +180,28 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
 
     setEditingAsset(null);
     onDataChanged();
-    alert(`Data aset ${editNama} (${editingAsset.barcode}) berhasil diperbarui!`);
+    alert(`Data aset ${editNama} (${editingAsset.barcode}) berhasil diperbarui dengan status: ${editStatus}!`);
+  };
+
+  const handlePrintPdf = () => {
+    const filterDesc = [
+      filterBulanMasuk ? `Bulan Masuk: ${filterBulanMasuk}` : null,
+      selectedKategori !== 'Semua' ? `Kategori: ${selectedKategori}` : null,
+      selectedLokasi !== 'Semua' ? `Lokasi: ${selectedLokasi}` : null,
+      selectedStatus !== 'Semua' ? `Status: ${selectedStatus}` : null
+    ]
+      .filter(Boolean)
+      .join(' | ') || 'Semua Data Master Aset';
+
+    PdfReportService.generateMasterAsetPdf(filteredAssets, filterDesc, {
+      title: 'Laporan Master Aset TI Universitas Muhammadiyah Cirebon'
+    });
   };
 
   const exportCsv = () => {
     const headers = [
       'Barcode',
+      'Kode Unik Aset',
       'Nama Aset',
       'Kategori',
       'Jenis Aset',
@@ -180,6 +221,7 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
     ];
     const rows = filteredAssets.map(a => [
       a.barcode,
+      a.kodeUnikAset || '',
       `"${(a.nama || '').replace(/"/g, '""')}"`,
       `"${a.kategori}"`,
       a.jenisAset || 'Fisik',
@@ -203,7 +245,7 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
     const encodedUri = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Master_Seluruh_Aset_PUSDATIN_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `Master_Aset_PUSDATIN_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -215,28 +257,45 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>Seluruh Aset PUSDATIN UMC</span>
+            <span>Master Aset PUSDATIN UMC</span>
             <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-slate-100 text-slate-800 rounded-md border border-slate-200">
               {assets.length} Total Aset
             </span>
+            {isReadOnly && (
+              <span className="px-2 py-0.5 text-xs font-bold bg-amber-100 text-amber-800 rounded border border-amber-200">
+                Mode Read-Only (Pimpinan)
+              </span>
+            )}
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Katalog master terpadu seluruh inventaris perangkat IT, server, jaringan, multimedia, dan software Universitas Muhammadiyah Cirebon yang tersinkronisasi dengan menu input aset masuk.
+            Katalog master seluruh inventaris perangkat IT, server, jaringan, multimedia, dan software Universitas Muhammadiyah Cirebon.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={exportCsv}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer"
-        >
-          <Download className="w-4 h-4 text-slate-500" />
-          <span>Ekspor CSV Master</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handlePrintPdf}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer"
+            title="Cetak Laporan Master Aset PDF berdasarkan filter saat ini"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Cetak PDF Master Aset</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={exportCsv}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-slate-500" />
+            <span>Ekspor CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* KPI Metric Strips */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <button
           type="button"
           onClick={() => setSelectedStatus('Semua')}
@@ -291,28 +350,15 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
 
         <button
           type="button"
-          onClick={() => setSelectedStatus('Diperbaiki')}
+          onClick={() => setSelectedStatus('Rusak')}
           className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-            selectedStatus === 'Diperbaiki' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-slate-200 hover:border-slate-300'
+            selectedStatus === 'Rusak' ? 'bg-red-600 text-white border-red-600' : 'bg-white border-slate-200 hover:border-slate-300'
           }`}
         >
-          <span className={`text-[10px] font-bold uppercase tracking-wider block ${selectedStatus === 'Diperbaiki' ? 'text-amber-100' : 'text-amber-600'}`}>
-            Diperbaiki
+          <span className={`text-[10px] font-bold uppercase tracking-wider block ${selectedStatus === 'Rusak' ? 'text-red-100' : 'text-red-600'}`}>
+            Rusak
           </span>
-          <span className="text-xl font-bold font-mono mt-0.5 block">{countByStatus.diperbaiki}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('Berfungsi Kembali')}
-          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-            selectedStatus === 'Berfungsi Kembali' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white border-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <span className={`text-[10px] font-bold uppercase tracking-wider block ${selectedStatus === 'Berfungsi Kembali' ? 'text-teal-100' : 'text-teal-600'}`}>
-            Berfungsi Kembali
-          </span>
-          <span className="text-xl font-bold font-mono mt-0.5 block">{countByStatus.berfungsiKembali}</span>
+          <span className="text-xl font-bold font-mono mt-0.5 block">{countByStatus.rusak}</span>
         </button>
 
         <button
@@ -329,19 +375,40 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
         </button>
       </div>
 
-      {/* Filter and Search Bar */}
+      {/* Filter, Sort, and Search Bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Search Box */}
-          <div className="md:col-span-2 relative">
+          <div className="lg:col-span-2 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Cari barcode, nama, merek, SN, pengguna, PO/vendor..."
+              placeholder="Cari kode unik, barcode, nama, SN, pengguna..."
               className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600"
             />
+          </div>
+
+          {/* Filter Bulan Masuk */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">
+            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <input
+              type="month"
+              value={filterBulanMasuk}
+              onChange={e => setFilterBulanMasuk(e.target.value)}
+              className="w-full bg-transparent outline-none text-xs text-slate-700"
+              title="Filter Bulan Masuk / Pembelian"
+            />
+            {filterBulanMasuk && (
+              <button
+                type="button"
+                onClick={() => setFilterBulanMasuk('')}
+                className="text-[10px] text-slate-400 hover:text-slate-600 font-bold"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           {/* Filter Kategori */}
@@ -369,11 +436,28 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
           </select>
         </div>
 
-        {(searchTerm || selectedStatus !== 'Semua' || selectedKategori !== 'Semua' || selectedLokasi !== 'Semua') && (
-          <div className="flex items-center justify-between text-xs pt-1">
+        {/* Sort Bar & Active Filter Info */}
+        <div className="flex flex-wrap items-center justify-between text-xs pt-1 border-t border-slate-100 gap-2">
+          <div className="flex items-center gap-3">
             <span className="text-slate-500">
-              Menampilkan {filteredAssets.length} dari {assets.length} aset terdaftar
+              Menampilkan <strong>{filteredAssets.length}</strong> dari {assets.length} aset
             </span>
+
+            {/* Sort Bulan Masuk */}
+            <div className="flex items-center gap-1">
+              <span className="text-slate-400">Urutkan:</span>
+              <button
+                type="button"
+                onClick={() => setSortBulanMasuk(prev => prev === 'desc' ? 'asc' : 'desc')}
+                className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <ArrowUpDown className="w-3 h-3 text-slate-500" />
+                <span>Bulan Masuk ({sortBulanMasuk === 'desc' ? 'Terbaru' : 'Terlama'})</span>
+              </button>
+            </div>
+          </div>
+
+          {(searchTerm || selectedStatus !== 'Semua' || selectedKategori !== 'Semua' || selectedLokasi !== 'Semua' || filterBulanMasuk) && (
             <button
               type="button"
               onClick={() => {
@@ -381,13 +465,14 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
                 setSelectedStatus('Semua');
                 setSelectedKategori('Semua');
                 setSelectedLokasi('Semua');
+                setFilterBulanMasuk('');
               }}
               className="text-xs font-semibold text-red-600 hover:text-red-700 cursor-pointer underline"
             >
               Reset Semua Filter
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Table View of All Assets */}
@@ -396,11 +481,11 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3.5">Barcode</th>
+                <th className="px-4 py-3.5">Kode Unik & Barcode</th>
                 <th className="px-4 py-3.5">Nama Perangkat & Merek</th>
                 <th className="px-4 py-3.5">Kategori & Jenis</th>
                 <th className="px-4 py-3.5">Pengguna & Lokasi</th>
-                <th className="px-4 py-3.5">PO / Vendor & Garansi</th>
+                <th className="px-4 py-3.5">Bulan Masuk / PO</th>
                 <th className="px-4 py-3.5">Status Kondisi</th>
                 <th className="px-4 py-3.5 text-right">Aksi</th>
               </tr>
@@ -409,8 +494,8 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
               {filteredAssets.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-slate-500">
-                    <p className="font-bold text-sm">Tidak ada aset yang sesuai kriteria.</p>
-                    <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci atau reset filter status.</p>
+                    <p className="font-bold text-sm">Tidak ada aset yang sesuai kriteria filter.</p>
+                    <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci atau reset filter.</p>
                   </td>
                 </tr>
               ) : (
@@ -418,13 +503,16 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
                   return (
                     <tr key={asset.barcode} className="hover:bg-slate-50/80 transition-colors">
                       <td className="px-4 py-3.5 whitespace-nowrap">
+                        <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 block w-fit">
+                          {asset.kodeUnikAset}
+                        </span>
                         <button
                           type="button"
                           onClick={() => setViewingBarcodeAsset(asset)}
-                          className="font-mono font-bold text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded border border-purple-200 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                          className="font-mono text-slate-500 hover:text-slate-800 text-[10px] flex items-center gap-1 mt-1 cursor-pointer"
                           title="Klik untuk cetak label barcode"
                         >
-                          <Barcode className="w-3.5 h-3.5 text-purple-600" />
+                          <Barcode className="w-3 h-3 text-slate-400" />
                           <span>{asset.barcode}</span>
                         </button>
                       </td>
@@ -462,16 +550,17 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-slate-600 text-[11px]">
-                        {asset.nomorPoInvoice && <div className="font-mono">{asset.nomorPoInvoice}</div>}
-                        {asset.vendorSupplier && <div className="text-slate-500 line-clamp-1">{asset.vendorSupplier}</div>}
-                        {asset.masaGaransi && <div className="text-[10px] text-emerald-700 font-medium">{asset.masaGaransi}</div>}
+                        <div className="font-semibold text-slate-800">
+                          {asset.tanggalMasuk || asset.tanggalPembelian || '-'}
+                        </div>
+                        {asset.nomorPoInvoice && <div className="font-mono text-[10px] text-slate-500">{asset.nomorPoInvoice}</div>}
+                        {asset.vendorSupplier && <div className="text-slate-400 text-[10px] line-clamp-1">{asset.vendorSupplier}</div>}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <span className={`px-2.5 py-1 text-[11px] font-bold rounded-full ${
                           asset.status === 'Tersedia' ? 'bg-emerald-100 text-emerald-800' :
                           asset.status === 'Digunakan' ? 'bg-blue-100 text-blue-800' :
                           asset.status === 'Dipinjam' ? 'bg-indigo-100 text-indigo-800' :
-                          asset.status === 'Berfungsi Kembali' ? 'bg-teal-100 text-teal-800' :
                           asset.status === 'Rusak Total' ? 'bg-rose-100 text-rose-800' :
                           asset.status === 'Rusak' ? 'bg-red-100 text-red-800' :
                           'bg-amber-100 text-amber-800'
@@ -479,7 +568,6 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
                           {asset.status === 'Tersedia' ? '✓ Tersedia' :
                            asset.status === 'Digunakan' ? '🔒 Digunakan' :
                            asset.status === 'Dipinjam' ? '⏱ Dipinjam' :
-                           asset.status === 'Berfungsi Kembali' ? '✨ Berfungsi Kembali' :
                            asset.status === 'Rusak Total' ? '⛔ Rusak Total' :
                            asset.status === 'Rusak' ? '✕ Rusak' :
                            '⚙ Diperbaiki'}
@@ -495,15 +583,20 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
                           <Eye className="w-3.5 h-3.5 text-slate-600" />
                           <span>Rincian</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEdit(asset)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
-                          title="Edit Seluruh Data Aset"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                          <span>Edit</span>
-                        </button>
+
+                        {/* Edit Button is hidden if isReadOnly === true (Halaman Eksekutif) */}
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(asset)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                            title="Edit Seluruh Data Aset"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => setViewingBarcodeAsset(asset)}
@@ -560,15 +653,15 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
         </div>
       )}
 
-      {/* Comprehensive Edit Modal for All Asset Fields */}
-      {editingAsset && (
+      {/* Comprehensive Edit Modal for All Asset Fields (Without 'Berfungsi Kembali') */}
+      {editingAsset && !isReadOnly && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-bold text-base text-slate-900">Edit Data Aset PUSDATIN</h3>
                 <span className="font-mono text-xs text-purple-700 font-bold">
-                  {editingAsset.barcode} · {editingAsset.nama}
+                  {editingAsset.kodeUnikAset} · {editingAsset.nama}
                 </span>
               </div>
               <button
@@ -668,7 +761,7 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
                   />
                 </div>
 
-                {/* Status Aset */}
+                {/* Status Aset (Bereskan status operasional: dapat diubah ke Rusak, hapus Berfungsi Kembali) */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
                     Status Operasional <span className="text-red-600">*</span>
@@ -678,12 +771,11 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
                     onChange={e => setEditStatus(e.target.value as AssetStatus)}
                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-slate-900"
                   >
-                    <option value="Tersedia">Tersedia (Standby PUSDATIN)</option>
-                    <option value="Digunakan">Digunakan (Terpasang / Digunakan Staff)</option>
+                    <option value="Tersedia">Tersedia (Ready di PUSDATIN)</option>
+                    <option value="Digunakan">Digunakan (Terpasang / Digunakan Unit)</option>
                     <option value="Dipinjam">Dipinjam (Sedang Dipinjam)</option>
-                    <option value="Diperbaiki">Diperbaiki (Dalam Servis)</option>
-                    <option value="Berfungsi Kembali">Berfungsi Kembali (Software Normal)</option>
-                    <option value="Rusak">Rusak (Malfungsi)</option>
+                    <option value="Rusak">Rusak (Malfungsi / Butuh Perbaikan)</option>
+                    <option value="Diperbaiki">Diperbaiki (Dalam Servis Teknisi)</option>
                     <option value="Rusak Total">Rusak Total / Afkir</option>
                   </select>
                 </div>
@@ -839,3 +931,4 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({ onData
     </div>
   );
 };
+

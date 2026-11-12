@@ -93,13 +93,20 @@ export const INITIAL_CATEGORIES: string[] = [
   'Audio System'
 ];
 
-// Helper to normalize asset status to Section 4.1
+// Helper to normalize asset status to Section 4.1 & operational status
 export const normalizeAssetStatus = (st: string): AssetStatus => {
-  if (st === 'Tersedia' || st === 'Digunakan' || st === 'Dipinjam' || st === 'Maintenance' || st === 'Tidak Layak') {
+  if (
+    st === 'Tersedia' ||
+    st === 'Digunakan' ||
+    st === 'Dipinjam' ||
+    st === 'Rusak' ||
+    st === 'Diperbaiki' ||
+    st === 'Rusak Total' ||
+    st === 'Maintenance' ||
+    st === 'Tidak Layak'
+  ) {
     return st as AssetStatus;
   }
-  if (st === 'Rusak' || st === 'Diperbaiki') return 'Maintenance';
-  if (st === 'Rusak Total') return 'Tidak Layak';
   if (st === 'Berfungsi Kembali') return 'Tersedia';
   return 'Tersedia';
 };
@@ -792,6 +799,13 @@ export class AppDatabase {
     return users.find(u => u.role === 'ACT-03') || users[2] || SEED_USERS[2];
   }
 
+  public static addUser(user: AppUser): void {
+    const users = this.getUsers();
+    if (!users.some(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase())) {
+      this.save(STORAGE_KEYS.USERS, [...users, user]);
+    }
+  }
+
   public static setActiveUser(userId: string): void {
     try {
       sessionStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, userId);
@@ -947,11 +961,21 @@ export class AppDatabase {
 
     const list = this.getBukuPenerimaan();
     const id = `RCV-${new Date().getFullYear()}-${String(list.length + 1).padStart(3, '0')}`;
-    // BR-003: Jumlah harga = banyaknya × harga_satuan (otomatis dihitung sistem)
-    const jumlahHarga = Number(item.banyaknya || 0) * Number(item.hargaSatuan || 0);
+    
+    // Multi-item calculation support (BR-003)
+    let jumlahHarga = 0;
+    let banyaknya = Number(item.banyaknya || 0);
+
+    if (item.items && item.items.length > 0) {
+      jumlahHarga = item.items.reduce((sum, it) => sum + (Number(it.jumlahHarga) || (Number(it.banyaknya) * Number(it.hargaSatuan))), 0);
+      banyaknya = item.items.reduce((sum, it) => sum + Number(it.banyaknya || 0), 0);
+    } else {
+      jumlahHarga = banyaknya * Number(item.hargaSatuan || 0);
+    }
 
     const newItem: BukuPenerimaanItem = {
       ...item,
+      banyaknya,
       idPenerimaan: id,
       jumlahHarga,
       tercatatUnitCount: 0,
@@ -961,13 +985,13 @@ export class AppDatabase {
     this.save(STORAGE_KEYS.BUKU_PENERIMAAN, [newItem, ...list]);
 
     this.addLog({
-      id: `LOG-${Date.now()}`,
+      id: `LOG-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
       timestamp: new Date().toLocaleString('id-ID'),
       barcode: id,
-      namaBarang: newItem.namaAset,
+      namaBarang: newItem.namaAset || 'Penerimaan Aset Multi-Item',
       jenisTransaksi: 'Masuk',
       lokasi: 'Ruang PUSDATIN',
-      keterangan: `Penerimaan aset baru: ${newItem.namaAset} (${newItem.banyaknya} unit) dari ${newItem.dari}. Total Rp ${jumlahHarga.toLocaleString('id-ID')}`,
+      keterangan: `Penerimaan aset baru: ${newItem.namaAset || 'Multi-Item'} (${newItem.banyaknya || 0} unit) dari ${newItem.dari}. Total Rp ${jumlahHarga.toLocaleString('id-ID')}`,
       petugas: active.nama
     });
 
@@ -986,6 +1010,89 @@ export class AppDatabase {
       success: true,
       message: `Buku Penerimaan Aset ${id} berhasil dicatat! Total Harga: Rp ${jumlahHarga.toLocaleString('id-ID')}`,
       data: newItem
+    };
+  }
+
+  /**
+   * Batch registrasi unit fisik dari Buku Penerimaan Aset (3.3)
+   */
+  public static registerPenerimaanBatchUnits(params: {
+    idPenerimaan: string;
+    subItemIndex?: number;
+    namaAset: string;
+    kategori: string;
+    merekModel?: string;
+    nomorSeriPrefix?: string;
+    spesifikasi?: string;
+    vendorSupplier: string;
+    hargaBeli: number;
+    lokasi: string;
+    statusAwal?: AssetStatus;
+    count: number;
+  }): { success: boolean; message: string; registeredAssets: Asset[] } {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'registrasi_aset_qr', ['manage'], 'Meregistrasi unit aset dari penerimaan');
+
+    const penerimaanList = this.getBukuPenerimaan();
+    const rcvIndex = penerimaanList.findIndex(r => r.idPenerimaan === params.idPenerimaan);
+    if (rcvIndex === -1) {
+      return { success: false, message: 'Data penerimaan tidak ditemukan!', registeredAssets: [] };
+    }
+
+    const targetRcv = penerimaanList[rcvIndex];
+    const registeredAssets: Asset[] = [];
+    const count = Math.max(1, params.count);
+    const existingAssets = this.getAssets();
+
+    for (let i = 0; i < count; i++) {
+      // 8-digit unique barcode
+      const barcode = String(Math.floor(10000000 + Math.random() * 90000000));
+      const seq = existingAssets.length + registeredAssets.length + 1;
+      const kodeUnikAset = `AST-UMC-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
+      const sn = params.nomorSeriPrefix
+        ? `${params.nomorSeriPrefix}-${String(i + 1).padStart(2, '0')}`
+        : `SN-${barcode}`;
+
+      const asset: Asset = {
+        barcode,
+        kodeUnikAset,
+        nama: params.namaAset,
+        kategori: params.kategori,
+        merekModel: params.merekModel || undefined,
+        nomorSeri: sn,
+        spesifikasi: params.spesifikasi || undefined,
+        lokasi: params.lokasi || 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+        status: params.statusAwal || 'Tersedia',
+        tanggalMasuk: targetRcv.tanggalPenerimaan || new Date().toISOString().split('T')[0],
+        tanggalPembelian: targetRcv.tanggalFaktur || targetRcv.tanggalPenerimaan,
+        nomorPoInvoice: targetRcv.nomorFaktur,
+        vendorSupplier: params.vendorSupplier || targetRcv.dari,
+        hargaBeli: params.hargaBeli || targetRcv.hargaSatuan,
+        jenisAset: 'Fisik',
+        lokasiAwal: params.lokasi || 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+        idPenerimaanTerkait: params.idPenerimaan
+      };
+
+      this.addAsset(asset);
+      registeredAssets.push(asset);
+    }
+
+    // Update targetRcv tercatatUnitCount and sub-item registered barcodes
+    const newBarcodes = registeredAssets.map(a => a.barcode);
+    targetRcv.tercatatUnitCount = (targetRcv.tercatatUnitCount || 0) + registeredAssets.length;
+
+    if (targetRcv.items && typeof params.subItemIndex === 'number' && targetRcv.items[params.subItemIndex]) {
+      const sub = targetRcv.items[params.subItemIndex];
+      sub.unitRegisteredBarcodes = [...(sub.unitRegisteredBarcodes || []), ...newBarcodes];
+    }
+
+    penerimaanList[rcvIndex] = targetRcv;
+    this.save(STORAGE_KEYS.BUKU_PENERIMAAN, penerimaanList);
+
+    return {
+      success: true,
+      message: `Berhasil meregistrasi ${registeredAssets.length} unit aset fisik baru (${params.namaAset})!`,
+      registeredAssets
     };
   }
 
@@ -1025,7 +1132,16 @@ export class AppDatabase {
       untuk: params.untuk,
       jenisPengeluaran: 'Penggunaan',
       keterangan: params.keterangan || `Pengeluaran karena penggunaan oleh ${params.untuk}`,
-      petugas: active.nama
+      petugas: active.nama,
+      items: [
+        {
+          barcode: asset.barcode,
+          kodeUnikAset: asset.kodeUnikAset,
+          namaAset: asset.nama,
+          kategori: asset.kategori,
+          lokasi: params.untuk
+        }
+      ]
     };
 
     this.save(STORAGE_KEYS.BUKU_PENGELUARAN, [newOut, ...list]);
@@ -1054,6 +1170,100 @@ export class AppDatabase {
     return {
       success: true,
       message: `Aset ${asset.nama} (${asset.kodeUnikAset}) berhasil dikeluarkan untuk penggunaan (${params.untuk}) dan tercatat di Buku Pengeluaran!`
+    };
+  }
+
+  // Multi-item Pengeluaran Aset (3.4)
+  public static recordMultiPengeluaranPenggunaan(params: {
+    barcodes?: string[];
+    assetCodes?: string[];
+    untuk: string;
+    tanggalPenyerahan: string;
+    keterangan: string;
+    petugas?: string;
+  }): { success: boolean; message: string; data?: BukuPengeluaranItem } {
+    const active = this.getActiveUser();
+    AccessControlService.enforce(active, 'buku_pengeluaran', ['manage'], 'Mencatat Pengeluaran Multi-Aset untuk Penggunaan');
+
+    const rawCodes = params.barcodes || params.assetCodes || [];
+    if (rawCodes.length === 0) {
+      return { success: false, message: 'Pilih minimal satu aset yang akan dikeluarkan!' };
+    }
+
+    const allAssets = this.getAssets();
+    const selectedAssets: Asset[] = [];
+    for (const code of rawCodes) {
+      const found = allAssets.find(a => a.barcode === code || a.kodeUnikAset === code);
+      if (found) {
+        if (found.status === 'Tidak Layak') {
+          return { success: false, message: `Aset ${found.nama} (${found.barcode}) berstatus Tidak Layak dan tidak dapat dikeluarkan!` };
+        }
+        selectedAssets.push(found);
+      }
+    }
+
+    if (selectedAssets.length === 0) {
+      return { success: false, message: 'Tidak ada aset valid yang ditemukan untuk dikeluarkan!' };
+    }
+
+    const list = this.getBukuPengeluaran();
+    const id = `OUT-${new Date().getFullYear()}-${String(list.length + 1).padStart(3, '0')}`;
+
+    const itemsSub = selectedAssets.map(a => ({
+      barcode: a.barcode,
+      kodeUnikAset: a.kodeUnikAset,
+      namaAset: a.nama,
+      kategori: a.kategori,
+      lokasi: params.untuk
+    }));
+
+    const primary = selectedAssets[0];
+    const summaryName = selectedAssets.length === 1
+      ? primary.nama
+      : `${primary.nama} (+${selectedAssets.length - 1} aset lainnya)`;
+
+    const newOut: BukuPengeluaranItem = {
+      idPengeluaran: id,
+      tanggalPenyerahan: params.tanggalPenyerahan || new Date().toISOString().split('T')[0],
+      kodeUnikAset: primary.kodeUnikAset,
+      barcode: primary.barcode,
+      namaAset: summaryName,
+      untuk: params.untuk,
+      jenisPengeluaran: 'Penggunaan',
+      keterangan: params.keterangan || `Pengeluaran ${selectedAssets.length} unit untuk ${params.untuk}`,
+      petugas: active.nama,
+      items: itemsSub
+    };
+
+    this.save(STORAGE_KEYS.BUKU_PENGELUARAN, [newOut, ...list]);
+
+    // Update status all selected assets to Digunakan
+    for (const a of selectedAssets) {
+      const statusLama = a.status;
+      this.updateAssetStatus(
+        a.barcode,
+        'Digunakan',
+        params.untuk,
+        true,
+        `Pengeluaran batch ke: ${params.untuk} (Buku Pengeluaran: ${id})`
+      );
+
+      this.addAuditTrail({
+        entityType: 'Aset TI',
+        entityId: a.kodeUnikAset,
+        statusLama,
+        statusBaru: 'Digunakan',
+        catatan: `Pengeluaran Aset (${a.nama}) diserahkan ke ${params.untuk} (ID: ${id})`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+    }
+
+    return {
+      success: true,
+      message: `Berhasil mengeluarkan ${selectedAssets.length} jenis/unit aset ke ${params.untuk}! (ID: ${id})`,
+      data: newOut
     };
   }
 
@@ -1099,7 +1309,7 @@ export class AppDatabase {
     this.save(STORAGE_KEYS.ASSETS, updated);
 
     this.addLog({
-      id: `LOG-${Date.now()}`,
+      id: `LOG-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
       timestamp: new Date().toLocaleString('id-ID'),
       barcode: newAsset.barcode,
       namaBarang: newAsset.nama,
@@ -1156,7 +1366,7 @@ export class AppDatabase {
       else if (targetStatus === 'Tidak Layak') jenis = 'Rusak Total';
 
       this.addLog({
-        id: `LOG-${Date.now()}`,
+        id: `LOG-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
         timestamp: new Date().toLocaleString('id-ID'),
         barcode: old.barcode,
         namaBarang: old.nama,
@@ -1207,7 +1417,7 @@ export class AppDatabase {
 
     if (logActivity) {
       this.addLog({
-        id: `LOG-${Date.now()}`,
+        id: `LOG-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
         timestamp: new Date().toLocaleString('id-ID'),
         barcode: updated.barcode,
         namaBarang: updated.nama,
@@ -2871,12 +3081,34 @@ export class AppDatabase {
 
   // --- LOG AKTIVITAS (Tabel 4) ---
   public static getLogs(): ActivityLog[] {
-    return this.load<ActivityLog[]>(STORAGE_KEYS.LOGS, []);
+    const raw = this.load<ActivityLog[]>(STORAGE_KEYS.LOGS, []);
+    // Deduplicate by id if any duplicates exist in storage
+    const seen = new Set<string>();
+    const deduplicated: ActivityLog[] = [];
+    for (const item of raw) {
+      if (item && item.id) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          deduplicated.push(item);
+        }
+      } else if (item) {
+        deduplicated.push(item);
+      }
+    }
+    return deduplicated;
   }
 
   public static addLog(log: ActivityLog): void {
     const logs = this.getLogs();
-    this.save(STORAGE_KEYS.LOGS, [log, ...logs]);
+    const uniqueId =
+      log.id && !logs.some(l => l.id === log.id)
+        ? log.id
+        : `LOG-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const finalLog: ActivityLog = {
+      ...log,
+      id: uniqueId
+    };
+    this.save(STORAGE_KEYS.LOGS, [finalLog, ...logs]);
   }
 
   // --- STATISTIK & EXECUTIVE DASHBOARD (F-DASH-03, 5.5) ---

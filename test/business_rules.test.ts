@@ -104,4 +104,69 @@ describe('PAHAM System Pusdatin UMC - Business Rules & RBAC Verification', () =>
     const trailAfter = AppDatabase.getAuditTrail().length;
     assert.strictEqual(trailAfter, trailBefore + 1);
   });
+
+  it('Feature 3.3: Buku Penerimaan supports multi-item invoice and registers distinct units', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const result = AppDatabase.addBukuPenerimaan({
+      tanggalPenerimaan: '2026-11-10',
+      dari: 'PT Metrodata Electronics Tbk',
+      nomorFaktur: 'INV-MULTI-2026-001',
+      tanggalFaktur: '2026-11-10',
+      namaAset: 'Laptop ASUS ExpertBook & Proyektor Epson',
+      kategori: 'Komputer & Laptop',
+      banyaknya: 8,
+      hargaSatuan: 0,
+      nomorBeritaAcara: 'BAST-MULTI-001',
+      tanggalBeritaAcara: '2026-11-10',
+      keterangan: 'Pengadaan Lab Terpadu Lt 2',
+      items: [
+        {
+          namaAset: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
+          kategori: 'Komputer & Laptop',
+          banyaknya: 5,
+          hargaSatuan: 14500000,
+          jumlahHarga: 72500000
+        },
+        {
+          namaAset: 'Proyektor Epson EB-E500 3300 Lumens',
+          kategori: 'Multimedia',
+          banyaknya: 3,
+          hargaSatuan: 6200000,
+          jumlahHarga: 18600000
+        }
+      ]
+    });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.data?.banyaknya, 8);
+    assert.strictEqual(result.data?.jumlahHarga, 91100000);
+
+    // Test batch unit registration
+    const batchRes = AppDatabase.registerPenerimaanBatchUnits({
+      idPenerimaan: result.data!.idPenerimaan,
+      subItemIndex: 0,
+      namaAset: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
+      kategori: 'Komputer & Laptop',
+      vendorSupplier: 'PT Metrodata Electronics Tbk',
+      hargaBeli: 14500000,
+      lokasi: 'Ruang PUSDATIN',
+      count: 5
+    });
+
+    assert.strictEqual(batchRes.success, true);
+    assert.strictEqual(batchRes.registeredAssets.length, 5);
+  });
+
+  it('Feature 3.6: Updating asset status to "Rusak" successfully retains "Rusak" status', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const assets = AppDatabase.getAssets();
+    assert.ok(assets.length > 0);
+    const target = assets[0];
+
+    const updated = AppDatabase.updateAssetStatus(target.barcode, 'Rusak', undefined, true, 'Uji coba status rusak');
+    assert.strictEqual(updated, true);
+
+    const reloaded = AppDatabase.getAssetByBarcode(target.barcode);
+    assert.strictEqual(reloaded?.status, 'Rusak');
+  });
 });

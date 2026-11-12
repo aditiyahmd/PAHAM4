@@ -14,10 +14,12 @@ import {
   Tag,
   Building2,
   RefreshCw,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Printer
 } from 'lucide-react';
 import { AppDatabase, SparePartWithTicket } from '../../services/db';
 import { SparePartStatus, TicketUrgency } from '../../types';
+import { PdfReportService } from '../../services/pdfReportService';
 
 interface SparePartsManagementViewProps {
   onDataChanged: () => void;
@@ -255,6 +257,18 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
               <option value="Rendah">Rendah</option>
             </select>
           </div>
+
+          {/* Cetak Laporan Suku Cadang PDF */}
+          <button
+            onClick={() => {
+              PdfReportService.generateSparePartsPdf(filteredParts, statusFilter);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+            title="Cetak Rekap Kebutuhan Suku Cadang berdasarkan status yang dipilih"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Cetak PDF ({statusFilter})</span>
+          </button>
         </div>
       </div>
 

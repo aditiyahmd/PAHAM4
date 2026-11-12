@@ -752,7 +752,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                     <th className="px-4 py-3.5">Peminjam & Unit</th>
                     <th className="px-4 py-3.5">Barang Pinjaman</th>
                     <th className="px-4 py-3.5">Jadwal Pinjam</th>
-                    <th className="px-4 py-3.5">Status Pengembalian</th>
+                    <th className="px-4 py-3.5">Status Tiket</th>
                     <th className="px-4 py-3.5">Alokasi Barcode</th>
                     <th className="px-4 py-3.5 text-right">Aksi Tindakan</th>
                   </tr>
@@ -802,15 +802,15 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                             </div>
                           ) : isApproved ? (
                             <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-800">
-                              Dipinjam (Aktif)
+                              Disetujui
                             </span>
                           ) : isWaiting ? (
                             <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800">
-                              Menunggu Verifikasi
+                              Menunggu
                             </span>
                           ) : isReturned ? (
                             <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-blue-100 text-blue-800">
-                              Selesai / Dikembalikan
+                              Diterima Kembali
                             </span>
                           ) : (
                             <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-red-100 text-red-800">
@@ -860,7 +860,8 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                             <span>Proses</span>
                           </button>
 
-                          {(isApproved || isReturned) && (
+                          {/* Saat status tiket Disetujui, tombol cetak surat peminjaman tidak boleh muncul (hanya saat Diterima Kembali) */}
+                          {isReturned && (
                             <button
                               type="button"
                               onClick={() => openPrintReceiptModal(loan)}
@@ -944,7 +945,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                             </button>
                           </>
                         )}
-                        {(loan.status === 'Disetujui' || loan.status === 'Dikembalikan') && (
+                        {(loan.status === 'Dikembalikan' || loan.status === 'Diterima Kembali') && (
                           <button
                             type="button"
                             onClick={() => openPrintReceiptModal(loan)}

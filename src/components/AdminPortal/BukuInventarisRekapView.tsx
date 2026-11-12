@@ -10,10 +10,12 @@ import {
   AlertTriangle,
   Wrench,
   XCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Printer
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
 import { BukuAsetInventarisRekap, Asset } from '../../types';
+import { PdfReportService } from '../../services/pdfReportService';
 
 interface BukuInventarisRekapViewProps {
   onDataChanged?: () => void;
@@ -44,6 +46,12 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
     return matchCat && matchStatus && matchSearch;
   });
 
+  const handlePrintInventaris = () => {
+    PdfReportService.generateBukuInventarisPdf(rekapList, filteredAssets, {
+      title: 'Buku Aset Inventaris (Rekapitulasi Saldo Stok & Nilai Aset TI UMC)'
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -59,6 +67,15 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
             Rekapitulasi gabungan Buku Penerimaan dan Buku Pengeluaran. Saldo: <strong>Total Masuk − Total Keluar = Stok Tersedia (BR-005)</strong> dengan status operasional real-time.
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={handlePrintInventaris}
+          className="px-4 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all shrink-0"
+        >
+          <Printer className="w-4 h-4" />
+          <span>Cetak Laporan Inventaris PDF</span>
+        </button>
       </div>
 
       {/* Top Metric Cards */}

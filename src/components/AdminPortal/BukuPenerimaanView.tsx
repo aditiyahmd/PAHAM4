@@ -6,19 +6,33 @@ import {
   QrCode,
   Search,
   Calendar,
-  DollarSign,
   Building2,
   CheckCircle2,
   ArrowRight,
   ShieldCheck,
-  Printer
+  Printer,
+  Eye,
+  Trash2,
+  Layers,
+  ChevronDown,
+  Filter
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
-import { BukuPenerimaanItem, Asset } from '../../types';
+import { BukuPenerimaanItem, PenerimaanBarangSubItem, Asset } from '../../types';
 import { UnifiedAssetCode } from '../QRCodeView';
+import { PdfReportService } from '../../services/pdfReportService';
 
 interface BukuPenerimaanViewProps {
   onDataChanged?: () => void;
+}
+
+interface NewItemRow {
+  namaAset: string;
+  kategori: string;
+  banyaknya: number;
+  hargaSatuan: number;
+  merekModel: string;
+  spesifikasi: string;
 }
 
 export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataChanged }) => {
@@ -26,39 +40,44 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     AppDatabase.getBukuPenerimaan()
   );
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+
+  // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isBatchRegModalOpen, setIsBatchRegModalOpen] = useState(false);
   const [selectedPenerimaan, setSelectedPenerimaan] = useState<BukuPenerimaanItem | null>(null);
+  const [selectedSubItem, setSelectedSubItem] = useState<PenerimaanBarangSubItem | null>(null);
   const [selectedAssetForQR, setSelectedAssetForQR] = useState<Asset | null>(null);
 
-  // Form State: Buku Penerimaan
-  const [formPenerimaan, setFormPenerimaan] = useState({
+  // Form State: Buku Penerimaan Multi-Item
+  const [formHeader, setFormHeader] = useState({
     tanggalPenerimaan: new Date().toISOString().split('T')[0],
     dari: '',
     nomorFaktur: '',
     tanggalFaktur: new Date().toISOString().split('T')[0],
-    namaAset: '',
-    kategori: 'Komputer & Laptop',
-    banyaknya: 1,
-    hargaSatuan: 0,
     nomorBeritaAcara: '',
     tanggalBeritaAcara: new Date().toISOString().split('T')[0],
     keterangan: ''
   });
 
-  // Form State: Registrasi Unit Fisik (A.1.2)
-  const [formUnit, setFormUnit] = useState({
-    namaAset: '',
-    kategori: 'Komputer & Laptop',
-    merekModel: '',
-    nomorSeri: '',
-    spesifikasi: '',
-    jenisAset: 'Fisik' as 'Fisik' | 'Non-Fisik',
+  const [formItems, setFormItems] = useState<NewItemRow[]>([
+    {
+      namaAset: '',
+      kategori: 'Komputer & Laptop',
+      banyaknya: 1,
+      hargaSatuan: 0,
+      merekModel: '',
+      spesifikasi: ''
+    }
+  ]);
+
+  // Form State: Batch Unit Registration
+  const [batchRegForm, setBatchRegForm] = useState({
     lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
     statusAwal: 'Tersedia' as 'Tersedia' | 'Digunakan' | 'Dipinjam',
-    vendorSupplier: '',
-    hargaBeli: 0,
-    masaGaransi: '2 Tahun Garansi Resmi'
+    masaGaransi: '2 Tahun Garansi Resmi',
+    serialNumbers: '' // comma or newline separated
   });
 
   const categories = AppDatabase.getMasterCategories();
@@ -70,101 +89,196 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     if (onDataChanged) onDataChanged();
   };
 
-  // BR-003: Jumlah harga otomatis dihitung sistem = banyaknya * harga_satuan
-  const calculatedJumlahHarga = (Number(formPenerimaan.banyaknya) || 0) * (Number(formPenerimaan.hargaSatuan) || 0);
+  // Add Item Row to Multi-Item Receipt Form
+  const handleAddItemRow = () => {
+    setFormItems(prev => [
+      ...prev,
+      {
+        namaAset: '',
+        kategori: categories[0] || 'Komputer & Laptop',
+        banyaknya: 1,
+        hargaSatuan: 0,
+        merekModel: '',
+        spesifikasi: ''
+      }
+    ]);
+  };
 
+  const handleRemoveItemRow = (index: number) => {
+    if (formItems.length <= 1) return;
+    setFormItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateItemRow = (index: number, field: keyof NewItemRow, value: any) => {
+    setFormItems(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
+  // Calculated Grand Total for Form
+  const grandTotalHarga = formItems.reduce(
+    (sum, item) => sum + (Number(item.banyaknya) || 0) * (Number(item.hargaSatuan) || 0),
+    0
+  );
+  const grandTotalUnit = formItems.reduce((sum, item) => sum + (Number(item.banyaknya) || 0), 0);
+
+  // Submit Multi-Item Penerimaan
   const handleSubmitPenerimaan = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formPenerimaan.namaAset || !formPenerimaan.dari || !formPenerimaan.nomorFaktur) {
-      alert('Mohon lengkapi Nama Aset, Pengirim/Vendor, dan Nomor Faktur!');
+    if (!formHeader.dari || !formHeader.nomorFaktur) {
+      alert('Mohon lengkapi Pengirim/Vendor dan Nomor Faktur!');
       return;
     }
 
+    const invalidItem = formItems.find(it => !it.namaAset.trim() || it.banyaknya <= 0);
+    if (invalidItem) {
+      alert('Mohon isi nama barang dan jumlah unit minimal 1 untuk semua item!');
+      return;
+    }
+
+    const bastNo = formHeader.nomorBeritaAcara.trim() || `BAST-${Date.now().toString().slice(-6)}`;
+
     const res = AppDatabase.addBukuPenerimaan({
-      tanggalPenerimaan: formPenerimaan.tanggalPenerimaan,
-      dari: formPenerimaan.dari,
-      nomorFaktur: formPenerimaan.nomorFaktur,
-      tanggalFaktur: formPenerimaan.tanggalFaktur,
-      namaAset: formPenerimaan.namaAset,
-      kategori: formPenerimaan.kategori,
-      banyaknya: Number(formPenerimaan.banyaknya),
-      hargaSatuan: Number(formPenerimaan.hargaSatuan),
-      nomorBeritaAcara: formPenerimaan.nomorBeritaAcara || `BAST-${Date.now().toString().slice(-6)}`,
-      tanggalBeritaAcara: formPenerimaan.tanggalBeritaAcara,
-      keterangan: formPenerimaan.keterangan
+      tanggalPenerimaan: formHeader.tanggalPenerimaan,
+      dari: formHeader.dari,
+      nomorFaktur: formHeader.nomorFaktur,
+      tanggalFaktur: formHeader.tanggalFaktur,
+      nomorBeritaAcara: bastNo,
+      tanggalBeritaAcara: formHeader.tanggalBeritaAcara,
+      keterangan: formHeader.keterangan,
+      items: formItems.map(item => ({
+        namaAset: item.namaAset,
+        kategori: item.kategori,
+        banyaknya: Number(item.banyaknya),
+        hargaSatuan: Number(item.hargaSatuan),
+        jumlahHarga: Number(item.banyaknya) * Number(item.hargaSatuan),
+        merekModel: item.merekModel,
+        spesifikasi: item.spesifikasi
+      }))
     });
 
     if (res.success && res.data) {
       alert(res.message);
       setIsAddModalOpen(false);
       reloadData();
-      // Buka modal registrasi unit fisik
-      openUnitModal(res.data);
+      // Open batch registration for the first item
+      if (res.data.items && res.data.items.length > 0) {
+        openBatchRegistration(res.data, res.data.items[0]);
+      }
     }
   };
 
-  const openUnitModal = (item: BukuPenerimaanItem) => {
-    setSelectedPenerimaan(item);
-    setFormUnit({
-      namaAset: item.namaAset,
-      kategori: item.kategori,
-      merekModel: '',
-      nomorSeri: '',
-      spesifikasi: '',
-      jenisAset: 'Fisik',
+  // Open Batch Unit Registration Modal
+  const openBatchRegistration = (penerimaan: BukuPenerimaanItem, subItem: PenerimaanBarangSubItem) => {
+    setSelectedPenerimaan(penerimaan);
+    setSelectedSubItem(subItem);
+    const sisa = Math.max(0, subItem.banyaknya - (subItem.terdaftarCount || 0));
+
+    // Pre-populate sample serial numbers
+    const sampleSNs = Array.from({ length: sisa }, (_, i) => `SN-${Date.now().toString().slice(-6)}-${i + 1}`).join('\n');
+
+    setBatchRegForm({
       lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
       statusAwal: 'Tersedia',
-      vendorSupplier: item.dari,
-      hargaBeli: item.hargaSatuan,
-      masaGaransi: '2 Tahun Garansi Resmi'
+      masaGaransi: '2 Tahun Garansi Resmi',
+      serialNumbers: sampleSNs
     });
-    setIsUnitModalOpen(true);
+    setIsBatchRegModalOpen(true);
   };
 
-  const handleSubmitUnit = (e: React.FormEvent) => {
+  // Submit Batch Registration
+  const handleSubmitBatchRegistration = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formUnit.namaAset) return;
+    if (!selectedPenerimaan || !selectedSubItem) return;
 
-    const barcode = String(Math.floor(10000000 + Math.random() * 90000000));
-    const allAssets = AppDatabase.getAssets();
-    // BR-001: Kode Unik Aset bersifat unik dan tidak dapat diubah
-    const kodeUnikAset = `AST-UMC-${new Date().getFullYear()}-${String(allAssets.length + 1).padStart(3, '0')}`;
+    const sisa = Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0));
+    if (sisa <= 0) {
+      alert('Semua unit barang ini sudah diregistrasi!');
+      setIsBatchRegModalOpen(false);
+      return;
+    }
 
-    const newAsset: Asset = {
-      barcode,
-      kodeUnikAset,
-      nama: formUnit.namaAset,
-      kategori: formUnit.kategori,
-      merekModel: formUnit.merekModel,
-      nomorSeri: formUnit.nomorSeri || `SN-${barcode}`,
-      spesifikasi: formUnit.spesifikasi,
-      lokasi: formUnit.lokasi,
-      status: formUnit.statusAwal,
-      tanggalMasuk: new Date().toISOString().split('T')[0],
-      tanggalPembelian: selectedPenerimaan?.tanggalFaktur || new Date().toISOString().split('T')[0],
-      nomorPoInvoice: selectedPenerimaan?.nomorFaktur,
-      vendorSupplier: formUnit.vendorSupplier || selectedPenerimaan?.dari,
-      hargaBeli: Number(formUnit.hargaBeli),
-      masaGaransi: formUnit.masaGaransi,
-      jenisAset: formUnit.jenisAset,
-      lokasiAwal: formUnit.lokasi,
-      idPenerimaanTerkait: selectedPenerimaan?.idPenerimaan
-    };
+    const snLines = batchRegForm.serialNumbers
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
 
-    AppDatabase.addAsset(newAsset);
-    alert(`Unit fisik berhasil diregistrasi dengan Kode Unik: ${kodeUnikAset} & Barcode: ${barcode}!`);
-    setIsUnitModalOpen(false);
-    setSelectedAssetForQR(newAsset);
-    reloadData();
+    const subIndex = selectedPenerimaan.items?.findIndex(
+      it => (it.idSubItem && it.idSubItem === selectedSubItem.idSubItem) || it.namaAset === selectedSubItem.namaAset
+    );
+
+    const res = AppDatabase.registerPenerimaanBatchUnits({
+      idPenerimaan: selectedPenerimaan.idPenerimaan,
+      subItemIndex: subIndex !== undefined && subIndex >= 0 ? subIndex : 0,
+      namaAset: selectedSubItem.namaAset,
+      kategori: selectedSubItem.kategori,
+      merekModel: selectedSubItem.merekModel,
+      spesifikasi: selectedSubItem.spesifikasi,
+      vendorSupplier: selectedPenerimaan.dari,
+      hargaBeli: selectedSubItem.hargaSatuan,
+      lokasi: batchRegForm.lokasi,
+      statusAwal: batchRegForm.statusAwal,
+      count: sisa
+    });
+
+    if (res.success) {
+      alert(res.message);
+      setIsBatchRegModalOpen(false);
+      reloadData();
+      if (res.registeredAssets && res.registeredAssets.length > 0) {
+        setSelectedAssetForQR(res.registeredAssets[0]);
+      }
+    } else {
+      alert(res.message);
+    }
   };
 
-  const filtered = penerimaanList.filter(
-    p =>
-      p.namaAset.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.dari.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.nomorFaktur.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.idPenerimaan.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Open Detail Modal
+  const handleOpenDetail = (item: BukuPenerimaanItem) => {
+    setSelectedPenerimaan(item);
+    setIsDetailModalOpen(true);
+  };
+
+  // Print Single BAST
+  const handlePrintBast = (item: BukuPenerimaanItem) => {
+    PdfReportService.generateBukuPenerimaanBastPdf(item, {
+      title: `Berita Acara Serah Terima Penerimaan - ${item.nomorBeritaAcara}`
+    });
+  };
+
+  // Print Monthly Receipts
+  const handlePrintMonthly = () => {
+    const listToPrint = filterMonth
+      ? penerimaanList.filter(p => p.tanggalPenerimaan.startsWith(filterMonth))
+      : penerimaanList;
+
+    if (listToPrint.length === 0) {
+      alert('Tidak ada data penerimaan untuk bulan yang dipilih.');
+      return;
+    }
+
+    PdfReportService.generateBukuPenerimaanMonthlyPdf(listToPrint, filterMonth || 'Semua Periode', {
+      title: `Laporan Rekapitulasi Buku Penerimaan Aset TI UMC`
+    });
+  };
+
+  // Filtering
+  const filtered = penerimaanList.filter(p => {
+    const term = searchTerm.toLowerCase();
+    const matchSearch =
+      (p.namaAset?.toLowerCase() || '').includes(term) ||
+      p.dari.toLowerCase().includes(term) ||
+      p.nomorFaktur.toLowerCase().includes(term) ||
+      p.nomorBeritaAcara.toLowerCase().includes(term) ||
+      p.idPenerimaan.toLowerCase().includes(term) ||
+      (p.items && p.items.some(it => it.namaAset.toLowerCase().includes(term)));
+
+    const matchMonth = filterMonth ? p.tanggalPenerimaan.startsWith(filterMonth) : true;
+
+    return matchSearch && matchMonth;
+  });
 
   return (
     <div className="space-y-6">
@@ -178,37 +292,85 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
             <h1 className="text-xl font-bold text-slate-900">Buku Penerimaan Aset TI</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Mencatat faktur pengadaan, berita acara penerimaan, perhitungan otomatis harga (BR-003), dan registrasi unit fisik dengan Kode Unik (BR-001) & QR Code (BR-002).
+            Faktur multi-item, berita acara serah terima (BAST), registrasi unit fisik otomatis, dan cetak laporan PDF.
           </p>
         </div>
 
-        {activeUser.role === 'ACT-03' && (
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => setIsAddModalOpen(true)}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-xs cursor-pointer transition-all shrink-0"
+            onClick={handlePrintMonthly}
+            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-200 cursor-pointer transition-all"
+            title="Cetak Rekap Buku Penerimaan Bulanan"
           >
-            <PlusCircle className="w-4 h-4" />
-            Input Buku Penerimaan
+            <Printer className="w-4 h-4 text-slate-600" />
+            <span>Cetak Rekap Bulanan PDF</span>
           </button>
-        )}
+
+          {(activeUser.role === 'ACT-02' || activeUser.role === 'ACT-03') && (
+            <button
+              type="button"
+              onClick={() => {
+                setFormItems([
+                  {
+                    namaAset: '',
+                    kategori: 'Komputer & Laptop',
+                    banyaknya: 1,
+                    hargaSatuan: 0,
+                    merekModel: '',
+                    spesifikasi: ''
+                  }
+                ]);
+                setIsAddModalOpen(true);
+              }}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-xs cursor-pointer transition-all shrink-0"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Input Buku Penerimaan</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Search & Stats Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="md:col-span-3 bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
-          <Search className="w-4 h-4 text-slate-400 ml-2" />
+      {/* Search & Filter Bar */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+        {/* Search input (handles Nomor Berita Acara, Faktur, Aset, Vendor) */}
+        <div className="md:col-span-6 bg-white p-2.5 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
+          <Search className="w-4 h-4 text-slate-400 ml-2 shrink-0" />
           <input
             type="text"
-            placeholder="Cari berdasarkan nama aset, nomor faktur, vendor, atau ID penerimaan..."
+            placeholder="Cari nomor berita acara, faktur, vendor, atau nama barang..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full text-sm outline-none bg-transparent"
+            className="w-full text-xs outline-none bg-transparent"
           />
         </div>
-        <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between">
-          <span className="text-xs text-emerald-800 font-semibold">Total Dokumen Penerimaan:</span>
-          <span className="text-lg font-bold text-emerald-900 font-mono">{penerimaanList.length}</span>
+
+        {/* Filter Month */}
+        <div className="md:col-span-3 bg-white p-2 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
+          <Calendar className="w-4 h-4 text-slate-400 ml-2 shrink-0" />
+          <input
+            type="month"
+            value={filterMonth}
+            onChange={e => setFilterMonth(e.target.value)}
+            className="w-full text-xs outline-none bg-transparent"
+            title="Filter Bulan Penerimaan"
+          />
+          {filterMonth && (
+            <button
+              type="button"
+              onClick={() => setFilterMonth('')}
+              className="text-[10px] text-slate-400 hover:text-slate-600 font-bold px-1.5"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+
+        {/* Total stats pill */}
+        <div className="md:col-span-3 bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl flex items-center justify-between">
+          <span className="text-xs text-emerald-800 font-semibold">Total Dokumen:</span>
+          <span className="text-base font-bold text-emerald-900 font-mono">{filtered.length} BAST</span>
         </div>
       </div>
 
@@ -218,61 +380,132 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-600 font-bold uppercase tracking-wider">
               <tr>
-                <th className="py-3.5 px-4">ID Penerimaan</th>
-                <th className="py-3.5 px-4">Tgl Terima</th>
-                <th className="py-3.5 px-4">Faktur & Berita Acara</th>
-                <th className="py-3.5 px-4">Nama Aset & Kategori</th>
-                <th className="py-3.5 px-4">Banyaknya</th>
-                <th className="py-3.5 px-4">Harga Satuan</th>
-                <th className="py-3.5 px-4">Jumlah Harga (BR-003)</th>
+                <th className="py-3.5 px-4">ID & Tanggal</th>
+                <th className="py-3.5 px-4">No. Faktur & BAST</th>
+                <th className="py-3.5 px-4">Pengirim / Vendor</th>
+                <th className="py-3.5 px-4">Daftar Barang & Kuantitas</th>
+                <th className="py-3.5 px-4">Total Nilai</th>
+                <th className="py-3.5 px-4">Status Registrasi</th>
                 <th className="py-3.5 px-4 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filtered.map(item => (
-                <tr key={item.idPenerimaan} className="hover:bg-slate-50 transition-colors">
-                  <td className="py-3.5 px-4 font-mono font-bold text-emerald-700 text-xs">
-                    {item.idPenerimaan}
-                  </td>
-                  <td className="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
-                    {item.tanggalPenerimaan}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <div className="font-semibold text-xs text-slate-900">{item.nomorFaktur}</div>
-                    <div className="text-[11px] text-slate-500">Dari: {item.dari}</div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{item.nomorBeritaAcara}</div>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <div className="font-bold text-slate-900">{item.namaAset}</div>
-                    <span className="inline-block mt-0.5 text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-medium">
-                      {item.kategori}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
-                    {item.banyaknya} Unit
-                  </td>
-                  <td className="py-3.5 px-4 font-mono text-xs text-slate-600">
-                    Rp {item.hargaSatuan.toLocaleString('id-ID')}
-                  </td>
-                  <td className="py-3.5 px-4 font-mono font-bold text-emerald-700 text-xs">
-                    Rp {item.jumlahHarga.toLocaleString('id-ID')}
-                  </td>
-                  <td className="py-3.5 px-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openUnitModal(item)}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 ml-auto border border-slate-200 cursor-pointer transition-all"
-                    >
-                      <PackagePlus className="w-3.5 h-3.5 text-emerald-600" />
-                      Registrasi Unit
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(item => {
+                const totalItemUnits = item.items?.reduce((s, it) => s + it.banyaknya, 0) || item.banyaknya || 0;
+                const totalRegistered = item.items?.reduce((s, it) => s + (it.terdaftarCount || 0), 0) || 0;
+                const isFullyRegistered = totalRegistered >= totalItemUnits;
+
+                return (
+                  <tr key={item.idPenerimaan} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-3.5 px-4">
+                      <div className="font-mono font-bold text-emerald-700 text-xs">
+                        {item.idPenerimaan}
+                      </div>
+                      <div className="text-[11px] text-slate-500 whitespace-nowrap mt-0.5">
+                        {item.tanggalPenerimaan}
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="font-semibold text-xs text-slate-900">{item.nomorFaktur}</div>
+                      <div className="text-[11px] font-mono text-cyan-800 bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-200 inline-block mt-0.5">
+                        {item.nomorBeritaAcara}
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="font-semibold text-xs text-slate-800">{item.dari}</div>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      {item.items && item.items.length > 0 ? (
+                        <div className="space-y-1">
+                          {item.items.map((sub, idx) => (
+                            <div key={sub.idSubItem || `${item.idPenerimaan}-item-${idx}`} className="text-xs flex items-center justify-between gap-2">
+                              <span className="font-medium text-slate-800 truncate max-w-[200px]" title={sub.namaAset}>
+                                • {sub.namaAset}
+                              </span>
+                              <span className="text-[11px] font-mono font-bold text-slate-600 shrink-0">
+                                {sub.banyaknya} unit
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-bold text-slate-900 text-xs">{item.namaAset || 'Perangkat Aset'}</div>
+                          <div className="text-[11px] text-slate-500 font-mono">{item.banyaknya || 1} Unit</div>
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4 font-mono font-bold text-emerald-700 text-xs whitespace-nowrap">
+                      Rp {(item.jumlahHarga || 0).toLocaleString('id-ID')}
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            isFullyRegistered
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          {totalRegistered} / {totalItemUnits} Unit
+                        </span>
+                      </div>
+                      {!isFullyRegistered && (
+                        <div className="text-[10px] text-amber-700 mt-0.5 font-medium">
+                          Belum selesai diregistrasi
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDetail(item)}
+                          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                          title="Lihat Detail Penerimaan"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePrintBast(item)}
+                          className="p-1.5 text-cyan-700 hover:text-cyan-900 hover:bg-cyan-50 rounded-lg cursor-pointer transition-colors"
+                          title="Cetak Berita Acara (BAST) PDF"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+
+                        {!isFullyRegistered && (activeUser.role === 'ACT-02' || activeUser.role === 'ACT-03') && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const unregItem = item.items?.find(it => (it.terdaftarCount || 0) < it.banyaknya) || item.items?.[0];
+                              if (unregItem) {
+                                openBatchRegistration(item, unregItem);
+                              }
+                            }}
+                            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+                          >
+                            <PackagePlus className="w-3.5 h-3.5" />
+                            <span>Registrasi</span>
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 text-sm">
-                    Belum ada data penerimaan aset yang sesuai.
+                  <td colSpan={7} className="py-12 text-center text-slate-400 text-sm">
+                    Belum ada data buku penerimaan yang sesuai.
                   </td>
                 </tr>
               )}
@@ -281,14 +514,14 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
         </div>
       </div>
 
-      {/* Modal: Input Buku Penerimaan Aset */}
+      {/* MODAL 1: Input Buku Penerimaan Multi-Item (Satu Faktur Berisi Beberapa Barang) */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-slate-900 text-lg">Input Buku Penerimaan Aset (A.1.1)</h3>
-                <p className="text-xs text-slate-500">Mencatat dokumen faktur & Berita Acara Penerimaan</p>
+                <h3 className="font-bold text-slate-900 text-lg">Input Buku Penerimaan Aset Multi-Barang</h3>
+                <p className="text-xs text-slate-500">Satu faktur dapat memuat beberapa jenis barang / aset sekaligus</p>
               </div>
               <button
                 type="button"
@@ -300,146 +533,197 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
             </div>
 
             <form onSubmit={handleSubmitPenerimaan} className="space-y-4 mt-4 text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tanggal Penerimaan</label>
-                  <input
-                    type="date"
-                    required
-                    value={formPenerimaan.tanggalPenerimaan}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, tanggalPenerimaan: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                  />
+              {/* Header Dokumen Penerimaan */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Informasi Faktur & Berita Acara
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Tanggal Penerimaan</label>
+                    <input
+                      type="date"
+                      required
+                      value={formHeader.tanggalPenerimaan}
+                      onChange={e => setFormHeader({ ...formHeader, tanggalPenerimaan: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Dari (Vendor / Rekanan)</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: PT. Metrodata Electronics Tbk"
+                      value={formHeader.dari}
+                      onChange={e => setFormHeader({ ...formHeader, dari: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Nomor Faktur / Invoice</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: INV/2026/XI/109"
+                      value={formHeader.nomorFaktur}
+                      onChange={e => setFormHeader({ ...formHeader, nomorFaktur: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Tanggal Faktur</label>
+                    <input
+                      type="date"
+                      required
+                      value={formHeader.tanggalFaktur}
+                      onChange={e => setFormHeader({ ...formHeader, tanggalFaktur: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Nomor Berita Acara (BAST)</label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: BAST-PUSDATIN/2026/XI/055"
+                      value={formHeader.nomorBeritaAcara}
+                      onChange={e => setFormHeader({ ...formHeader, nomorBeritaAcara: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Tanggal Berita Acara</label>
+                    <input
+                      type="date"
+                      value={formHeader.tanggalBeritaAcara}
+                      onChange={e => setFormHeader({ ...formHeader, tanggalBeritaAcara: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Dari (Vendor / Rekanan)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Keterangan / Sumber Dana</label>
                   <input
                     type="text"
-                    required
-                    placeholder="Contoh: PT. Metrodata Electronics Tbk"
-                    value={formPenerimaan.dari}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, dari: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                    placeholder="Contoh: Pengadaan Fasilitas Lab TI Kampus 2 UMC Tahun 2026"
+                    value={formHeader.keterangan}
+                    onChange={e => setFormHeader({ ...formHeader, keterangan: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nomor Faktur / Invoice</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: INV/2026/X/089"
-                    value={formPenerimaan.nomorFaktur}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, nomorFaktur: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tanggal Faktur</label>
-                  <input
-                    type="date"
-                    required
-                    value={formPenerimaan.tanggalFaktur}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, tanggalFaktur: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nama Aset</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: Laptop ASUS ExpertBook B1 Core i7"
-                    value={formPenerimaan.namaAset}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, namaAset: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Kategori Aset</label>
-                  <select
-                    value={formPenerimaan.kategori}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, kategori: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+              {/* Dynamic Items in Invoice */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Daftar Barang dalam Faktur ({formItems.length} Jenis Barang)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddItemRow}
+                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
                   >
-                    {categories.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Tambah Barang ke Faktur
+                  </button>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Banyaknya (Unit)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={formPenerimaan.banyaknya}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, banyaknya: Math.max(1, parseInt(e.target.value) || 1) })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Harga Satuan (Rp)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="50000"
-                    required
-                    value={formPenerimaan.hargaSatuan}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, hargaSatuan: Math.max(0, parseInt(e.target.value) || 0) })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-emerald-800 mb-1">Jumlah Harga (BR-003)</label>
-                  <div className="px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-bold font-mono text-emerald-800">
-                    Rp {calculatedJumlahHarga.toLocaleString('id-ID')}
+                {formItems.map((item, idx) => (
+                  <div key={idx} className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-2.5 relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                        Barang #{idx + 1}
+                      </span>
+                      {formItems.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItemRow(idx)}
+                          className="text-red-500 hover:text-red-700 p-1 text-xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Hapus</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">Nama Barang / Aset</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Contoh: Laptop ASUS ExpertBook B1 Core i7 16GB"
+                          value={item.namaAset}
+                          onChange={e => handleUpdateItemRow(idx, 'namaAset', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">Kategori</label>
+                        <select
+                          value={item.kategori}
+                          onChange={e => handleUpdateItemRow(idx, 'kategori', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                        >
+                          {categories.map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">Banyaknya (Unit)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          required
+                          value={item.banyaknya}
+                          onChange={e => handleUpdateItemRow(idx, 'banyaknya', Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">Harga Satuan (Rp)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="50000"
+                          required
+                          value={item.hargaSatuan}
+                          onChange={e => handleUpdateItemRow(idx, 'hargaSatuan', Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-emerald-800 mb-0.5">Subtotal Harga</label>
+                        <div className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-bold font-mono text-emerald-800">
+                          Rp {((Number(item.banyaknya) || 0) * (Number(item.hargaSatuan) || 0)).toLocaleString('id-ID')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Grand Total Bar */}
+                <div className="p-3 bg-emerald-100/70 border border-emerald-300 rounded-xl flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-bold text-emerald-950">Grand Total Faktur:</span>
+                    <span className="ml-2 font-mono text-emerald-800 font-bold">{grandTotalUnit} Total Unit</span>
+                  </div>
+                  <div className="font-mono text-sm font-extrabold text-emerald-900">
+                    Rp {grandTotalHarga.toLocaleString('id-ID')}
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nomor Berita Acara Penerimaan (BAST)</label>
-                  <input
-                    type="text"
-                    placeholder="Contoh: BAST-PUSDATIN/2026/X/041"
-                    value={formPenerimaan.nomorBeritaAcara}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, nomorBeritaAcara: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tanggal Berita Acara</label>
-                  <input
-                    type="date"
-                    value={formPenerimaan.tanggalBeritaAcara}
-                    onChange={e => setFormPenerimaan({ ...formPenerimaan, tanggalBeritaAcara: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Keterangan Tambahan</label>
-                <textarea
-                  rows={2}
-                  placeholder="Catatan sumber dana, program kerja, atau unit tujuan..."
-                  value={formPenerimaan.keterangan}
-                  onChange={e => setFormPenerimaan({ ...formPenerimaan, keterangan: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
@@ -449,9 +733,10 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
-                  Simpan Buku Penerimaan
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Simpan Faktur & Lanjut Registrasi Unit</span>
                 </button>
               </div>
             </form>
@@ -459,132 +744,82 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
         </div>
       )}
 
-      {/* Modal: Registrasi Unit Fisik (A.1.2 & BR-001) */}
-      {isUnitModalOpen && selectedPenerimaan && (
+      {/* MODAL 2: Batch Unit Registration Modal (Registrasi Setiap Aset/Unit) */}
+      {isBatchRegModalOpen && selectedPenerimaan && selectedSubItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
                     {selectedPenerimaan.idPenerimaan}
                   </span>
-                  <h3 className="font-bold text-slate-900 text-lg">Registrasi Masing-Masing Barang (A.1.2)</h3>
+                  <h3 className="font-bold text-slate-900 text-base">Registrasi Unit Fisik Aset</h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Menerbitkan Kode Unik Aset (BR-001) dan Label QR Code/Barcode (BR-002)
+                  Menerbitkan Kode Unik Aset (BR-001) dan Label QR Code untuk masing-masing unit
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setIsUnitModalOpen(false)}
+                onClick={() => setIsBatchRegModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSubmitUnit} className="space-y-4 mt-4 text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <form onSubmit={handleSubmitBatchRegistration} className="space-y-4 mt-4 text-sm">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nama Aset</label>
-                  <input
-                    type="text"
-                    required
-                    value={formUnit.namaAset}
-                    onChange={e => setFormUnit({ ...formUnit, namaAset: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold"
-                  />
+                  <span className="text-slate-500">Barang:</span>{' '}
+                  <strong className="text-slate-900">{selectedSubItem.namaAset}</strong>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Kategori Aset</label>
-                  <select
-                    value={formUnit.kategori}
-                    onChange={e => setFormUnit({ ...formUnit, kategori: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                  >
-                    {categories.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                  <span className="text-slate-500">Kategori:</span>{' '}
+                  <span className="font-medium text-slate-700">{selectedSubItem.kategori}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Jumlah Dalam Faktur:</span>{' '}
+                  <strong className="font-mono text-slate-900">{selectedSubItem.banyaknya} Unit</strong>{' '}
+                  <span className="text-slate-400">
+                    (Sudah terdaftar: {selectedSubItem.terdaftarCount || 0} unit, Belum terdaftar:{' '}
+                    {Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0))} unit)
+                  </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Merek & Model</label>
-                  <input
-                    type="text"
-                    placeholder="Contoh: ASUS ExpertBook B1 B1402CBA"
-                    value={formUnit.merekModel}
-                    onChange={e => setFormUnit({ ...formUnit, merekModel: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nomor Seri (Serial Number / SN)</label>
-                  <input
-                    type="text"
-                    placeholder="Contoh: SN-84920188"
-                    value={formUnit.nomorSeri}
-                    onChange={e => setFormUnit({ ...formUnit, nomorSeri: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Spesifikasi Teknis</label>
-                <input
-                  type="text"
-                  placeholder="Contoh: Intel Core i7-1255U, 16GB RAM, 512GB SSD"
-                  value={formUnit.spesifikasi}
-                  onChange={e => setFormUnit({ ...formUnit, spesifikasi: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Status Operasional Awal</label>
                   <select
-                    value={formUnit.statusAwal}
-                    onChange={e => setFormUnit({ ...formUnit, statusAwal: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-emerald-800"
+                    value={batchRegForm.statusAwal}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, statusAwal: e.target.value as any })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-emerald-800"
                   >
-                    <option value="Tersedia">Tersedia (Ready di Pusdatin)</option>
+                    <option value="Tersedia">Tersedia (Ready di Ruang PUSDATIN)</option>
                     <option value="Digunakan">Digunakan (Langsung Terpasang)</option>
                     <option value="Dipinjam">Dipinjam</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Jenis Aset</label>
-                  <select
-                    value={formUnit.jenisAset}
-                    onChange={e => setFormUnit({ ...formUnit, jenisAset: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
-                  >
-                    <option value="Fisik">Fisik (Hardware)</option>
-                    <option value="Non-Fisik">Non-Fisik (Software / Lisensi)</option>
-                  </select>
-                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Masa Garansi</label>
                   <input
                     type="text"
-                    value={formUnit.masaGaransi}
-                    onChange={e => setFormUnit({ ...formUnit, masaGaransi: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                    value={batchRegForm.masaGaransi}
+                    onChange={e => setBatchRegForm({ ...batchRegForm, masaGaransi: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Lokasi Penempatan Fisik Awal</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Lokasi Penempatan Fisik Unit</label>
                 <select
-                  value={formUnit.lokasi}
-                  onChange={e => setFormUnit({ ...formUnit, lokasi: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                  value={batchRegForm.lokasi}
+                  onChange={e => setBatchRegForm({ ...batchRegForm, lokasi: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                 >
                   {locations.map(loc => (
                     <option key={loc} value={loc}>{loc}</option>
@@ -592,17 +827,33 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                 </select>
               </div>
 
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-2 text-xs text-blue-900">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Nomor Seri (Serial Number) Masing-Masing Unit
+                  </label>
+                  <span className="text-[10px] text-slate-400">1 baris per unit</span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={batchRegForm.serialNumbers}
+                  onChange={e => setBatchRegForm({ ...batchRegForm, serialNumbers: e.target.value })}
+                  placeholder="Masukkan nomor seri per baris..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                />
+              </div>
+
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
                 <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                 <div>
-                  <strong>Sistem Otomatis:</strong> Setelah disimpan, sistem akan menerbitkan <strong>Kode Unik Aset (BR-001)</strong> permanen dan QR Code/Barcode label (BR-002) yang memuat nama aset, kode scan, dan kode unik aset untuk ditempel pada fisik barang.
+                  Sistem akan menerbitkan <strong>{Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0))} Kode Unik Aset (AST-UMC-...)</strong> dan Barcode secara otomatis untuk masing-masing unit fisik.
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsUnitModalOpen(false)}
+                  onClick={() => setIsBatchRegModalOpen(false)}
                   className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
                 >
                   Batal
@@ -612,7 +863,7 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
                   <PackagePlus className="w-3.5 h-3.5" />
-                  Registrasi & Buat Label QR
+                  <span>Registrasi Semua Unit Ini</span>
                 </button>
               </div>
             </form>
@@ -620,7 +871,185 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
         </div>
       )}
 
-      {/* Modal QR Code Preview & Print */}
+      {/* MODAL 3: Detail Penerimaan Modal */}
+      {isDetailModalOpen && selectedPenerimaan && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-mono font-bold bg-cyan-100 text-cyan-800 px-2 py-0.5 rounded">
+                  {selectedPenerimaan.idPenerimaan}
+                </span>
+                <h3 className="font-bold text-slate-900 text-lg mt-1">
+                  Detail Berita Acara Penerimaan (BAST)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDetailModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 mt-4 text-xs">
+              {/* Metadata */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-slate-400 block">Nomor Faktur:</span>
+                  <strong className="text-slate-900">{selectedPenerimaan.nomorFaktur}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Nomor BAST:</span>
+                  <strong className="text-cyan-800 font-mono">{selectedPenerimaan.nomorBeritaAcara}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Vendor / Rekanan:</span>
+                  <strong className="text-slate-900">{selectedPenerimaan.dari}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Tanggal Terima:</span>
+                  <strong className="text-slate-900">{selectedPenerimaan.tanggalPenerimaan}</strong>
+                </div>
+              </div>
+
+              {/* Items List with Registration Action */}
+              <div>
+                <h4 className="font-bold text-slate-800 mb-2">Daftar Barang dalam Faktur Ini:</h4>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="py-2 px-3">Nama Barang</th>
+                        <th className="py-2 px-3">Kategori</th>
+                        <th className="py-2 px-3">Banyaknya</th>
+                        <th className="py-2 px-3">Harga Satuan</th>
+                        <th className="py-2 px-3">Subtotal</th>
+                        <th className="py-2 px-3">Status Unit</th>
+                        <th className="py-2 px-3 text-right">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {selectedPenerimaan.items && selectedPenerimaan.items.length > 0 ? (
+                        selectedPenerimaan.items.map((sub, idx) => {
+                          const isComplete = (sub.terdaftarCount || 0) >= sub.banyaknya;
+                          return (
+                            <tr key={sub.idSubItem || `detail-sub-${idx}`}>
+                              <td className="py-2 px-3 font-semibold text-slate-900">{sub.namaAset}</td>
+                              <td className="py-2 px-3 text-slate-600">{sub.kategori}</td>
+                              <td className="py-2 px-3 font-mono font-bold">{sub.banyaknya} unit</td>
+                              <td className="py-2 px-3 font-mono">Rp {sub.hargaSatuan.toLocaleString('id-ID')}</td>
+                              <td className="py-2 px-3 font-mono font-bold text-emerald-700">
+                                Rp {sub.jumlahHarga.toLocaleString('id-ID')}
+                              </td>
+                              <td className="py-2 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    isComplete ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {sub.terdaftarCount || 0}/{sub.banyaknya} Terdaftar
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                {!isComplete && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsDetailModalOpen(false);
+                                      openBatchRegistration(selectedPenerimaan, sub);
+                                    }}
+                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold cursor-pointer"
+                                  >
+                                    Registrasi Unit
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td className="py-2 px-3 font-semibold text-slate-900">{selectedPenerimaan.namaAset || 'Perangkat Aset'}</td>
+                          <td className="py-2 px-3 text-slate-600">{selectedPenerimaan.kategori || '-'}</td>
+                          <td className="py-2 px-3 font-mono font-bold">{selectedPenerimaan.banyaknya || 1} unit</td>
+                          <td className="py-2 px-3 font-mono">Rp {(selectedPenerimaan.hargaSatuan || 0).toLocaleString('id-ID')}</td>
+                          <td className="py-2 px-3 font-mono font-bold text-emerald-700">
+                            Rp {(selectedPenerimaan.jumlahHarga || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                              Unit Standar
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right">-</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Units Created from this receipt */}
+              <div>
+                <h4 className="font-bold text-slate-800 mb-2">Unit Aset Terdaftar di Master Aset:</h4>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {AppDatabase.getAssets()
+                    .filter(a => a.idPenerimaanTerkait === selectedPenerimaan.idPenerimaan)
+                    .map(unit => (
+                      <div
+                        key={unit.barcode}
+                        className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between"
+                      >
+                        <div>
+                          <div className="font-bold text-slate-900">{unit.nama}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            Kode: <span className="text-emerald-700 font-bold">{unit.kodeUnikAset}</span> | SN: {unit.nomorSeri} | Lokasi: {unit.lokasi}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAssetForQR(unit)}
+                          className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded border border-slate-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                        >
+                          <QrCode className="w-3 h-3 text-emerald-600" />
+                          <span>QR Label</span>
+                        </button>
+                      </div>
+                    ))}
+                  {AppDatabase.getAssets().filter(a => a.idPenerimaanTerkait === selectedPenerimaan.idPenerimaan).length === 0 && (
+                    <div className="text-slate-400 text-center py-4 bg-slate-50 rounded-lg">
+                      Belum ada unit fisik yang didaftarkan dari faktur ini.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => handlePrintBast(selectedPenerimaan)}
+                  className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Cetak Surat BAST PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsDetailModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: QR Code Preview */}
       {selectedAssetForQR && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
@@ -632,7 +1061,7 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
               <button
                 type="button"
                 onClick={() => setSelectedAssetForQR(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
                 ✕
               </button>
@@ -649,7 +1078,7 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
             <button
               type="button"
               onClick={() => setSelectedAssetForQR(null)}
-              className="w-full mt-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold"
+              className="w-full mt-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
             >
               Tutup
             </button>
@@ -659,3 +1088,4 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     </div>
   );
 };
+

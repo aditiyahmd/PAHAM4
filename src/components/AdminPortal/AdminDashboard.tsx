@@ -589,9 +589,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
         </div>
 
         <div className="space-y-2.5">
-          {AppDatabase.getLogs().slice(0, 6).map((log: ActivityLog) => (
+          {AppDatabase.getLogs().slice(0, 6).map((log: ActivityLog, idx: number) => (
             <div
-              key={log.id}
+              key={`${log.id || 'log'}-${idx}`}
               className="flex items-start justify-between p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs"
             >
               <div className="space-y-0.5">

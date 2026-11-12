@@ -19,149 +19,149 @@ export type AccessLevel = 'none' | 'view' | 'manage' | 'verify' | 'execute' | 'a
 
 // 3.2 Matriks Hak Akses Rekonstruksi (Strict Deny-by-Default)
 export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel>> = {
-  // ACT-01: Pimpinan Universitas
+  // ACT-01: Pimpinan Universitas (Rektor & Wakil Rektor 1 - Halaman Eksekutif)
   'ACT-01': {
     dashboard_ringkasan: 'view',
-    buku_penerimaan: 'view',
-    registrasi_aset_qr: 'none',
+    buku_penerimaan: 'none',
+    registrasi_aset_qr: 'view', // Master Aset read-only (tanpa edit)
     buku_pengeluaran: 'none',
-    buku_inventaris: 'view',
+    buku_inventaris: 'view', // Buku Aset Inventaris
     buat_tiket: 'none',
     distribusi_tiket: 'none',
     tindakan_perbaikan: 'none',
     peminjaman_aset: 'none',
-    pengajuan_sistem: 'view',
-    dashboard_pimpinan: 'view', // Lihat / unduh laporan eksekutif
+    pengajuan_sistem: 'none',
+    dashboard_pimpinan: 'view', // Dashboard Pimpinan
     audit_trail: 'view',
-    suku_cadang: 'view'
+    suku_cadang: 'none'
   },
-  // ACT-02: Pimpinan PUSDATIN
+  // ACT-02: Pimpinan PUSDATIN (Semua Menu)
   'ACT-02': {
     dashboard_ringkasan: 'view',
-    buku_penerimaan: 'verify',
-    registrasi_aset_qr: 'verify',
-    buku_pengeluaran: 'verify',
-    buku_inventaris: 'verify',
-    buat_tiket: 'none',
-    distribusi_tiket: 'view', // Pantau helpdesk
-    tindakan_perbaikan: 'view', // Pantau helpdesk
-    peminjaman_aset: 'approve', // Ttd mengetahui
-    pengajuan_sistem: 'approve', // Otorisasi final sistem baru
+    buku_penerimaan: 'manage',
+    registrasi_aset_qr: 'manage',
+    buku_pengeluaran: 'manage',
+    buku_inventaris: 'manage',
+    buat_tiket: 'manage',
+    distribusi_tiket: 'manage',
+    tindakan_perbaikan: 'manage',
+    peminjaman_aset: 'manage',
+    pengajuan_sistem: 'approve',
     dashboard_pimpinan: 'view',
     audit_trail: 'view',
-    suku_cadang: 'view'
+    suku_cadang: 'manage'
   },
-  // ACT-03: Admin / IT Support & Helpdesk Specialist
+  // ACT-03: IT Support & Helpdesk Specialist / Admin Sistem (Semua Menu)
   'ACT-03': {
     dashboard_ringkasan: 'view',
     buku_penerimaan: 'manage',
     registrasi_aset_qr: 'manage',
     buku_pengeluaran: 'manage',
     buku_inventaris: 'manage',
-    buat_tiket: 'manage', // Bantu catat tiket walk-in / kelola
-    distribusi_tiket: 'manage', // Dispatch tiket ke teknisi
-    tindakan_perbaikan: 'execute', // Kerjakan tiket hardware umum
-    peminjaman_aset: 'manage', // Kelola alokasi, penyerahan, pengembalian
-    pengajuan_sistem: 'verify', // Verifikasi awal kelengkapan dokumen
+    buat_tiket: 'manage',
+    distribusi_tiket: 'manage',
+    tindakan_perbaikan: 'execute',
+    peminjaman_aset: 'manage',
+    pengajuan_sistem: 'manage',
     dashboard_pimpinan: 'view',
     audit_trail: 'view',
     suku_cadang: 'manage'
   },
-  // ACT-04: Cloud & Infrastructure Engineer
+  // ACT-04: Cloud & Infrastructure Engineer (Dashboard tiket delegasi & Helpdesk SLA)
   'ACT-04': {
     dashboard_ringkasan: 'view',
-    buku_penerimaan: 'view',
-    registrasi_aset_qr: 'view',
-    buku_pengeluaran: 'view',
-    buku_inventaris: 'view',
+    buku_penerimaan: 'none',
+    registrasi_aset_qr: 'none',
+    buku_pengeluaran: 'none',
+    buku_inventaris: 'none',
     buat_tiket: 'none',
-    distribusi_tiket: 'execute', // Terima tiket jaringan/cloud
-    tindakan_perbaikan: 'execute', // Kerjakan
-    peminjaman_aset: 'none',
-    pengajuan_sistem: 'view',
-    dashboard_pimpinan: 'none',
-    audit_trail: 'view',
-    suku_cadang: 'execute'
-  },
-  // ACT-05: System Analyst & Data Governance Specialist
-  'ACT-05': {
-    dashboard_ringkasan: 'view',
-    buku_penerimaan: 'view',
-    registrasi_aset_qr: 'view',
-    buku_pengeluaran: 'view',
-    buku_inventaris: 'view',
-    buat_tiket: 'none',
-    distribusi_tiket: 'execute', // Terima tiket software & data
+    distribusi_tiket: 'execute', // Helpdesk & Tiket SLA
     tindakan_perbaikan: 'execute',
     peminjaman_aset: 'none',
-    pengajuan_sistem: 'execute', // Analisis kebutuhan (status_analisis)
-    dashboard_pimpinan: 'none',
-    audit_trail: 'view',
-    suku_cadang: 'view'
-  },
-  // ACT-06: Lead Full Stack Developer
-  'ACT-06': {
-    dashboard_ringkasan: 'view',
-    buku_penerimaan: 'view',
-    registrasi_aset_qr: 'view',
-    buku_pengeluaran: 'view',
-    buku_inventaris: 'view',
-    buat_tiket: 'none',
-    distribusi_tiket: 'none',
-    tindakan_perbaikan: 'none',
-    peminjaman_aset: 'none',
-    pengajuan_sistem: 'manage', // Pimpin eksekusi sprint & code review
+    pengajuan_sistem: 'none',
     dashboard_pimpinan: 'none',
     audit_trail: 'view',
     suku_cadang: 'none'
   },
-  // ACT-07: Frontend Programmer
+  // ACT-05: System Analyst & Data Governance Specialist (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
+  'ACT-05': {
+    dashboard_ringkasan: 'view',
+    buku_penerimaan: 'none',
+    registrasi_aset_qr: 'none',
+    buku_pengeluaran: 'none',
+    buku_inventaris: 'none',
+    buat_tiket: 'none',
+    distribusi_tiket: 'execute',
+    tindakan_perbaikan: 'execute',
+    peminjaman_aset: 'none',
+    pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
+    dashboard_pimpinan: 'none',
+    audit_trail: 'view',
+    suku_cadang: 'none'
+  },
+  // ACT-06: Lead Full Stack Developer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
+  'ACT-06': {
+    dashboard_ringkasan: 'view',
+    buku_penerimaan: 'none',
+    registrasi_aset_qr: 'none',
+    buku_pengeluaran: 'none',
+    buku_inventaris: 'none',
+    buat_tiket: 'none',
+    distribusi_tiket: 'execute',
+    tindakan_perbaikan: 'none',
+    peminjaman_aset: 'none',
+    pengajuan_sistem: 'manage', // Pengajuan Sistem Baru
+    dashboard_pimpinan: 'none',
+    audit_trail: 'view',
+    suku_cadang: 'none'
+  },
+  // ACT-07: Frontend Programmer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-07': {
     dashboard_ringkasan: 'view',
     buku_penerimaan: 'none',
     registrasi_aset_qr: 'none',
     buku_pengeluaran: 'none',
-    buku_inventaris: 'view',
+    buku_inventaris: 'none',
     buat_tiket: 'none',
-    distribusi_tiket: 'none',
+    distribusi_tiket: 'execute',
     tindakan_perbaikan: 'none',
     peminjaman_aset: 'none',
-    pengajuan_sistem: 'execute', // Kembangkan UI sistem baru
+    pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'none',
     suku_cadang: 'none'
   },
-  // ACT-08: Backend Programmer
+  // ACT-08: Backend Programmer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-08': {
     dashboard_ringkasan: 'view',
     buku_penerimaan: 'none',
     registrasi_aset_qr: 'none',
     buku_pengeluaran: 'none',
-    buku_inventaris: 'view',
+    buku_inventaris: 'none',
     buat_tiket: 'none',
-    distribusi_tiket: 'none',
+    distribusi_tiket: 'execute',
     tindakan_perbaikan: 'none',
     peminjaman_aset: 'none',
-    pengajuan_sistem: 'execute', // Kembangkan API dan database
+    pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'none',
     suku_cadang: 'none'
   },
-  // ACT-09: Cyber Security Officer
+  // ACT-09: Cyber Security Officer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-09': {
     dashboard_ringkasan: 'view',
     buku_penerimaan: 'none',
     registrasi_aset_qr: 'none',
     buku_pengeluaran: 'none',
-    buku_inventaris: 'view',
+    buku_inventaris: 'none',
     buat_tiket: 'none',
-    distribusi_tiket: 'execute', // Terima tiket insiden keamanan/email
+    distribusi_tiket: 'execute',
     tindakan_perbaikan: 'execute',
     peminjaman_aset: 'none',
-    pengajuan_sistem: 'verify', // Verifikasi keamanan (status_keamanan)
+    pengajuan_sistem: 'verify', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'view',
-    suku_cadang: 'view'
+    suku_cadang: 'none'
   },
   // ACT-10: User (Dosen/Karyawan/Mahasiswa)
   'ACT-10': {
@@ -174,26 +174,39 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     distribusi_tiket: 'none',
     tindakan_perbaikan: 'none',
     peminjaman_aset: 'propose', // Ajukan peminjaman
-    pengajuan_sistem: 'propose', // Ajukan sistem baru
+    pengajuan_sistem: 'propose', // Ajukan sistem baru (hanya jika Dosen/Karyawan)
     dashboard_pimpinan: 'none',
     audit_trail: 'none',
     suku_cadang: 'none'
   }
 };
 
-// 10 Initial Seed Users Representing all Actors (Section 3.1)
+// Initial Seed Users Representing all Actors according to PUSDATIN UMC Organizational Structure
 export const SEED_USERS: AppUser[] = [
   {
-    id: 'USR-ACT-01',
+    id: 'USR-ACT-01A',
     nama: 'Prof. Dr. H. Arif Nurudin, M.T.',
-    email: 'rektorat@umc.ac.id',
+    email: 'rektor@umc.ac.id',
     role: 'ACT-01',
     roleName: 'Pimpinan Universitas',
-    unit: 'Rektorat UMC',
+    unit: 'Rektorat UMC (Rektor)',
     phone: '081122334401',
     statusAkun: 'Aktif',
     sumberData: 'SSO Google',
-    specialty: 'Kebijakan Strategis, Pengawasan TI & Evaluasi SLA Kampus',
+    specialty: 'Rektor: Kebijakan Strategis, Pengawasan TI & Evaluasi Kinerja PUSDATIN',
+    isFullAccess: false
+  },
+  {
+    id: 'USR-ACT-01B',
+    nama: 'Dr. Hj. Eni Murniasih, M.Pd.',
+    email: 'warek1@umc.ac.id',
+    role: 'ACT-01',
+    roleName: 'Pimpinan Universitas',
+    unit: 'Wakil Rektor 1 Bidang Akademik & Sistem Informasi',
+    phone: '081122334402',
+    statusAkun: 'Aktif',
+    sumberData: 'SSO Google',
+    specialty: 'Wakil Rektor 1: Pengawasan Infrastruktur Akademik, Aset TI & SLA Layanan',
     isFullAccess: false
   },
   {
@@ -202,11 +215,11 @@ export const SEED_USERS: AppUser[] = [
     email: 'kepala.pusdatin@umc.ac.id',
     role: 'ACT-02',
     roleName: 'Kepala PUSDATIN',
-    unit: 'PUSDATIN UMC',
+    unit: 'Pimpinan PUSDATIN UMC',
     phone: '081122334455',
     statusAkun: 'Aktif',
     sumberData: 'SSO Google',
-    specialty: 'Otorisasi Pengadaan, Approval Sistem Baru, Pengesahan Surat Peminjaman',
+    specialty: 'Pimpinan PUSDATIN: Otorisasi Pengadaan, Approval Sistem Baru, Pengesahan Peminjaman & Seluruh Menu',
     isFullAccess: true
   },
   {
@@ -219,7 +232,7 @@ export const SEED_USERS: AppUser[] = [
     phone: '085964531388',
     statusAkun: 'Aktif',
     sumberData: 'SSO Google',
-    specialty: 'Kelola Penerimaan/Pengeluaran Aset, QR Label, Distribusi Tiket, Peminjaman',
+    specialty: 'Admin Sistem: Pengelolaan Aset, Faktur Penerimaan, Distribusi Pengeluaran, Tiket SLA & Seluruh Menu',
     isFullAccess: true
   },
   {
@@ -228,11 +241,11 @@ export const SEED_USERS: AppUser[] = [
     email: 'faisal.cloud@umc.ac.id',
     role: 'ACT-04',
     roleName: 'Cloud & Infrastructure Engineer',
-    unit: 'PUSDATIN UMC',
+    unit: 'Divisi Infrastruktur Jaringan & Server PUSDATIN',
     phone: '081234998877',
     statusAkun: 'Aktif',
-    sumberData: 'LDAP',
-    specialty: 'Infrastruktur Jaringan, Server Kampus, Wi-Fi, Switch & Cloud Computing',
+    sumberData: 'SSO Google',
+    specialty: 'Cloud & Infrastructure: Monitoring Jaringan, Server Kampus, Switch & Tiket SLA Delegasi',
     isFullAccess: false
   },
   {
@@ -241,11 +254,11 @@ export const SEED_USERS: AppUser[] = [
     email: 'novi.analyst@umc.ac.id',
     role: 'ACT-05',
     roleName: 'System Analyst & Data Governance Specialist',
-    unit: 'PUSDATIN UMC',
+    unit: 'Divisi Sistem & Tata Kelola Data PUSDATIN',
     phone: '085711223344',
     statusAkun: 'Aktif',
-    sumberData: 'LDAP',
-    specialty: 'Analisis Kebutuhan Sistem Baru, Data Governance, Integrasi SIAKAD',
+    sumberData: 'SSO Google',
+    specialty: 'System Analyst: Analisis Kebutuhan, Tata Kelola Data, Tiket Delegasi & Pengajuan Sistem Baru',
     isFullAccess: false
   },
   {
@@ -254,11 +267,11 @@ export const SEED_USERS: AppUser[] = [
     email: 'bayu.dev@umc.ac.id',
     role: 'ACT-06',
     roleName: 'Lead Full Stack Developer',
-    unit: 'PUSDATIN UMC',
+    unit: 'Divisi Pengembangan Perangkat Lunak PUSDATIN',
     phone: '085288776655',
     statusAkun: 'Aktif',
-    sumberData: 'LDAP',
-    specialty: 'Kepemimpinan Pengembangan Software, Arsitektur Aplikasi & Code Review',
+    sumberData: 'SSO Google',
+    specialty: 'Lead Developer: Arsitektur Software, Sprint Planning, Tiket Delegasi & Pengajuan Sistem Baru',
     isFullAccess: false
   },
   {
@@ -267,11 +280,11 @@ export const SEED_USERS: AppUser[] = [
     email: 'dimas.frontend@umc.ac.id',
     role: 'ACT-07',
     roleName: 'Frontend Programmer',
-    unit: 'PUSDATIN UMC',
+    unit: 'Divisi Pengembangan Perangkat Lunak PUSDATIN',
     phone: '087833445566',
     statusAkun: 'Aktif',
-    sumberData: 'SIAKAD',
-    specialty: 'Pengembangan Antarmuka Web, UX Civitas & Integrasi REST API',
+    sumberData: 'SSO Google',
+    specialty: 'Frontend Programmer: Pengembangan Antarmuka Web, UI/UX, Tiket Delegasi & Pengajuan Sistem Baru',
     isFullAccess: false
   },
   {
@@ -280,11 +293,11 @@ export const SEED_USERS: AppUser[] = [
     email: 'eko.backend@umc.ac.id',
     role: 'ACT-08',
     roleName: 'Backend Programmer',
-    unit: 'PUSDATIN UMC',
+    unit: 'Divisi Pengembangan Perangkat Lunak PUSDATIN',
     phone: '089912345678',
     statusAkun: 'Aktif',
-    sumberData: 'SIAKAD',
-    specialty: 'Database Relasional, Business Logic, Endpoint API & Keamanan Server',
+    sumberData: 'SSO Google',
+    specialty: 'Backend Programmer: REST API, Database Relasional, Tiket Delegasi & Pengajuan Sistem Baru',
     isFullAccess: false
   },
   {
@@ -293,24 +306,53 @@ export const SEED_USERS: AppUser[] = [
     email: 'rian.sec@umc.ac.id',
     role: 'ACT-09',
     roleName: 'Cyber Security Officer',
-    unit: 'PUSDATIN UMC',
+    unit: 'Divisi Keamanan Siber PUSDATIN',
     phone: '081399887766',
     statusAkun: 'Aktif',
-    sumberData: 'LDAP',
-    specialty: 'Audit Keamanan Sistem, Proteksi Data, Investigasi Insiden & Firewall',
+    sumberData: 'SSO Google',
+    specialty: 'Cyber Security Officer: Keamanan Informasi, Audit Kerentanan, Tiket Delegasi & Review Pengajuan Sistem',
     isFullAccess: false
   },
   {
-    id: 'USR-ACT-10',
+    id: 'USR-ACT-10A',
     nama: 'Dr. Hendra Wijaya, M.Pd.',
     email: 'hendra.dosen@umc.ac.id',
     role: 'ACT-10',
     roleName: 'User (Civitas Akademika)',
+    civitasType: 'Dosen',
     unit: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
     phone: '081234567890',
     statusAkun: 'Aktif',
     sumberData: 'SSO Google',
-    specialty: 'Dosen / Civitas: Pelapor Kerusakan, Peminjam Aset & Pengusul Sistem',
+    specialty: 'Dosen: Peminjaman Aset, Lapor Kerusakan & Ajukan Sistem Baru',
+    isFullAccess: false
+  },
+  {
+    id: 'USR-ACT-10B',
+    nama: 'Siti Rahmawati, S.AP.',
+    email: 'siti.tendik@umc.ac.id',
+    role: 'ACT-10',
+    roleName: 'User (Civitas Akademika)',
+    civitasType: 'Karyawan',
+    unit: 'Biro Administrasi Akademik (BAA)',
+    phone: '081298765432',
+    statusAkun: 'Aktif',
+    sumberData: 'SSO Google',
+    specialty: 'Karyawan / Tendik: Peminjaman Aset, Lapor Kerusakan & Ajukan Sistem Baru',
+    isFullAccess: false
+  },
+  {
+    id: 'USR-ACT-10C',
+    nama: 'Muhammad Rizki Pratama',
+    email: 'm.rizki@student.umc.ac.id',
+    role: 'ACT-10',
+    roleName: 'User (Civitas Akademika)',
+    civitasType: 'Mahasiswa',
+    unit: 'Teknik Informatika - Fakultas Teknik',
+    phone: '085712345678',
+    statusAkun: 'Aktif',
+    sumberData: 'SSO Google',
+    specialty: 'Mahasiswa: Peminjaman Aset, Lapor Kerusakan (Tidak ada menu Ajukan Sistem Baru)',
     isFullAccess: false
   }
 ];
