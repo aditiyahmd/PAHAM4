@@ -30,9 +30,13 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     if (!validation.ok || !validation.user) {
       setErrorMessage(
         validation.error ||
-          'Login ditolak. Gunakan email instansi terdaftar (@umc.ac.id atau @student.umc.ac.id).'
+          'Login ditolak. Gunakan email resmi instansi UMC (@umc.ac.id atau @student.umc.ac.id).'
       );
       return;
+    }
+
+    if (validation.isNewUser) {
+      AppDatabase.addUser(validation.user);
     }
 
     AppDatabase.setActiveUser(validation.user.id);
@@ -72,7 +76,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 Single Sign-On (SSO) Google UMC
               </h3>
               <p className="text-xs text-slate-500">
-                Masuk menggunakan akun instansi resmi yang terdaftar
+                Masuk menggunakan email resmi Universitas Muhammadiyah Cirebon
               </p>
             </div>
           </div>
@@ -92,12 +96,13 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         {/* Institutional Email SSO Login Form */}
         <form onSubmit={handleManualEmailLogin} className="space-y-4 pt-1">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Email Institusi UMC Terdaftar
+            <label htmlFor="sso-email-input" className="block text-xs font-bold text-slate-700 mb-1.5">
+              Email Institusi UMC (@umc.ac.id / @student.umc.ac.id)
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
               <input
+                id="sso-email-input"
                 type="email"
                 required
                 autoFocus
@@ -135,8 +140,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
             <p className="font-bold text-slate-700">Ketentuan Akses Akun:</p>
-            <p>• Hanya email <strong>@umc.ac.id</strong> &amp; <strong>@student.umc.ac.id</strong> yang aktif &amp; terdaftar di Master Pengguna.</p>
-            <p>• Email publik (@gmail.com, dll.) atau akun yang belum didaftarkan Admin PUSDATIN otomatis ditolak.</p>
+            <p>• Semua email resmi <strong>@umc.ac.id</strong> (Dosen/Staf/Admin) &amp; <strong>@student.umc.ac.id</strong> (Mahasiswa) dapat langsung login.</p>
+            <p>• Email publik (@gmail.com, @yahoo.com, dll.) di luar domain resmi UMC otomatis ditolak.</p>
           </div>
         </form>
 

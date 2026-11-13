@@ -1362,15 +1362,58 @@ export class AppDatabase {
     );
   }
 
-  public static addAsset(asset: Asset): void {
+  public static generateUniqueBarcode(existingAssets?: Asset[]): string {
+    const assets = existingAssets || this.getAssets();
+    const existingSet = new Set(assets.map(a => a.barcode));
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const randomPrefix = Math.floor(1000000 + Math.random() * 9000000);
+      let sum = 0;
+      const strCode = randomPrefix.toString();
+      for (let j = 0; j < 7; j++) {
+        const d = parseInt(strCode.charAt(j), 10);
+        sum += j % 2 === 0 ? d * 3 : d * 1;
+      }
+      const checksum = (10 - (sum % 10)) % 10;
+      const candidate = strCode + checksum.toString();
+      if (!existingSet.has(candidate)) return candidate;
+    }
+    return String(Date.now()).slice(-8);
+  }
+
+  public static generateNextUniqueAssetCode(existingAssets?: Asset[]): string {
+    const assets = existingAssets || this.getAssets();
+    const year = new Date().getFullYear();
+    const prefix = `AST-UMC-${year}-`;
+    let maxSeq = assets.length;
+    for (const a of assets) {
+      if (a.kodeUnikAset && a.kodeUnikAset.startsWith(prefix)) {
+        const tail = parseInt(a.kodeUnikAset.slice(prefix.length), 10);
+        if (!Number.isNaN(tail) && tail < 100000 && tail > maxSeq) {
+          maxSeq = tail;
+        }
+      }
+    }
+    const existingCodes = new Set(assets.map(a => a.kodeUnikAset));
+    let seq = maxSeq + 1;
+    let candidate = `${prefix}${String(seq).padStart(3, '0')}`;
+    while (existingCodes.has(candidate)) {
+      seq += 1;
+      candidate = `${prefix}${String(seq).padStart(3, '0')}`;
+    }
+    return candidate;
+  }
+
+  public static addAsset(asset: Asset): Asset {
     const active = this.getActiveUser();
     AccessControlService.enforce(active, 'registrasi_aset_qr', ['manage'], 'Mendaftarkan unit aset baru');
 
     const assets = this.getAssets();
     // BR-001: Kode Unik Aset sebagai pengenal utama, tidak dapat diubah
-    const kodeUnikAset = asset.kodeUnikAset || `AST-UMC-${new Date().getFullYear()}-${String(assets.length + 1).padStart(3, '0')}`;
+    const barcode = (asset.barcode || '').trim() || this.generateUniqueBarcode(assets);
+    const kodeUnikAset = (asset.kodeUnikAset || '').trim() || this.generateNextUniqueAssetCode(assets);
     const newAsset: Asset = {
       ...asset,
+      barcode,
       kodeUnikAset,
       status: normalizeAssetStatus(asset.status)
     };
@@ -1399,6 +1442,8 @@ export class AppDatabase {
       namaPengguna: active.nama,
       rolePengguna: active.roleName
     });
+
+    return newAsset;
   }
 
   public static updateAssetStatus(

@@ -16,14 +16,29 @@ export function inferCivitasTypeFromEmail(email: string): 'Mahasiswa' | 'Dosen' 
 export interface SsoLoginValidationResult {
   ok: boolean;
   user?: AppUser;
+  isNewUser?: boolean;
   error?: string;
 }
 
+export function formatDisplayNameFromEmail(email: string): string {
+  const localPart = (email || '').split('@')[0] || 'Civitas UMC';
+  const cleaned = localPart
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return 'Civitas UMC';
+  return cleaned
+    .split(' ')
+    .map(word => (word ? word.charAt(0).toUpperCase() + word.slice(1) : ''))
+    .join(' ');
+}
+
 /**
- * Validates SSO login strictly:
- * 1. Domain must end with @umc.ac.id or @student.umc.ac.id
- * 2. Account must be registered in Master Pengguna
- * 3. Account statusAkun must be 'Aktif'
+ * Validates institutional SSO login:
+ * 1. Domain must end with @umc.ac.id or @student.umc.ac.id (all others rejected)
+ * 2. If registered in Master Pengguna: must have statusAkun === 'Aktif'
+ * 3. If not yet in Master Pengguna: auto-provisions an active Civitas (ACT-10) account
+ *    (@student.umc.ac.id -> Mahasiswa, @umc.ac.id -> Dosen/Pegawai)
  */
 export function validateRegisteredSsoLogin(
   email: string,
@@ -34,7 +49,7 @@ export function validateRegisteredSsoLogin(
   if (!normalized) {
     return {
       ok: false,
-      error: 'Harap masukkan email instansi terdaftar (@umc.ac.id atau @student.umc.ac.id).'
+      error: 'Harap masukkan email instansi UMC (@umc.ac.id atau @student.umc.ac.id).'
     };
   }
 
@@ -47,22 +62,43 @@ export function validateRegisteredSsoLogin(
   }
 
   const found = registeredUsers.find(u => u.email.trim().toLowerCase() === normalized);
-  if (!found) {
+  if (found) {
+    if (found.statusAkun === 'Nonaktif') {
+      return {
+        ok: false,
+        error: `Akun "${normalized}" saat ini berstatus Nonaktif. Hubungi Administrator PUSDATIN UMC.`
+      };
+    }
+
     return {
-      ok: false,
-      error: `Akun "${normalized}" belum terdaftar pada Master Data Pengguna PAHAM. Hubungi Admin PUSDATIN UMC untuk pendaftaran akun.`
+      ok: true,
+      user: found,
+      isNewUser: false
     };
   }
 
-  if (found.statusAkun === 'Nonaktif') {
-    return {
-      ok: false,
-      error: `Akun "${normalized}" saat ini berstatus Nonaktif. Hubungi Administrator PUSDATIN UMC.`
-    };
-  }
+  const civitasType = inferCivitasTypeFromEmail(normalized);
+  const autoUser: AppUser = {
+    id: `USR-SSO-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    nama: formatDisplayNameFromEmail(normalized),
+    email: normalized,
+    role: 'ACT-10',
+    roleName: 'User (Civitas Akademika)',
+    civitasType,
+    unit: civitasType === 'Mahasiswa' ? 'Mahasiswa Universitas Muhammadiyah Cirebon' : 'Civitas Akademika UMC',
+    phone: '',
+    statusAkun: 'Aktif',
+    sumberData: 'SSO Google',
+    specialty:
+      civitasType === 'Mahasiswa'
+        ? 'Mahasiswa: Peminjaman Aset & Lapor Kerusakan'
+        : 'Civitas UMC: Peminjaman Aset, Lapor Kerusakan & Ajukan Sistem Baru',
+    isFullAccess: false
+  };
 
   return {
     ok: true,
-    user: found
+    user: autoUser,
+    isNewUser: true
   };
 }

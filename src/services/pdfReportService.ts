@@ -936,6 +936,158 @@ export class PdfReportService {
   }
 
   /**
+   * Cetak Rekapitulasi Buku Pengeluaran Bulanan
+   */
+  public static generateBukuPengeluaranMonthlyPdf(
+    items: BukuPengeluaranItem[],
+    monthStr: string,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; title?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || masterSig.petugasDefaultNama;
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text(
+      `REKAPITULASI BUKU PENGELUARAN ASET TI - PERIODE ${monthStr.toUpperCase()}`,
+      148.5,
+      38,
+      { align: 'center' }
+    );
+
+    const totalUnit = items.reduce((sum, it) => {
+      const sub = it.items || it.subItems;
+      return sum + (sub && sub.length > 0 ? sub.length : (it.jumlah || 1));
+    }, 0);
+    const totalPenggunaan = items.filter(it => it.jenisPengeluaran === 'Penggunaan').length;
+    const totalPeminjaman = items.filter(it => it.jenisPengeluaran === 'Peminjaman').length;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Total Transaksi: ${items.length} Catatan (${totalUnit} Unit Aset) | Jalur Penggunaan: ${totalPenggunaan} | Jalur Peminjaman: ${totalPeminjaman}`,
+      148.5,
+      43,
+      { align: 'center' }
+    );
+
+    const tableRows = items.map((it, idx) => {
+      const sub = it.items || it.subItems;
+      const isBatch = Boolean(sub && sub.length > 1);
+      const assetNames = isBatch
+        ? sub!.map((s: any) => `• ${s.namaAset}`).join('\n')
+        : String(it.namaAset || '-');
+      const assetCodes = isBatch
+        ? sub!.map((s: any) => s.kodeUnikAset || s.barcode).join('\n')
+        : `${it.kodeUnikAset || '-'}\n(${it.barcode || '-'})`;
+      const unitCount = sub && sub.length > 0 ? sub.length : (it.jumlah || 1);
+
+      return [
+        String(idx + 1),
+        String(it.idPengeluaran || '-'),
+        String(it.tanggalPenyerahan || it.tanggalPengeluaran || '-'),
+        assetCodes,
+        assetNames,
+        `${unitCount} Unit`,
+        it.jenisPengeluaran === 'Penggunaan' ? 'Penggunaan' : 'Peminjaman',
+        String(it.untuk || it.tujuanPengeluaran || '-'),
+        String(it.petugas || 'Admin PUSDATIN'),
+        String(it.keterangan || '-')
+      ];
+    });
+
+    tableRows.push([
+      'TOTAL',
+      '-',
+      '-',
+      '-',
+      'Akumulasi Pengeluaran Aset',
+      `${totalUnit} Unit`,
+      `${items.length} Dok`,
+      '-',
+      '-',
+      '-'
+    ]);
+
+    autoTable(doc, {
+      startY: 47,
+      theme: 'grid',
+      head: [
+        [
+          'No',
+          'ID Pengeluaran',
+          'Tgl Serah',
+          'Kode Unik / Barcode',
+          'Nama Aset Dikeluarkan',
+          'Qty',
+          'Jalur',
+          'Untuk (Unit / Penerima)',
+          'Petugas',
+          'Keterangan'
+        ]
+      ],
+      body: tableRows,
+      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      styles: { fontSize: 7, cellPadding: 1.8 },
+      columnStyles: {
+        0: { cellWidth: 9, halign: 'center' },
+        1: { cellWidth: 24, fontStyle: 'bold' },
+        2: { cellWidth: 20, halign: 'center' },
+        3: { cellWidth: 32 },
+        5: { cellWidth: 15, halign: 'center', fontStyle: 'bold' },
+        6: { cellWidth: 20, halign: 'center' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text('Petugas Pengelola Aset,', 50, signY + 6, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
    * Cetak Buku Aset Inventaris (Rekapitulasi Saldo & Rincian)
    */
   public static generateBukuInventarisPdf(

@@ -12,7 +12,9 @@ import {
   Eye,
   PlusCircle,
   Trash2,
-  PackageCheck
+  PackageCheck,
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
 import { BukuPengeluaranItem, Asset } from '../../types';
@@ -29,12 +31,22 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
   );
   const [searchTerm, setSearchTerm] = useState('');
   const [filterJenis, setFilterJenis] = useState<'Semua' | 'Penggunaan' | 'Peminjaman'>('Semua');
+  const [filterMonth, setFilterMonth] = useState('');
 
   // Multi-item Issuance Modal (Jalur 1)
   const [isJalur1ModalOpen, setIsJalur1ModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedPengeluaran, setSelectedPengeluaran] = useState<BukuPengeluaranItem | null>(null);
-  const [pendingBastItem, setPendingBastItem] = useState<BukuPengeluaranItem | null>(null);
+  const [pendingPrint, setPendingPrint] = useState<
+    | { type: 'bast'; item: BukuPengeluaranItem }
+    | { type: 'monthly'; list: BukuPengeluaranItem[]; period: string }
+    | null
+  >(null);
+  const [statusBanner, setStatusBanner] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
+  const [modalError, setModalError] = useState('');
 
   // Form State: Multi-Asset Pengeluaran
   const [selectedAssets, setSelectedAssets] = useState<Asset[]>([]);
@@ -53,14 +65,15 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
 
   // Add Asset to multi-selection by code or click
   const handleAddAssetByCode = (code: string) => {
+    setModalError('');
     if (!code.trim()) return;
     const found = AppDatabase.getAssetByBarcodeOrUnique(code.trim());
     if (!found) {
-      alert(`Aset dengan kode "${code}" tidak ditemukan!`);
+      setModalError(`Aset dengan kode "${code}" tidak ditemukan.`);
       return;
     }
     if (selectedAssets.some(a => a.barcode === found.barcode)) {
-      alert('Aset ini sudah ada di daftar pengeluaran!');
+      setModalError('Aset ini sudah ada di daftar pengeluaran.');
       return;
     }
     setSelectedAssets(prev => [...prev, found]);
@@ -74,12 +87,13 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
   // Submit Multi-Asset Pengeluaran
   const handleSubmitJalur1 = (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError('');
     if (selectedAssets.length === 0) {
-      alert('Pilih minimal 1 aset untuk dikeluarkan!');
+      setModalError('Pilih minimal 1 aset untuk dikeluarkan.');
       return;
     }
     if (!untuk.trim()) {
-      alert('Mohon isi peruntukan ("Untuk") penyerahan aset!');
+      setModalError('Mohon isi peruntukan ("Untuk") penyerahan aset.');
       return;
     }
 
@@ -92,44 +106,92 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
     });
 
     if (res.success) {
-      alert(res.message);
+      setStatusBanner({ type: 'success', message: res.message });
       setIsJalur1ModalOpen(false);
       setSelectedAssets([]);
       setUntuk('');
       setKeterangan('');
       reloadData();
     } else {
-      alert(res.message);
+      setModalError(res.message);
     }
   };
 
   // Print Single Pengeluaran BAST (konfirmasi penandatangan lebih dulu)
   const handlePrintBast = (item: BukuPengeluaranItem) => {
-    setPendingBastItem(item);
+    setPendingPrint({ type: 'bast', item });
   };
 
-  const handleConfirmPrintBast = (values: ConfirmedSignatoryValues) => {
-    if (!pendingBastItem) return;
-    const doc = PdfReportService.generateBukuPengeluaranBastPdf(pendingBastItem, {
-      title: `Berita Acara Pengeluaran / Penyerahan Aset - ${pendingBastItem.idPengeluaran}`,
-      kepalaPusdatin: values.kepalaPusdatin,
-      nipKepala: values.nipKepala,
-      petugas: values.petugas
+  // Print Monthly Pengeluaran Summary (konfirmasi penandatangan lebih dulu)
+  const handlePrintMonthly = () => {
+    const listToPrint = pengeluaranList.filter(item => {
+      const dateStr = item.tanggalPenyerahan || item.tanggalPengeluaran || '';
+      const matchMonth = filterMonth ? dateStr.startsWith(filterMonth) : true;
+      const matchJenis = filterJenis === 'Semua' || item.jenisPengeluaran === filterJenis;
+      return matchMonth && matchJenis;
     });
-    const safeId = pendingBastItem.idPengeluaran.replace(/[^a-zA-Z0-9_-]/g, '_');
-    doc.save(`BAST_Pengeluaran_${safeId}.pdf`);
-    setPendingBastItem(null);
+
+    if (listToPrint.length === 0) {
+      setStatusBanner({
+        type: 'info',
+        message: 'Tidak ada data pengeluaran untuk bulan atau filter yang dipilih.'
+      });
+      return;
+    }
+
+    setPendingPrint({
+      type: 'monthly',
+      list: listToPrint,
+      period: filterMonth || 'Semua Periode'
+    });
+  };
+
+  const handleConfirmSignatoryPrint = (values: ConfirmedSignatoryValues) => {
+    if (!pendingPrint) return;
+    if (pendingPrint.type === 'bast') {
+      const { item } = pendingPrint;
+      const doc = PdfReportService.generateBukuPengeluaranBastPdf(item, {
+        title: `Berita Acara Pengeluaran / Penyerahan Aset - ${item.idPengeluaran}`,
+        kepalaPusdatin: values.kepalaPusdatin,
+        nipKepala: values.nipKepala,
+        petugas: values.petugas
+      });
+      const safeId = item.idPengeluaran.replace(/[^a-zA-Z0-9_-]/g, '_');
+      doc.save(`BAST_Pengeluaran_${safeId}.pdf`);
+      setStatusBanner({
+        type: 'success',
+        message: `Dokumen BAST Pengeluaran ${item.idPengeluaran} berhasil dicetak ke PDF.`
+      });
+    } else {
+      const { list, period } = pendingPrint;
+      const doc = PdfReportService.generateBukuPengeluaranMonthlyPdf(list, period, {
+        title: 'Laporan Rekapitulasi Buku Pengeluaran Aset TI UMC',
+        kepalaPusdatin: values.kepalaPusdatin,
+        nipKepala: values.nipKepala,
+        petugas: values.petugas
+      });
+      const safePeriod = period.replace(/[^a-zA-Z0-9_-]/g, '_');
+      doc.save(`Rekap_Buku_Pengeluaran_${safePeriod}.pdf`);
+      setStatusBanner({
+        type: 'success',
+        message: `Laporan Bulanan Buku Pengeluaran (${period}) berhasil dicetak (${list.length} catatan).`
+      });
+    }
+    setPendingPrint(null);
   };
 
   const filtered = pengeluaranList.filter(item => {
+    const q = searchTerm.toLowerCase();
     const matchSearch =
-      item.namaAset.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.kodeUnikAset.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.untuk.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.idPengeluaran.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ((item.items || item.subItems) && (item.items || item.subItems)!.some((sub: any) => sub.namaAset?.toLowerCase().includes(searchTerm.toLowerCase())));
+      item.namaAset.toLowerCase().includes(q) ||
+      item.kodeUnikAset.toLowerCase().includes(q) ||
+      item.untuk.toLowerCase().includes(q) ||
+      item.idPengeluaran.toLowerCase().includes(q) ||
+      ((item.items || item.subItems) && (item.items || item.subItems)!.some((sub: any) => sub.namaAset?.toLowerCase().includes(q)));
     const matchFilter = filterJenis === 'Semua' || item.jenisPengeluaran === filterJenis;
-    return matchSearch && matchFilter;
+    const dateStr = item.tanggalPenyerahan || item.tanggalPengeluaran || '';
+    const matchMonth = filterMonth ? dateStr.startsWith(filterMonth) : true;
+    return matchSearch && matchFilter && matchMonth;
   });
 
   return (
@@ -148,22 +210,68 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
           </p>
         </div>
 
-        {(activeUser.role === 'ACT-02' || activeUser.role === 'ACT-03') && (
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => {
-              setSelectedAssets([]);
-              setUntuk('');
-              setKeterangan('');
-              setIsJalur1ModalOpen(true);
-            }}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-xs cursor-pointer transition-all shrink-0"
+            data-testid="print-pengeluaran-monthly-btn"
+            onClick={handlePrintMonthly}
+            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-200 cursor-pointer transition-all"
+            title="Cetak Laporan Bulanan Buku Pengeluaran PDF"
           >
-            <ArrowUpRight className="w-4 h-4" />
-            <span>Pengeluaran Aset (Multi-Barang)</span>
+            <Printer className="w-4 h-4 text-slate-600" />
+            <span>Cetak Laporan Bulanan PDF</span>
           </button>
-        )}
+
+          {(activeUser.role === 'ACT-02' || activeUser.role === 'ACT-03') && (
+            <button
+              type="button"
+              onClick={() => {
+                setModalError('');
+                setSelectedAssets([]);
+                setUntuk('');
+                setKeterangan('');
+                setIsJalur1ModalOpen(true);
+              }}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-xs cursor-pointer transition-all shrink-0"
+            >
+              <ArrowUpRight className="w-4 h-4" />
+              <span>Pengeluaran Aset (Multi-Barang)</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Inline Status Banner */}
+      {statusBanner && (
+        <div
+          role="status"
+          data-testid="pengeluaran-status-banner"
+          className={`px-4 py-3 rounded-xl border flex items-center justify-between gap-3 text-xs font-semibold ${
+            statusBanner.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : statusBanner.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-900'
+              : 'bg-sky-50 border-sky-200 text-sky-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {statusBanner.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-current shrink-0" />
+            )}
+            <span>{statusBanner.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusBanner(null)}
+            aria-label="Tutup notifikasi"
+            className="p-1 rounded-lg hover:bg-black/5 cursor-pointer shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Info Rules Box */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -189,45 +297,67 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
       </div>
 
       {/* Filter & Search Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="md:col-span-2 bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
-          <Search className="w-4 h-4 text-slate-400 ml-2" />
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+        <div className="md:col-span-4 bg-white p-2.5 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
+          <Search className="w-4 h-4 text-slate-400 ml-1 shrink-0" />
           <input
             type="text"
-            placeholder="Cari nama aset, kode unik, penerima, atau ID pengeluaran..."
+            placeholder="Cari nama aset, kode unik, penerima, atau ID..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             className="w-full text-xs outline-none bg-transparent"
           />
         </div>
 
-        <div className="bg-white p-2 rounded-xl border border-slate-200 flex items-center justify-between text-xs font-semibold">
+        <div className="md:col-span-3 bg-white p-2 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
+          <Calendar className="w-4 h-4 text-slate-400 ml-1 shrink-0" />
+          <input
+            type="month"
+            data-testid="pengeluaran-month-filter"
+            aria-label="Filter Bulan Pengeluaran"
+            value={filterMonth}
+            onChange={e => setFilterMonth(e.target.value)}
+            className="w-full text-xs outline-none bg-transparent"
+            title="Filter Bulan Pengeluaran"
+          />
+          {filterMonth && (
+            <button
+              type="button"
+              onClick={() => setFilterMonth('')}
+              className="text-[10px] text-slate-500 hover:text-slate-700 font-bold px-1.5 cursor-pointer"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+
+        <div className="md:col-span-3 bg-white p-1.5 rounded-xl border border-slate-200 flex items-center justify-between text-xs font-semibold gap-1">
           <button
             type="button"
             onClick={() => setFilterJenis('Semua')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${filterJenis === 'Semua' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}
+            className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer flex-1 ${filterJenis === 'Semua' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}
           >
             Semua
           </button>
           <button
             type="button"
             onClick={() => setFilterJenis('Penggunaan')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${filterJenis === 'Penggunaan' ? 'bg-blue-600 text-white' : 'text-slate-600'}`}
+            className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer flex-1 ${filterJenis === 'Penggunaan' ? 'bg-blue-600 text-white' : 'text-slate-600'}`}
           >
             Penggunaan
           </button>
           <button
             type="button"
             onClick={() => setFilterJenis('Peminjaman')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${filterJenis === 'Peminjaman' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}
+            className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer flex-1 ${filterJenis === 'Peminjaman' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}
           >
             Peminjaman
           </button>
         </div>
 
-        <div className="bg-slate-100 border border-slate-200 p-3 rounded-xl flex items-center justify-between text-xs">
-          <span className="text-slate-600 font-semibold">Total Pengeluaran:</span>
-          <span className="text-base font-bold text-slate-900 font-mono">{filtered.length} Catatan</span>
+        <div className="md:col-span-2 bg-slate-100 border border-slate-200 p-2.5 rounded-xl flex items-center justify-between text-xs">
+          <span className="text-slate-600 font-semibold">Total:</span>
+          <span className="text-sm font-bold text-slate-900 font-mono">{filtered.length} Catatan</span>
         </div>
       </div>
 
@@ -375,6 +505,11 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
             </div>
 
             <form onSubmit={handleSubmitJalur1} className="space-y-4 mt-4 text-sm">
+              {modalError && (
+                <div role="alert" className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+                  {modalError}
+                </div>
+              )}
               {/* Target & Date */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -645,15 +780,17 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
         </div>
       )}
       <SignatoryConfirmModal
-        isOpen={Boolean(pendingBastItem)}
+        isOpen={Boolean(pendingPrint)}
         documentTitle={
-          pendingBastItem
-            ? `BAST Pengeluaran Aset: ${pendingBastItem.idPengeluaran}`
-            : 'BAST Pengeluaran Aset'
+          pendingPrint?.type === 'bast'
+            ? `BAST Pengeluaran Aset: ${pendingPrint.item.idPengeluaran}`
+            : pendingPrint?.type === 'monthly'
+            ? `Laporan Bulanan Buku Pengeluaran (${pendingPrint.period})`
+            : 'Dokumen Buku Pengeluaran'
         }
-        defaultPetugas={pendingBastItem?.petugas}
-        onClose={() => setPendingBastItem(null)}
-        onConfirm={handleConfirmPrintBast}
+        defaultPetugas={pendingPrint?.type === 'bast' ? pendingPrint.item.petugas : undefined}
+        onClose={() => setPendingPrint(null)}
+        onConfirm={handleConfirmSignatoryPrint}
       />
     </div>
   );

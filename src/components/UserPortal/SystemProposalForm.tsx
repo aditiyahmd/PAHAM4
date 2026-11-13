@@ -1,17 +1,36 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
-  Code,
   Send,
   FileText,
   CheckCircle2,
   AlertCircle,
-  HelpCircle,
-  Sparkles,
-  Paperclip
+  Paperclip,
+  Upload,
+  Trash2,
+  Download
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
 import { SystemProposal } from '../../types';
 import { WhatsAppNotificationService } from '../../services/whatsappService';
+
+interface UploadedAttachment {
+  id: string;
+  namaDokumen: string;
+  tipe: 'TOR' | 'Arsitektur' | 'Uji Keamanan' | 'Manual Panduan';
+  urlOrFilename: string;
+  tanggalUpload: string;
+  fileDataUrl: string;
+  fileSize: number;
+  mimeType: string;
+}
+
+const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes < 1024) return `${bytes || 0} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
 
 interface SystemProposalFormProps {
   onSuccessSubmit?: (proposal: SystemProposal) => void;
@@ -19,10 +38,10 @@ interface SystemProposalFormProps {
 }
 
 export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
-  onSuccessSubmit,
-  onNavigateTab
+  onSuccessSubmit
 }) => {
   const activeUser = AppDatabase.getActiveUser();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [form, setForm] = useState({
     namaSistem: '',
@@ -33,40 +52,91 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
     email: activeUser.email || 'hendra.dosen@umc.ac.id',
     deskripsiKebutuhan: '',
     latarBelakang: '',
-    targetPengguna: 'Dosen, Mahasiswa, dan Tenaga Kependidikan UMC',
-    namaDokumenTor: ''
+    targetPengguna: 'Dosen, Mahasiswa, dan Tenaga Kependidikan UMC'
   });
 
+  const [selectedDocType, setSelectedDocType] = useState<'TOR' | 'Arsitektur' | 'Uji Keamanan' | 'Manual Panduan'>('TOR');
+  const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [formError, setFormError] = useState<string>('');
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [createdProposal, setCreatedProposal] = useState<SystemProposal | null>(null);
 
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormError('');
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    files.forEach(file => {
+      if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+        setFormError(
+          `File "${file.name}" melebihi batas ukuran 5 MB (${formatBytes(file.size)}). Mohon pilih file yang lebih kecil.`
+        );
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const resultDataUrl = typeof reader.result === 'string' ? reader.result : '';
+        const newDoc: UploadedAttachment = {
+          id: `DOC-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+          namaDokumen: file.name,
+          tipe: selectedDocType,
+          urlOrFilename: file.name,
+          tanggalUpload: new Date().toLocaleString('id-ID'),
+          fileDataUrl: resultDataUrl,
+          fileSize: file.size,
+          mimeType: file.type || 'application/octet-stream'
+        };
+        setAttachments(prev => [...prev, newDoc]);
+      };
+      reader.onerror = () => {
+        setFormError(`Gagal membaca file "${file.name}". Silakan coba lagi.`);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(item => item.id !== id));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.namaSistem || !form.deskripsiKebutuhan || !form.latarBelakang) {
-      alert('Mohon lengkapi Nama Sistem, Deskripsi Kebutuhan, dan Latar Belakang!');
+    setFormError('');
+
+    if (!form.namaSistem.trim() || !form.deskripsiKebutuhan.trim() || !form.latarBelakang.trim()) {
+      setFormError('Mohon lengkapi Nama Sistem, Deskripsi Kebutuhan, dan Latar Belakang.');
       return;
     }
 
-    const docs = form.namaDokumenTor ? [
-      {
-        namaDokumen: form.namaDokumenTor,
-        tipe: 'TOR' as const,
-        urlOrFilename: form.namaDokumenTor,
-        tanggalUpload: new Date().toLocaleString('id-ID')
-      }
-    ] : [];
+    if (attachments.length === 0) {
+      setFormError('Lampiran dokumen (TOR / Surat Permohonan / Spesifikasi) wajib diunggah sebelum mengirim pengajuan!');
+      return;
+    }
 
     const proposal = AppDatabase.addSystemProposal({
-      namaSistem: form.namaSistem,
-      pemohon: form.pemohon,
-      unitKerja: form.unitKerja,
-      nidnNik: form.nidnNik,
-      kontakWhatsapp: form.kontakWhatsapp,
-      email: form.email,
-      deskripsiKebutuhan: form.deskripsiKebutuhan,
-      latarBelakang: form.latarBelakang,
-      targetPengguna: form.targetPengguna,
-      dokumenTeknis: docs
+      namaSistem: form.namaSistem.trim(),
+      pemohon: form.pemohon.trim(),
+      unitKerja: form.unitKerja.trim(),
+      nidnNik: form.nidnNik.trim(),
+      kontakWhatsapp: form.kontakWhatsapp.trim(),
+      email: form.email.trim(),
+      deskripsiKebutuhan: form.deskripsiKebutuhan.trim(),
+      latarBelakang: form.latarBelakang.trim(),
+      targetPengguna: form.targetPengguna.trim(),
+      dokumenTeknis: attachments.map(att => ({
+        namaDokumen: att.namaDokumen,
+        tipe: att.tipe,
+        urlOrFilename: att.urlOrFilename,
+        tanggalUpload: att.tanggalUpload,
+        fileDataUrl: att.fileDataUrl,
+        fileSize: att.fileSize,
+        mimeType: att.mimeType
+      }))
     });
 
     setCreatedProposal(proposal);
@@ -97,6 +167,7 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
         <div className="p-4 bg-slate-50 rounded-xl text-left text-xs text-slate-600 space-y-1.5 border border-slate-200">
           <div>Nama Sistem: <strong>{createdProposal.namaSistem}</strong></div>
           <div>Unit Pengusul: <strong>{createdProposal.unitKerja}</strong></div>
+          <div>Lampiran Dokumen: <strong>{createdProposal.dokumenTeknis?.length || 0} File Terunggah</strong></div>
           <div>Tahapan Selanjutnya: <strong>Tahap 1: Verifikasi Berkas (Admin PUSDATIN)</strong></div>
         </div>
 
@@ -116,6 +187,8 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
             onClick={() => {
               setIsSubmitted(false);
               setCreatedProposal(null);
+              setAttachments([]);
+              setFormError('');
               setForm({
                 namaSistem: '',
                 pemohon: activeUser.nama,
@@ -125,11 +198,10 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
                 email: activeUser.email,
                 deskripsiKebutuhan: '',
                 latarBelakang: '',
-                targetPengguna: 'Dosen, Mahasiswa, dan Tenaga Kependidikan UMC',
-                namaDokumenTor: ''
+                targetPengguna: 'Dosen, Mahasiswa, dan Tenaga Kependidikan UMC'
               });
             }}
-            className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700"
+            className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 cursor-pointer"
           >
             Ajukan Sistem Lain
           </button>
@@ -145,12 +217,23 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
           <span className="px-2.5 py-0.5 rounded-md bg-cyan-100 text-cyan-800 text-xs font-bold font-mono">
             F-DEV-01
           </span>
-          <h1 className="text-xl font-bold text-slate-900">Pengajuan Sistem Baru & Fitur Aplikasi</h1>
+          <h1 className="text-xl font-bold text-slate-900">Pengajuan Sistem Baru &amp; Fitur Aplikasi</h1>
         </div>
         <p className="text-xs text-slate-500 mt-1">
-          Civitas akademika (Dosen, Fakultas, Program Studi, Unit Kerja) dapat mengajukan usulan aplikasi atau sistem informasi baru untuk dikaji dan dikembangkan oleh tim PUSDATIN UMC.
+          Civitas akademika (Dosen, Fakultas, Program Studi, Unit Kerja) dapat mengajukan usulan aplikasi atau sistem informasi baru lengkap dengan dokumen lampiran untuk dikaji tim PUSDATIN UMC.
         </p>
       </div>
+
+      {formError && (
+        <div
+          role="alert"
+          data-testid="proposal-form-error"
+          className="p-3 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs font-semibold flex items-start gap-2"
+        >
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+          <span>{formError}</span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -210,7 +293,9 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
         </div>
 
         <div>
-          <label className="block font-semibold text-slate-700 mb-1">Nama Usulan Sistem / Aplikasi Baru</label>
+          <label className="block font-semibold text-slate-700 mb-1">
+            Nama Usulan Sistem / Aplikasi Baru <span className="text-red-600">*</span>
+          </label>
           <input
             type="text"
             required
@@ -222,7 +307,9 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
         </div>
 
         <div>
-          <label className="block font-semibold text-slate-700 mb-1">Deskripsi Kebutuhan & Fitur Utama yang Diharapkan</label>
+          <label className="block font-semibold text-slate-700 mb-1">
+            Deskripsi Kebutuhan &amp; Fitur Utama yang Diharapkan <span className="text-red-600">*</span>
+          </label>
           <textarea
             rows={3}
             required
@@ -234,7 +321,9 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
         </div>
 
         <div>
-          <label className="block font-semibold text-slate-700 mb-1">Latar Belakang Permasalahan & Urgensi</label>
+          <label className="block font-semibold text-slate-700 mb-1">
+            Latar Belakang Permasalahan &amp; Urgensi <span className="text-red-600">*</span>
+          </label>
           <textarea
             rows={2}
             required
@@ -255,22 +344,106 @@ export const SystemProposalForm: React.FC<SystemProposalFormProps> = ({
           />
         </div>
 
-        <div>
-          <label className="block font-semibold text-slate-700 mb-1">Lampiran Dokumen TOR / Spesifikasi Teknis (Opsional - F-DEV-03)</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Contoh: TOR_Pengembangan_Sistem_Yudisium_v1.pdf"
-              value={form.namaDokumenTor}
-              onChange={e => setForm({ ...form, namaDokumenTor: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-            />
+        {/* Upload File Lampiran Dokumen */}
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <label className="block font-bold text-slate-800 text-xs">
+                Unggah Lampiran Dokumen Pendukung (TOR / Surat Permohonan / Spesifikasi) <span className="text-red-600">*</span>
+              </label>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Format didukung: PDF, DOC, DOCX, XLS, XLSX, PNG, JPG (Maks. 5 MB per file). Bisa mengunggah lebih dari 1 file.
+              </p>
+            </div>
+
+            <select
+              value={selectedDocType}
+              onChange={e => setSelectedDocType(e.target.value as any)}
+              aria-label="Jenis Dokumen Lampiran"
+              className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+            >
+              <option value="TOR">TOR / Kerangka Acuan</option>
+              <option value="Arsitektur">Dokumen Spesifikasi / Alur</option>
+              <option value="Manual Panduan">Draft / Contoh Formulir</option>
+              <option value="Uji Keamanan">Dokumen Kepatuhan / Keamanan</option>
+            </select>
           </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <input
+              ref={fileInputRef}
+              id="proposal-attachment-input"
+              data-testid="proposal-attachment-input"
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+              onChange={handleFilesSelected}
+              className="hidden"
+            />
+            <button
+              type="button"
+              data-testid="upload-attachment-btn"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2.5 bg-white hover:bg-cyan-50 text-cyan-800 border border-dashed border-cyan-400 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors w-full"
+            >
+              <Upload className="w-4 h-4 text-cyan-700" />
+              <span>Pilih &amp; Upload File Lampiran dari Komputer</span>
+            </button>
+          </div>
+
+          {attachments.length > 0 ? (
+            <div className="space-y-2" data-testid="uploaded-attachments-list">
+              <div className="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5" />
+                <span>{attachments.length} Dokumen Lampiran Siap Dikirim:</span>
+              </div>
+              {attachments.map(att => (
+                <div
+                  key={att.id}
+                  className="p-2.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <FileText className="w-4 h-4 text-cyan-700 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 truncate">{att.namaDokumen}</div>
+                      <div className="text-[10px] text-slate-500">
+                        <span className="font-semibold text-cyan-800">{att.tipe}</span> · {formatBytes(att.fileSize)} · {att.tanggalUpload}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <a
+                      href={att.fileDataUrl}
+                      download={att.namaDokumen}
+                      className="p-1.5 text-slate-600 hover:text-cyan-700 hover:bg-cyan-50 rounded-lg"
+                      title="Unduh file lampiran"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      aria-label={`Hapus lampiran ${att.namaDokumen}`}
+                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg cursor-pointer"
+                      title="Hapus lampiran"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-500 text-center py-2 bg-white/70 rounded-lg border border-slate-200">
+              Belum ada file lampiran diunggah. Wajib melampirkan minimal 1 dokumen pendukung.
+            </div>
+          )}
         </div>
 
         <div className="pt-3 border-t border-slate-100 flex justify-end">
           <button
             type="submit"
+            data-testid="submit-proposal-btn"
             className="px-5 py-2.5 bg-cyan-700 hover:bg-cyan-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-2"
           >
             <Send className="w-3.5 h-3.5" />

@@ -486,6 +486,9 @@ export interface SystemProposal {
     tipe: 'TOR' | 'Arsitektur' | 'Uji Keamanan' | 'Manual Panduan';
     urlOrFilename: string;
     tanggalUpload: string;
+    fileDataUrl?: string;
+    fileSize?: number;
+    mimeType?: string;
   }[];
 }
 

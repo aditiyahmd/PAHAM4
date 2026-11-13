@@ -232,7 +232,7 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
                     activeTab === 'dokumen' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  Dokumen Teknis (F-DEV-03)
+                  Dokumen Teknis (F-DEV-03) ({selectedProposal.dokumenTeknis?.length || 0})
                 </button>
                 {selectedProposal.status === 'Selesai' || selectedProposal.status === 'Serah Terima' ? (
                   <button
@@ -549,7 +549,7 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
               {activeTab === 'dokumen' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800">Dokumen Teknis & Spesifikasi Terlampir</span>
+                    <span className="text-xs font-bold text-slate-800">Dokumen Teknis &amp; Lampiran Terunggah (F-DEV-03)</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -557,9 +557,23 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
                       <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-start gap-3 text-xs">
                         <FileText className="w-5 h-5 text-cyan-600 shrink-0 mt-0.5" />
                         <div className="min-w-0 flex-1">
-                          <div className="font-bold text-slate-900 truncate">{doc.namaDokumen}</div>
-                          <div className="text-slate-500 text-[11px] mt-0.5">Tipe: <span className="font-semibold text-cyan-800">{doc.tipe}</span></div>
+                          <div className="font-bold text-slate-900 truncate" title={doc.namaDokumen}>{doc.namaDokumen}</div>
+                          <div className="text-slate-500 text-[11px] mt-0.5">
+                            Tipe: <span className="font-semibold text-cyan-800">{doc.tipe}</span>
+                            {doc.fileSize ? ` · ${(doc.fileSize / 1024).toFixed(1)} KB` : ''}
+                          </div>
                           <div className="text-slate-400 text-[10px]">Diunggah: {doc.tanggalUpload}</div>
+                          {doc.fileDataUrl && (
+                            <div className="mt-2">
+                              <a
+                                href={doc.fileDataUrl}
+                                download={doc.namaDokumen}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-700 hover:bg-cyan-800 text-white rounded-lg text-[11px] font-bold"
+                              >
+                                Unduh Lampiran
+                              </a>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}

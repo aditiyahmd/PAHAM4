@@ -27,7 +27,9 @@ import {
   FileText,
   ShieldCheck,
   Calendar,
-  ArrowUpDown
+  ArrowUpDown,
+  PlusCircle,
+  AlertCircle
 } from 'lucide-react';
 import { PdfReportService } from '../../services/pdfReportService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
@@ -70,6 +72,37 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
   const [editMasaGaransi, setEditMasaGaransi] = useState('');
   const [editJenisAset, setEditJenisAset] = useState<'Fisik' | 'Non-Fisik'>('Fisik');
   const [editCatatan, setEditCatatan] = useState('');
+  const [editError, setEditError] = useState('');
+
+  // Status banner
+  const [statusBanner, setStatusBanner] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+    barcodeAsset?: Asset;
+  } | null>(null);
+
+  // Add Asset modal state
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [addNama, setAddNama] = useState('');
+  const [addKategori, setAddKategori] = useState('Komputer & Laptop');
+  const [addJenisAset, setAddJenisAset] = useState<'Fisik' | 'Non-Fisik'>('Fisik');
+  const [addMerekModel, setAddMerekModel] = useState('');
+  const [addNomorSeri, setAddNomorSeri] = useState('');
+  const [addSpesifikasi, setAddSpesifikasi] = useState('');
+  const [addStatus, setAddStatus] = useState<AssetStatus>('Tersedia');
+  const [addPengguna, setAddPengguna] = useState('');
+  const [addBidangPengguna, setAddBidangPengguna] = useState('');
+  const [addLokasi, setAddLokasi] = useState('Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)');
+  const [addCustomLokasi, setAddCustomLokasi] = useState('');
+  const [addTanggalMasuk, setAddTanggalMasuk] = useState(new Date().toISOString().split('T')[0]);
+  const [addTanggalPembelian, setAddTanggalPembelian] = useState(new Date().toISOString().split('T')[0]);
+  const [addNomorPoInvoice, setAddNomorPoInvoice] = useState('');
+  const [addVendorSupplier, setAddVendorSupplier] = useState('');
+  const [addHargaBeli, setAddHargaBeli] = useState<number | ''>('');
+  const [addMasaGaransi, setAddMasaGaransi] = useState('2 Tahun Garansi Resmi');
+  const [addJumlah, setAddJumlah] = useState(1);
+  const [addCustomBarcode, setAddCustomBarcode] = useState('');
 
   const assets = AppDatabase.getAssets();
   const masterCategories = AppDatabase.getMasterCategories();
@@ -144,14 +177,128 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
     setEditMasaGaransi(asset.masaGaransi || '');
     setEditJenisAset(asset.jenisAset || 'Fisik');
     setEditCatatan('');
+    setEditError('');
+  };
+
+  const handleOpenAddModal = () => {
+    setAddError('');
+    setAddNama('');
+    setAddKategori(categories[0] || 'Komputer & Laptop');
+    setAddJenisAset('Fisik');
+    setAddMerekModel('');
+    setAddNomorSeri('');
+    setAddSpesifikasi('');
+    setAddStatus('Tersedia');
+    setAddPengguna('');
+    setAddBidangPengguna('');
+    setAddLokasi(locations[0] || 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)');
+    setAddCustomLokasi('');
+    const today = new Date().toISOString().split('T')[0];
+    setAddTanggalMasuk(today);
+    setAddTanggalPembelian(today);
+    setAddNomorPoInvoice('');
+    setAddVendorSupplier('');
+    setAddHargaBeli('');
+    setAddMasaGaransi('2 Tahun Garansi Resmi');
+    setAddJumlah(1);
+    setAddCustomBarcode('');
+    setIsAddModalOpen(true);
+  };
+
+  const handleAddAsset = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError('');
+
+    const namaTrim = addNama.trim();
+    if (!namaTrim) {
+      setAddError('Nama aset / perangkat wajib diisi.');
+      return;
+    }
+
+    const finalLokasi = (addLokasi === '__custom__' ? addCustomLokasi : addLokasi).trim();
+    if (!finalLokasi) {
+      setAddError('Lokasi penempatan aset wajib diisi.');
+      return;
+    }
+
+    if (addStatus === 'Digunakan' && (!addPengguna.trim() || !addBidangPengguna.trim())) {
+      setAddError('Untuk aset berstatus "Digunakan", nama Pengguna dan Bidang Pengguna wajib diisi.');
+      return;
+    }
+
+    const qty = Math.max(1, Math.min(50, Number(addJumlah) || 1));
+    const customBarcodeTrim = addCustomBarcode.trim();
+    if (qty === 1 && customBarcodeTrim) {
+      const conflict = AppDatabase.getAssetByBarcode(customBarcodeTrim);
+      if (conflict) {
+        setAddError(`Nomor barcode "${customBarcodeTrim}" sudah digunakan oleh aset "${conflict.nama}" (${conflict.kodeUnikAset}).`);
+        return;
+      }
+    }
+
+    const snLines = addNomorSeri
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const createdAssets: Asset[] = [];
+    try {
+      for (let i = 0; i < qty; i++) {
+        const barcode =
+          qty === 1 && customBarcodeTrim
+            ? customBarcodeTrim
+            : AppDatabase.generateUniqueBarcode();
+        const kodeUnikAset = AppDatabase.generateNextUniqueAssetCode();
+        const nomorSeri =
+          snLines[i] ||
+          (snLines.length === 1 && qty > 1 ? `${snLines[0]}-${i + 1}` : undefined);
+
+        const created = AppDatabase.addAsset({
+          barcode,
+          kodeUnikAset,
+          nama: namaTrim,
+          kategori: addKategori,
+          jenisAset: addJenisAset,
+          merekModel: addMerekModel.trim() || undefined,
+          nomorSeri,
+          spesifikasi: addSpesifikasi.trim() || undefined,
+          status: addStatus,
+          pengguna: addStatus === 'Digunakan' ? addPengguna.trim() : undefined,
+          bidangPengguna: addStatus === 'Digunakan' ? addBidangPengguna.trim() : undefined,
+          lokasi: finalLokasi,
+          lokasiAwal: finalLokasi,
+          tanggalMasuk: addTanggalMasuk || new Date().toISOString().split('T')[0],
+          tanggalPembelian: addTanggalPembelian || undefined,
+          nomorPoInvoice: addNomorPoInvoice.trim() || undefined,
+          vendorSupplier: addVendorSupplier.trim() || undefined,
+          hargaBeli: typeof addHargaBeli === 'number' ? addHargaBeli : undefined,
+          masaGaransi: addMasaGaransi.trim() || undefined
+        });
+        createdAssets.push(created);
+      }
+
+      setIsAddModalOpen(false);
+      onDataChanged();
+      setStatusBanner({
+        type: 'success',
+        message:
+          createdAssets.length === 1
+            ? `Aset "${createdAssets[0].nama}" berhasil ditambahkan (${createdAssets[0].kodeUnikAset} · Barcode ${createdAssets[0].barcode}).`
+            : `${createdAssets.length} unit aset "${namaTrim}" berhasil ditambahkan ke Master Aset (${createdAssets[0].kodeUnikAset} s/d ${createdAssets[createdAssets.length - 1].kodeUnikAset}).`,
+        barcodeAsset: createdAssets[0]
+      });
+    } catch (err: any) {
+      setAddError(err?.message || 'Gagal menambahkan aset ke database.');
+    }
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAsset) return;
+    setEditError('');
 
     if (editStatus === 'Digunakan' && (!editPengguna.trim() || !editBidangPengguna.trim())) {
-      alert('Untuk aset dengan status "Digunakan", nama Pengguna dan Bidang Pengguna wajib diisi!');
+      setEditError('Untuk aset dengan status "Digunakan", nama Pengguna dan Bidang Pengguna wajib diisi.');
       return;
     }
 
@@ -182,7 +329,10 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
 
     setEditingAsset(null);
     onDataChanged();
-    alert(`Data aset ${editNama} (${editingAsset.barcode}) berhasil diperbarui dengan status: ${editStatus}!`);
+    setStatusBanner({
+      type: 'success',
+      message: `Data aset ${editNama} (${editingAsset.barcode}) berhasil diperbarui dengan status: ${editStatus}.`
+    });
   };
 
   const handlePrintPdf = () => {
@@ -283,6 +433,19 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {!isReadOnly && (
+            <button
+              type="button"
+              data-testid="open-add-asset-btn"
+              onClick={handleOpenAddModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer"
+              title="Tambahkan aset baru langsung ke katalog Master Aset"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Tambah Aset Baru</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handlePrintPdf}
@@ -303,6 +466,50 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Inline Status Banner */}
+      {statusBanner && (
+        <div
+          role="status"
+          data-testid="master-aset-status-banner"
+          className={`px-4 py-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs font-semibold ${
+            statusBanner.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : statusBanner.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-900'
+              : 'bg-sky-50 border-sky-200 text-sky-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {statusBanner.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-current shrink-0" />
+            )}
+            <span>{statusBanner.message}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {statusBanner.barcodeAsset && (
+              <button
+                type="button"
+                onClick={() => setViewingBarcodeAsset(statusBanner.barcodeAsset!)}
+                className="px-2.5 py-1 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Barcode className="w-3.5 h-3.5" />
+                <span>Cetak Barcode</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setStatusBanner(null)}
+              aria-label="Tutup notifikasi"
+              className="p-1 rounded-lg hover:bg-black/5 cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* KPI Metric Strips */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -684,6 +891,11 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveEdit} className="space-y-4">
+              {editError && (
+                <div role="alert" className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+                  {editError}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                 {/* Nama Aset */}
                 <div className="md:col-span-2">
@@ -924,6 +1136,329 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
                   className="px-5 py-2 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl shadow-xs cursor-pointer"
                 >
                   Simpan Seluruh Perubahan Aset
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tambah Aset Baru ke Master Aset */}
+      {isAddModalOpen && !isReadOnly && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Tambah Aset Baru (Master Aset)</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Kode Unik Aset (AST-UMC) & nomor Barcode EAN-8 akan diterbitkan otomatis apabila dikosongkan.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                aria-label="Tutup modal tambah aset"
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddAsset} className="space-y-4">
+              {addError && (
+                <div role="alert" data-testid="add-asset-error" className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+                  {addError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nama Aset / Perangkat <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    data-testid="add-asset-nama"
+                    value={addNama}
+                    onChange={e => setAddNama(e.target.value)}
+                    placeholder="Contoh: Switch Cisco Catalyst 2960-X 24 Port"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Kategori Aset <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    data-testid="add-asset-kategori"
+                    value={addKategori}
+                    onChange={e => setAddKategori(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900"
+                  >
+                    {categories.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Jenis Aset
+                  </label>
+                  <select
+                    value={addJenisAset}
+                    onChange={e => setAddJenisAset(e.target.value as 'Fisik' | 'Non-Fisik')}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900"
+                  >
+                    <option value="Fisik">Fisik (Barang / Hardware)</option>
+                    <option value="Non-Fisik">Non-Fisik (Sistem, Jaringan, Software)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Jumlah Unit <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    required
+                    data-testid="add-asset-jumlah"
+                    value={addJumlah}
+                    onChange={e => setAddJumlah(Math.max(1, Math.min(50, parseInt(e.target.value, 10) || 1)))}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono font-bold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Status Operasional <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    data-testid="add-asset-status"
+                    value={addStatus}
+                    onChange={e => setAddStatus(e.target.value as AssetStatus)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-slate-900"
+                  >
+                    <option value="Tersedia">Tersedia (Ready di PUSDATIN)</option>
+                    <option value="Digunakan">Digunakan (Terpasang / Digunakan Unit)</option>
+                    <option value="Dipinjam">Dipinjam</option>
+                    <option value="Rusak">Rusak</option>
+                    <option value="Diperbaiki">Diperbaiki</option>
+                    <option value="Rusak Total">Rusak Total / Afkir</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Merek dan Model
+                  </label>
+                  <input
+                    type="text"
+                    data-testid="add-asset-merek"
+                    value={addMerekModel}
+                    onChange={e => setAddMerekModel(e.target.value)}
+                    placeholder="Contoh: Cisco Catalyst / Dell Latitude"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nomor Barcode Kustom (Opsional)
+                  </label>
+                  <input
+                    type="text"
+                    disabled={addJumlah > 1}
+                    value={addJumlah > 1 ? '' : addCustomBarcode}
+                    onChange={e => setAddCustomBarcode(e.target.value)}
+                    placeholder={addJumlah > 1 ? 'Otomatis unik untuk multi-unit' : 'Kosongkan untuk generate EAN-8 otomatis'}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono text-slate-900 disabled:bg-slate-100"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nomor Seri / Serial Number {addJumlah > 1 ? '(Pisahkan per baris atau koma untuk tiap unit)' : ''}
+                  </label>
+                  <textarea
+                    rows={addJumlah > 1 ? 2 : 1}
+                    data-testid="add-asset-sn"
+                    value={addNomorSeri}
+                    onChange={e => setAddNomorSeri(e.target.value)}
+                    placeholder="Contoh: SN-UMC-2026-01"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Lokasi Penempatan <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    data-testid="add-asset-lokasi"
+                    value={addLokasi}
+                    onChange={e => setAddLokasi(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 font-semibold"
+                  >
+                    {locations.map(loc => (
+                      <option key={loc} value={loc}>{loc}</option>
+                    ))}
+                    <option value="__custom__">+ Tulis Lokasi Lainnya...</option>
+                  </select>
+                  {addLokasi === '__custom__' && (
+                    <input
+                      type="text"
+                      required
+                      value={addCustomLokasi}
+                      onChange={e => setAddCustomLokasi(e.target.value)}
+                      placeholder="Masukkan nama ruangan / gedung penempatan..."
+                      className="mt-2 w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 font-semibold"
+                    />
+                  )}
+                </div>
+
+                {addStatus === 'Digunakan' && (
+                  <>
+                    <div>
+                      <label className="block font-bold text-blue-900 mb-1">
+                        Nama Pengguna (User) <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={addPengguna}
+                        onChange={e => setAddPengguna(e.target.value)}
+                        placeholder="Nama pengguna atau penanggung jawab"
+                        className="w-full px-3 py-2 bg-blue-50 border border-blue-300 rounded-lg text-slate-900 font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-blue-900 mb-1">
+                        Bidang / Unit Pengguna <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={addBidangPengguna}
+                        onChange={e => setAddBidangPengguna(e.target.value)}
+                        placeholder="Contoh: BAA / Prodi Informatika"
+                        className="w-full px-3 py-2 bg-blue-50 border border-blue-300 rounded-lg text-slate-900 font-semibold"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="md:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Spesifikasi Teknis
+                  </label>
+                  <textarea
+                    rows={2}
+                    data-testid="add-asset-spesifikasi"
+                    value={addSpesifikasi}
+                    onChange={e => setAddSpesifikasi(e.target.value)}
+                    placeholder="Contoh: RAM 16GB, SSD 512GB NVMe, Core i7 Gen 13..."
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Tanggal Masuk / Registrasi
+                  </label>
+                  <input
+                    type="date"
+                    value={addTanggalMasuk}
+                    onChange={e => setAddTanggalMasuk(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Tanggal Pembelian
+                  </label>
+                  <input
+                    type="date"
+                    value={addTanggalPembelian}
+                    onChange={e => setAddTanggalPembelian(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nomor PO / Invoice
+                  </label>
+                  <input
+                    type="text"
+                    value={addNomorPoInvoice}
+                    onChange={e => setAddNomorPoInvoice(e.target.value)}
+                    placeholder="Contoh: PO/UMC/2026/110"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nama Vendor / Supplier
+                  </label>
+                  <input
+                    type="text"
+                    value={addVendorSupplier}
+                    onChange={e => setAddVendorSupplier(e.target.value)}
+                    placeholder="Contoh: PT Metrodata Electronics"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Harga Beli per Unit (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={addHargaBeli}
+                    onChange={e => setAddHargaBeli(e.target.value ? parseFloat(e.target.value) : '')}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Masa Garansi
+                  </label>
+                  <input
+                    type="text"
+                    value={addMasaGaransi}
+                    onChange={e => setAddMasaGaransi(e.target.value)}
+                    placeholder="Contoh: 2 Tahun Garansi Resmi"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  data-testid="submit-add-asset-btn"
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Simpan {addJumlah > 1 ? `${addJumlah} Unit Aset` : 'Aset Baru'}</span>
                 </button>
               </div>
             </form>

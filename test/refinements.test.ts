@@ -164,28 +164,40 @@ describe('PAHAM Refinements Suite - SLA, SSO Domain & Registered Users, One-Step
     AppDatabase.setSlaConfig(DEFAULT_SLA_CONFIG);
   });
 
-  it('Refinement 7: validateRegisteredSsoLogin strictly enforces @umc.ac.id / @student.umc.ac.id domain, registration, and Aktif status', () => {
+  it('Refinement 7 & Improvement 2: validateRegisteredSsoLogin allows all @umc.ac.id & @student.umc.ac.id (auto-provisioning ACT-10) and enforces Aktif status', () => {
     const users = AppDatabase.getUsers();
 
     // Active institutional staff (@umc.ac.id)
     const adminRes = validateRegisteredSsoLogin('aditiya.it@umc.ac.id', users);
     assert.strictEqual(adminRes.ok, true);
     assert.strictEqual(adminRes.user?.role, 'ACT-03');
+    assert.strictEqual(adminRes.isNewUser, false);
 
     // Active student (@student.umc.ac.id)
     const studentRes = validateRegisteredSsoLogin('m.rizki@student.umc.ac.id', users);
     assert.strictEqual(studentRes.ok, true);
     assert.strictEqual(studentRes.user?.civitasType, 'Mahasiswa');
+    assert.strictEqual(studentRes.isNewUser, false);
 
     // Rejected non-UMC domain
     const gmailRes = validateRegisteredSsoLogin('budi@gmail.com', users);
     assert.strictEqual(gmailRes.ok, false);
     assert.ok(gmailRes.error?.includes('@umc.ac.id'));
 
-    // Rejected unregistered @umc.ac.id domain
-    const unregRes = validateRegisteredSsoLogin('tidak.terdaftar@umc.ac.id', users);
-    assert.strictEqual(unregRes.ok, false);
-    assert.ok(unregRes.error?.includes('belum terdaftar'));
+    // Auto-provision unregistered @umc.ac.id email as ACT-10 Dosen
+    const unregStaff = validateRegisteredSsoLogin('dosen.baru@umc.ac.id', users);
+    assert.strictEqual(unregStaff.ok, true);
+    assert.strictEqual(unregStaff.isNewUser, true);
+    assert.strictEqual(unregStaff.user?.role, 'ACT-10');
+    assert.strictEqual(unregStaff.user?.civitasType, 'Dosen');
+    assert.strictEqual(unregStaff.user?.statusAkun, 'Aktif');
+
+    // Auto-provision unregistered @student.umc.ac.id email as ACT-10 Mahasiswa
+    const unregStudent = validateRegisteredSsoLogin('220511099@student.umc.ac.id', users);
+    assert.strictEqual(unregStudent.ok, true);
+    assert.strictEqual(unregStudent.isNewUser, true);
+    assert.strictEqual(unregStudent.user?.role, 'ACT-10');
+    assert.strictEqual(unregStudent.user?.civitasType, 'Mahasiswa');
 
     // Deactivated registered user is rejected until reactivated
     AppDatabase.setActiveUser('USR-ACT-03');
@@ -578,5 +590,91 @@ describe('PAHAM Refinements Suite - SLA, SSO Domain & Registered Users, One-Step
     assert.strictEqual(timelyReopen.ticket?.status, 'Re-opened');
     assert.strictEqual(timelyReopen.ticket?.reopenCount, 1);
     assert.strictEqual(timelyReopen.ticket?.reopenReason, 'Masih error, belum bisa digunakan!');
+  });
+
+  it('Improvement 1: SystemProposal persists uploaded attachment file metadata and base64 data URL', () => {
+    AppDatabase.setActiveUser('USR-ACT-10A');
+    const proposal = AppDatabase.addSystemProposal({
+      namaSistem: 'Sistem Pelaporan Penelitian Dosen',
+      pemohon: 'Dr. Hendra Wijaya',
+      unitKerja: 'LPPM UMC',
+      nidnNik: '0419087502',
+      kontakWhatsapp: '0812999888',
+      email: 'hendra.dosen@umc.ac.id',
+      deskripsiKebutuhan: 'Upload proposal PDF & review multi-tahap',
+      latarBelakang: 'Digitalisasi pengajuan hibah penelitian internal',
+      targetPengguna: 'Dosen dan LPPM UMC',
+      dokumenTeknis: [
+        {
+          namaDokumen: 'TOR_Penelitian_UMC.pdf',
+          tipe: 'TOR',
+          urlOrFilename: 'TOR_Penelitian_UMC.pdf',
+          tanggalUpload: '2026-11-13',
+          fileDataUrl: 'data:application/pdf;base64,JVBERi0xLjQK',
+          fileSize: 2048,
+          mimeType: 'application/pdf'
+        }
+      ]
+    });
+
+    assert.ok(proposal.id.startsWith('SYS-'));
+    const fetched = AppDatabase.getSystemProposals().find(p => p.id === proposal.id);
+    assert.ok(fetched);
+    assert.strictEqual(fetched?.dokumenTeknis?.length, 1);
+    assert.strictEqual(fetched?.dokumenTeknis?.[0].namaDokumen, 'TOR_Penelitian_UMC.pdf');
+    assert.strictEqual(fetched?.dokumenTeknis?.[0].fileDataUrl, 'data:application/pdf;base64,JVBERi0xLjQK');
+    assert.strictEqual(fetched?.dokumenTeknis?.[0].fileSize, 2048);
+  });
+
+  it('Improvement 3: PdfReportService.generateBukuPengeluaranMonthlyPdf produces valid PDF document with monthly rows', () => {
+    const sampleItems = AppDatabase.getBukuPengeluaran();
+    const doc = PdfReportService.generateBukuPengeluaranMonthlyPdf(sampleItems, '2026-11', {
+      title: 'Laporan Rekapitulasi Buku Pengeluaran Aset TI UMC',
+      kepalaPusdatin: 'Dr. Ir. H. Ahmad Dahlan, M.T.',
+      nipKepala: 'NIDN. 0418077501',
+      petugas: 'Aditiya Ahmad Fadila, S.Kom.'
+    });
+
+    const dataUri = doc.output('datauristring');
+    assert.ok(dataUri.startsWith('data:application/pdf'));
+    const pageStream = ((doc as any).internal.pages[1] || []).join('\n');
+    assert.ok(pageStream.includes('REKAPITULASI BUKU PENGELUARAN ASET TI'));
+  });
+
+  it('Improvement 4: AppDatabase.addAsset creates unique collision-free assets reflected in getAssets()', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const beforeCount = AppDatabase.getAssets().length;
+
+    const a1 = AppDatabase.addAsset({
+      barcode: '',
+      kodeUnikAset: '',
+      nama: 'Access Point Aruba Instant On AP22',
+      kategori: 'Jaringan & Internet',
+      jenisAset: 'Fisik',
+      merekModel: 'Aruba AP22',
+      nomorSeri: 'SN-ARUBA-001',
+      status: 'Tersedia',
+      lokasi: 'Gedung Rektorat Lt.2',
+      tanggalMasuk: '2026-11-13'
+    });
+
+    const a2 = AppDatabase.addAsset({
+      barcode: '',
+      kodeUnikAset: '',
+      nama: 'Access Point Aruba Instant On AP22',
+      kategori: 'Jaringan & Internet',
+      jenisAset: 'Fisik',
+      merekModel: 'Aruba AP22',
+      nomorSeri: 'SN-ARUBA-002',
+      status: 'Tersedia',
+      lokasi: 'Gedung Rektorat Lt.2',
+      tanggalMasuk: '2026-11-13'
+    });
+
+    assert.notStrictEqual(a1.barcode, a2.barcode);
+    assert.notStrictEqual(a1.kodeUnikAset, a2.kodeUnikAset);
+    assert.strictEqual(a1.barcode.length, 8);
+    assert.strictEqual(a2.barcode.length, 8);
+    assert.strictEqual(AppDatabase.getAssets().length, beforeCount + 2);
   });
 });
