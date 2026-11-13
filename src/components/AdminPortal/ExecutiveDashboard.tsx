@@ -21,6 +21,8 @@ import {
 import { AppDatabase } from '../../services/db';
 import { AppStatistics, PicPerformanceReport } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
+import { formatMinutesLabel, formatHoursLabel } from '../../services/slaService';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
 
 interface ExecutiveDashboardProps {
   onNavigateTab?: (tab: string) => void;
@@ -47,6 +49,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
 
   const activeUser = AppDatabase.getActiveUser();
   const isRektorOrWarek =
@@ -115,12 +118,20 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const rekapKategori = AppDatabase.getBukuAsetInventarisRekap();
   const totalNilaiAset = rekapKategori.reduce((s, r) => s + r.nilaiAsetTotal, 0);
 
-  // Export Full PDF (Requirement 3.1)
+  // Export Full PDF (konfirmasi penandatangan lebih dulu)
   const handleDownloadPdfReport = () => {
+    setIsSignatoryModalOpen(true);
+  };
+
+  const handleConfirmExecutivePdf = (values: ConfirmedSignatoryValues) => {
     const doc = PdfReportService.generateExecutiveDashboardPdf(stats, selectedMonth, {
       penerimaanCount: penerimaanList.length,
       pengeluaranCount: pengeluaranList.length,
-      totalAsetValue: totalNilaiAset
+      totalAsetValue: totalNilaiAset,
+      rektorNama: values.pimpinanUniv,
+      pimpinanJabatan: values.pimpinanUnivJabatan,
+      kepalaPusdatin: values.kepalaPusdatin,
+      nipKepala: values.nipKepala
     });
     const safeMonth = (selectedMonth || 'Periode').replace(/[^a-zA-Z0-9_-]/g, '_');
     doc.save(`Laporan_Eksekutif_Dashboard_UMC_${safeMonth}.pdf`);
@@ -241,7 +252,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         <div className="space-y-6">
           {/* KPI Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* SLA Achievement Rate */}
+            {/* SLA Achievement Rate (FRT & RT) */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
               <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
                 <span>SLA Achievement Rate</span>
@@ -250,11 +261,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
               <div className="text-3xl font-extrabold font-mono text-emerald-700 mt-2">
                 {stats.slaAchievementRate}%
               </div>
-              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+              <div className="text-[11px] text-slate-600 mt-1 space-y-0.5">
+                <div>
+                  FRT: <strong>{stats.frtComplianceRate ?? stats.slaAchievementRate}%</strong> ({formatMinutesLabel(stats.avgFrtMinutes || 0)})
+                </div>
+                <div>
+                  RT: <strong>{stats.rtComplianceRate ?? stats.slaAchievementRate}%</strong> ({formatHoursLabel(stats.avgRtHours || 0)})
+                </div>
                 {stats.totalSlaOverdue > 0 ? (
-                  <span className="text-rose-600 font-bold">⚠️ {stats.totalSlaOverdue} Tiket Overdue</span>
+                  <span className="text-rose-600 font-bold block">⚠️ {stats.totalSlaOverdue} Tiket Overdue</span>
                 ) : (
-                  <span className="text-emerald-700 font-bold">✅ 100% On-Time SLA</span>
+                  <span className="text-emerald-700 font-bold block">✅ On-Time SLA</span>
                 )}
               </div>
             </div>
@@ -624,6 +641,14 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
         </div>
       )}
+      <SignatoryConfirmModal
+        isOpen={isSignatoryModalOpen}
+        documentTitle={`Laporan Eksekutif Dashboard PUSDATIN (${selectedMonth})`}
+        showPimpinanUniv={true}
+        showPetugas={false}
+        onClose={() => setIsSignatoryModalOpen(false)}
+        onConfirm={handleConfirmExecutivePdf}
+      />
     </div>
   );
 };

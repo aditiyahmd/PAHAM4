@@ -16,6 +16,7 @@ import {
 import { AppDatabase } from '../../services/db';
 import { BukuAsetInventarisRekap, Asset } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
 
 interface BukuInventarisRekapViewProps {
   onDataChanged?: () => void;
@@ -29,6 +30,7 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
   const [selectedStatus, setSelectedStatus] = useState<string>('Semua');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
 
   const categories = AppDatabase.getMasterCategories();
 
@@ -47,8 +49,15 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
   });
 
   const handlePrintInventaris = () => {
+    setIsSignatoryModalOpen(true);
+  };
+
+  const handleConfirmPrintInventaris = (values: ConfirmedSignatoryValues) => {
     const doc = PdfReportService.generateBukuInventarisPdf(rekapList, filteredAssets, {
-      title: 'Buku Aset Inventaris (Rekapitulasi Saldo Stok & Nilai Aset TI UMC)'
+      title: 'Buku Aset Inventaris (Rekapitulasi Saldo Stok & Nilai Aset TI UMC)',
+      kepalaPusdatin: values.kepalaPusdatin,
+      nipKepala: values.nipKepala,
+      petugas: values.petugas
     });
     doc.save(`Buku_Aset_Inventaris_UMC_${new Date().toISOString().split('T')[0]}.pdf`);
   };
@@ -282,6 +291,12 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
           </table>
         </div>
       </div>
+      <SignatoryConfirmModal
+        isOpen={isSignatoryModalOpen}
+        documentTitle="Laporan Buku Aset Inventaris & Rekapitulasi Saldo"
+        onClose={() => setIsSignatoryModalOpen(false)}
+        onConfirm={handleConfirmPrintInventaris}
+      />
     </div>
   );
 };

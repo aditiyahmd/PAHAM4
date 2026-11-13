@@ -118,6 +118,9 @@ export default function App() {
   };
 
   const handleSelectTab = (tabId: string, searchTicketId?: string) => {
+    if (tabId === 'pengajuan-sistem-user' && AppDatabase.getActiveUser()?.civitasType === 'Mahasiswa') {
+      return;
+    }
     if (searchTicketId) {
       setActiveTrackId(searchTicketId);
     }
@@ -258,7 +261,7 @@ export default function App() {
                   />
                 )}
 
-                {activeTab === 'pengajuan-sistem-user' && (
+                {activeTab === 'pengajuan-sistem-user' && activeUser.civitasType !== 'Mahasiswa' && (
                   <SystemProposalForm
                     onSuccessSubmit={() => {
                       refreshData();

@@ -30,6 +30,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { PdfReportService } from '../../services/pdfReportService';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
 
 interface AllAssetsMasterViewProps {
   onDataChanged: () => void;
@@ -49,6 +50,7 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
 
   const [viewingBarcodeAsset, setViewingBarcodeAsset] = useState<Asset | null>(null);
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null);
+  const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
 
   // Edit modal state
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -184,6 +186,10 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
   };
 
   const handlePrintPdf = () => {
+    setIsSignatoryModalOpen(true);
+  };
+
+  const handleConfirmPrintPdf = (values: ConfirmedSignatoryValues) => {
     const filterDesc = [
       filterBulanMasuk ? `Bulan Masuk: ${filterBulanMasuk}` : null,
       selectedKategori !== 'Semua' ? `Kategori: ${selectedKategori}` : null,
@@ -194,7 +200,10 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
       .join(' | ') || 'Semua Data Master Aset';
 
     const doc = PdfReportService.generateMasterAsetPdf(filteredAssets, filterDesc, {
-      title: 'Laporan Master Aset TI Universitas Muhammadiyah Cirebon'
+      title: 'Laporan Master Aset TI Universitas Muhammadiyah Cirebon',
+      kepalaPusdatin: values.kepalaPusdatin,
+      nipKepala: values.nipKepala,
+      petugas: values.petugas
     });
     doc.save(`Laporan_Master_Aset_UMC_${new Date().toISOString().split('T')[0]}.pdf`);
   };
@@ -929,6 +938,13 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
           onClose={() => setDetailAsset(null)}
         />
       )}
+
+      <SignatoryConfirmModal
+        isOpen={isSignatoryModalOpen}
+        documentTitle={`Laporan Master Aset (${filteredAssets.length} Aset)`}
+        onClose={() => setIsSignatoryModalOpen(false)}
+        onConfirm={handleConfirmPrintPdf}
+      />
     </div>
   );
 };

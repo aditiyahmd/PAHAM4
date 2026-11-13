@@ -45,7 +45,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   const [selectedTicket, setSelectedTicket] = useState<LoanTicket | null>(null);
 
   // Modal form states for processing existing loan
-  const [modalAction, setModalAction] = useState<'terima' | 'serahkan' | 'tolak' | 'kembali'>('terima');
+  const [modalAction, setModalAction] = useState<'terima' | 'tolak' | 'kembali'>('terima');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [namaBarangAuto, setNamaBarangAuto] = useState('');
   const [kondisi, setKondisi] = useState('Baik / Lengkap');
@@ -72,7 +72,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   // Post-action dispatch modal (WhatsApp & Email confirmation)
   const [completedActionModal, setCompletedActionModal] = useState<{
     ticket: LoanTicket;
-    action: 'terima' | 'serahkan' | 'kembali' | 'tolak';
+    action: 'terima' | 'kembali' | 'tolak';
     waUrl: string | null;
     emailSent: boolean;
     message: string;
@@ -82,7 +82,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   const [printingReceiptTicket, setPrintingReceiptTicket] = useState<LoanTicket | null>(null);
   const [receiptKepalaNama, setReceiptKepalaNama] = useState(() => AppDatabase.getKepalaPusdatin().nama);
   const [receiptKepalaNip, setReceiptKepalaNip] = useState(() => AppDatabase.getKepalaPusdatin().nip);
-  const [receiptPetugas, setReceiptPetugas] = useState('Aditiya Ahmad Fadila');
+  const [receiptPetugas, setReceiptPetugas] = useState(() => AppDatabase.getDocumentSignatories().petugasDefaultNama);
   const [saveAsDefaultKepala, setSaveAsDefaultKepala] = useState(true);
 
   // Direct Walk-In Loan Modal states
@@ -168,11 +168,11 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
     return matchesSearch && matchesStatus;
   });
 
-  const openProcessModal = (ticket: LoanTicket, defaultAction?: 'terima' | 'serahkan' | 'kembali' | 'tolak', preselectedBarcode?: string) => {
+  const openProcessModal = (ticket: LoanTicket, defaultAction?: 'terima' | 'kembali' | 'tolak', preselectedBarcode?: string) => {
     setSelectedTicket(ticket);
     const initialAction =
       defaultAction ||
-      (isLoanHandedOver(ticket.status) ? 'kembali' : isLoanConfirmed(ticket.status) ? 'serahkan' : 'terima');
+      (isLoanHandedOver(ticket.status) ? 'kembali' : 'terima');
     setModalAction(initialAction);
     setBarcodeInput(preselectedBarcode || ticket.barcode || '');
     setNamaBarangAuto(ticket.namaBarangT || '');
@@ -235,8 +235,8 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   const handleProcessSubmit = () => {
     if (!selectedTicket) return;
 
-    if ((modalAction === 'terima' || modalAction === 'serahkan') && !barcodeInput.trim()) {
-      alert('Harap alokasikan nomor barcode aset sebelum menyetujui atau menyerahkan peminjaman!');
+    if (modalAction === 'terima' && !barcodeInput.trim()) {
+      alert('Harap alokasikan nomor barcode aset sebelum menyetujui peminjaman!');
       return;
     }
 
@@ -258,7 +258,8 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
       tglDikembalikan: tglKembaliInput,
       metodePengambilan,
       jadwalPengambilan,
-      lokasiPengambilan
+      lokasiPengambilan,
+      completeHandover: modalAction === 'terima'
     });
 
     setTimeout(() => {
@@ -274,8 +275,6 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
         status:
           res.ticket?.status ||
           (modalAction === 'terima'
-            ? 'Dikonfirmasi'
-            : modalAction === 'serahkan'
             ? 'Diserahkan'
             : modalAction === 'kembali'
             ? 'Dikembalikan'
@@ -293,7 +292,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
       };
 
       let waUrl: string | null = null;
-      if (modalAction === 'terima' || modalAction === 'serahkan') {
+      if (modalAction === 'terima') {
         if (isAlternateAllocation) {
           waUrl = WhatsAppNotificationService.getAlternateAssignedUrl(updatedTicket, selectedTicket.barangPinjaman, finalNamaBarang);
         } else {
@@ -323,10 +322,10 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
 
   const openPrintReceiptModal = (ticket: LoanTicket) => {
     setPrintingReceiptTicket(ticket);
-    const kepalaData = AppDatabase.getKepalaPusdatin();
-    setReceiptKepalaNama(kepalaData.nama);
-    setReceiptKepalaNip(kepalaData.nip);
-    setReceiptPetugas(ticket.petugas || 'Aditiya Ahmad Fadila');
+    const signatories = AppDatabase.getDocumentSignatories();
+    setReceiptKepalaNama(signatories.kepalaPusdatinNama);
+    setReceiptKepalaNip(signatories.kepalaPusdatinNip);
+    setReceiptPetugas(ticket.petugas || signatories.petugasDefaultNama);
   };
 
   const handleExecutePrintReceipt = () => {
@@ -1407,7 +1406,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                 <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
                   Pilih Tindakan Petugas:
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setModalAction('terima')}
@@ -1418,17 +1417,6 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                     }`}
                   >
                     ✓ Setujui Pinjaman
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalAction('serahkan')}
-                    className={`py-2 px-2.5 text-xs font-bold rounded-lg border transition-all ${
-                      modalAction === 'serahkan'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    Serahkan Fisik
                   </button>
                   <button
                     type="button"
@@ -1455,8 +1443,8 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                 </div>
               </div>
 
-              {/* Fields saat Setujui Pinjaman atau Serahkan Fisik */}
-              {(modalAction === 'terima' || modalAction === 'serahkan') && (
+              {/* Fields saat Setujui Pinjaman (Sekaligus Penyerahan Fisik) */}
+              {modalAction === 'terima' && (
                 <div className="space-y-3 pt-2 border-t border-slate-100">
                   {/* Pilihan Cepat dari Stok Tersedia (Termasuk Solusi Unit Alternatif) */}
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
@@ -1753,7 +1741,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
               </button>
               <button
                 type="button"
-                disabled={isProcessing || Boolean(barcodeWarning && (modalAction === 'terima' || modalAction === 'serahkan'))}
+                disabled={isProcessing || Boolean(barcodeWarning && modalAction === 'terima')}
                 onClick={handleProcessSubmit}
                 className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs transition-colors disabled:opacity-50"
               >

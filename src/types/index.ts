@@ -333,9 +333,16 @@ export interface DamageTicket {
   waktuSelesai?: string;
   tanggalSelesai?: string;
   status: DamageStatus;
-  slaTargetHours: number; // BR-006: target jam penyelesaian
+  slaTargetHours: number; // BR-006: target jam penyelesaian (Resolution Time / RT)
   slaDeadline: string; // batas waktu SLA
   slaStatus?: 'On Track' | 'Mendekati Batas' | 'Overdue';
+  // Pengukuran SLA lengkap (FRT & RT)
+  createdAtIso?: string;
+  firstResponseAtIso?: string;
+  firstResponseBy?: string;
+  resolvedAtIso?: string;
+  frtTargetMinutes?: number;
+  rtTargetHours?: number;
   catatanAdmin?: string;
   metodePerbaikan?: 'Di Lokasi' | 'Dibawa ke PUSDATIN';
   jenisAset?: 'Fisik' | 'Non-Fisik';
@@ -539,11 +546,48 @@ export interface AppStatistics {
   totalMenungguSparepart: number;
   totalSlaOverdue: number;
   slaAchievementRate: number; // Persentase SLA on time
+  frtComplianceRate?: number;
+  rtComplianceRate?: number;
+  avgFrtMinutes?: number;
+  avgRtHours?: number;
   totalPengajuanSistem: number;
   pengajuanDalamPengembangan: number;
   kategoriMap: Record<string, number>;
   lokasiMap: Record<string, number>;
   overdueLoans: LoanTicket[];
+}
+
+export interface SlaUrgencyRule {
+  frtTargetMinutes: number;
+  rtTargetHours: number;
+}
+
+export type SlaConfig = Record<TicketUrgency, SlaUrgencyRule>;
+
+export type SlaComplianceState = 'Memenuhi SLA' | 'Dalam Batas' | 'Mendekati Batas' | 'Melewati SLA';
+
+export interface SlaEvaluation {
+  frtTargetMinutes: number;
+  rtTargetHours: number;
+  hasFirstResponse: boolean;
+  isResolved: boolean;
+  frtElapsedMinutes: number;
+  rtElapsedHours: number;
+  frtStatus: SlaComplianceState;
+  rtStatus: SlaComplianceState;
+  overallSlaStatus: 'On Track' | 'Mendekati Batas' | 'Overdue';
+  frtLabel: string;
+  rtLabel: string;
+}
+
+export interface DocumentSignatories {
+  pimpinanUnivNama: string;
+  pimpinanUnivJabatan: string;
+  pimpinanUnivNip: string;
+  kepalaPusdatinNama: string;
+  kepalaPusdatinNip: string;
+  petugasDefaultNama: string;
+  petugasDefaultJabatan: string;
 }
 
 export interface EmailLog {

@@ -20,6 +20,7 @@ import {
 import { AppDatabase, SparePartWithTicket } from '../../services/db';
 import { SparePartStatus, TicketUrgency } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
 
 interface SparePartsManagementViewProps {
   onDataChanged: () => void;
@@ -33,6 +34,7 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [newStatus, setNewStatus] = useState<SparePartStatus>('Sudah Dibeli');
   const [statusNote, setStatusNote] = useState('');
+  const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
 
   const allParts = AppDatabase.getAllSpareParts();
 
@@ -261,11 +263,7 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
           {/* Cetak Laporan Suku Cadang PDF */}
           <button
             type="button"
-            onClick={() => {
-              const doc = PdfReportService.generateSparePartsPdf(filteredParts, statusFilter);
-              const safeStatus = statusFilter.replace(/[^a-zA-Z0-9_-]/g, '_');
-              doc.save(`Laporan_Suku_Cadang_${safeStatus}_${new Date().toISOString().split('T')[0]}.pdf`);
-            }}
+            onClick={() => setIsSignatoryModalOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
             title="Cetak Rekap Kebutuhan Suku Cadang berdasarkan status yang dipilih"
           >
@@ -496,6 +494,20 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
           </div>
         </div>
       )}
+      <SignatoryConfirmModal
+        isOpen={isSignatoryModalOpen}
+        documentTitle={`Laporan Pengadaan Suku Cadang (${statusFilter})`}
+        onClose={() => setIsSignatoryModalOpen(false)}
+        onConfirm={(values: ConfirmedSignatoryValues) => {
+          const doc = PdfReportService.generateSparePartsPdf(filteredParts, statusFilter, {
+            kepalaPusdatin: values.kepalaPusdatin,
+            nipKepala: values.nipKepala,
+            petugas: values.petugas
+          });
+          const safeStatus = statusFilter.replace(/[^a-zA-Z0-9_-]/g, '_');
+          doc.save(`Laporan_Suku_Cadang_${safeStatus}_${new Date().toISOString().split('T')[0]}.pdf`);
+        }}
+      />
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AppDatabase } from '../../services/db';
 import { PdfReportService, MonthlyReportParams } from '../../services/pdfReportService';
+import { computeAggregateSlaStats, formatMinutesLabel, formatHoursLabel } from '../../services/slaService';
 import {
   FileText,
   Download,
@@ -17,16 +18,17 @@ import {
   Building,
   TrendingUp,
   Clock,
-  Printer
+  Printer,
+  RefreshCw
 } from 'lucide-react';
 
 export const MonthlyReportPdf: React.FC = () => {
   const [selectedBulan, setSelectedBulan] = useState('November');
   const [selectedTahun, setSelectedTahun] = useState('2026');
   const [selectedTipe, setSelectedTipe] = useState<'Semua' | 'Peminjaman' | 'Kerusakan' | 'Aset Terkini' | 'Suku Cadang' | 'Kinerja PIC'>('Semua');
-  const [kepalaNama, setKepalaNama] = useState(() => AppDatabase.getKepalaPusdatin().nama);
-  const [kepalaNip, setKepalaNip] = useState(() => AppDatabase.getKepalaPusdatin().nip);
-  const [petugasNama, setPetugasNama] = useState('Aditiya Ahmad Fadila, S.Kom.');
+  const [kepalaNama, setKepalaNama] = useState(() => AppDatabase.getDocumentSignatories().kepalaPusdatinNama);
+  const [kepalaNip, setKepalaNip] = useState(() => AppDatabase.getDocumentSignatories().kepalaPusdatinNip);
+  const [petugasNama, setPetugasNama] = useState(() => AppDatabase.getDocumentSignatories().petugasDefaultNama);
   const [saveAsDefault, setSaveAsDefault] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -36,6 +38,7 @@ export const MonthlyReportPdf: React.FC = () => {
   const logs = AppDatabase.getLogs();
   const spareParts = AppDatabase.getAllSpareParts();
   const picPerformance = AppDatabase.getPicPerformanceReport();
+  const slaSummary = computeAggregateSlaStats(damages, AppDatabase.getSlaConfig());
 
   // Asset Metrics
   const totalAssets = assets.length;
@@ -66,11 +69,24 @@ export const MonthlyReportPdf: React.FC = () => {
   const sparePartsSudahBeli = spareParts.filter(s => s.statusPengadaan === 'Sudah Dibeli').length;
   const sparePartsDigunakan = spareParts.filter(s => s.statusPengadaan === 'Sudah Digunakan').length;
 
+  const handleLoadFromMasterSignatories = () => {
+    const sig = AppDatabase.getDocumentSignatories();
+    setKepalaNama(sig.kepalaPusdatinNama);
+    setKepalaNip(sig.kepalaPusdatinNip);
+    setPetugasNama(sig.petugasDefaultNama);
+  };
+
   const handleDownloadPdf = () => {
     setIsGenerating(true);
 
     if (saveAsDefault && kepalaNama.trim()) {
-      AppDatabase.setKepalaPusdatin(kepalaNama.trim(), kepalaNip.trim());
+      const current = AppDatabase.getDocumentSignatories();
+      AppDatabase.setDocumentSignatories({
+        ...current,
+        kepalaPusdatinNama: kepalaNama.trim(),
+        kepalaPusdatinNip: kepalaNip.trim(),
+        petugasDefaultNama: petugasNama.trim() || current.petugasDefaultNama
+      });
     }
 
     setTimeout(() => {
@@ -195,11 +211,18 @@ export const MonthlyReportPdf: React.FC = () => {
 
         {/* Pengaturan Penandatangan (Kepala PUSDATIN & Petugas) */}
         <div className="pt-3 border-t border-slate-100">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Identitas Penandatangan Dokumen Resmi (Format: ( Nama Lengkap ))
+              Identitas Penandatangan Dokumen Resmi (Mengikuti Master Penandatangan)
             </h4>
-            <span className="text-[11px] text-slate-500">Dapat diedit bebas oleh Admin</span>
+            <button
+              type="button"
+              onClick={handleLoadFromMasterSignatories}
+              className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold border border-slate-200 cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Muat dari Master Penandatangan</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -395,6 +418,27 @@ export const MonthlyReportPdf: React.FC = () => {
             <span className="text-[11px] font-bold text-slate-800 block">Urgensi Rendah</span>
             <span className="font-mono text-xl font-bold text-slate-700 block mt-1">{damageRendah} Tiket</span>
             <span className="text-[10px] text-slate-500 block mt-0.5">Pemeliharaan berkala</span>
+          </div>
+        </div>
+
+        {/* Ringkasan Performa SLA FRT & RT */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+          <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs">
+            <span className="text-[11px] font-bold text-indigo-900 block">Kepatuhan FRT (First Response)</span>
+            <span className="font-mono text-lg font-extrabold text-indigo-700">{slaSummary.frtComplianceRate}%</span>
+            <span className="text-[10px] text-indigo-700 block">Rata-rata: {formatMinutesLabel(slaSummary.avgFrtMinutes)}</span>
+          </div>
+          <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs">
+            <span className="text-[11px] font-bold text-emerald-900 block">Kepatuhan RT (Resolution Time)</span>
+            <span className="font-mono text-lg font-extrabold text-emerald-700">{slaSummary.rtComplianceRate}%</span>
+            <span className="text-[10px] text-emerald-700 block">Rata-rata: {formatHoursLabel(slaSummary.avgRtHours)}</span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+            <span className="text-[11px] font-bold text-slate-800 block">Tiket Melewati Batas SLA</span>
+            <span className="font-mono text-lg font-extrabold text-rose-700">
+              {slaSummary.frtOverdueCount} FRT / {slaSummary.rtOverdueCount} RT
+            </span>
+            <span className="text-[10px] text-slate-500 block">Evaluasi komitmen layanan PUSDATIN</span>
           </div>
         </div>
       </div>

@@ -24,9 +24,17 @@ import {
   AuditTrailItem,
   AppUser,
   ActorCode,
-  ApiRegistration
+  ApiRegistration,
+  SlaConfig,
+  DocumentSignatories
 } from '../types';
 import { AccessControlService, SEED_USERS } from './rbac';
+import {
+  DEFAULT_SLA_CONFIG,
+  parseFlexibleDate,
+  computeSlaEvaluation,
+  computeAggregateSlaStats
+} from './slaService';
 
 export interface SparePartWithTicket {
   sparePartId: string;
@@ -65,7 +73,9 @@ const STORAGE_KEYS = {
   SYSTEM_PROPOSALS: 'pusdatin_system_proposals_v4',
   NOTIFICATIONS: 'pusdatin_notifications_v4',
   AUDIT_TRAIL: 'pusdatin_audit_trail_v4',
-  API_REGISTRATIONS: 'pusdatin_api_registrations_v4'
+  API_REGISTRATIONS: 'pusdatin_api_registrations_v4',
+  SLA_CONFIG: 'pusdatin_sla_config_v4',
+  SIGNATORIES: 'pusdatin_signatories_v4'
 };
 
 export const INITIAL_LOCATIONS: string[] = [
@@ -859,33 +869,40 @@ export class AppDatabase {
 
   public static addTechnician(tech: Partial<AppUser> & { name?: string }): boolean {
     const users = this.getUsers();
-    const id = `USR-${Date.now()}`;
+    const id = tech.id || `USR-${Date.now()}`;
+    const email = (tech.email || `petugas${users.length + 1}@umc.ac.id`).trim().toLowerCase();
+    if (users.some(u => u.email.toLowerCase() === email)) {
+      return false;
+    }
     const rawRoleName = (tech.roleName || 'IT Support & Helpdesk Specialist').trim();
     const lowerRole = rawRoleName.toLowerCase();
     let inferredRole: ActorCode = (tech.role as ActorCode) || 'ACT-04';
     if (!tech.role) {
-      if (lowerRole.includes('kepala pusdatin')) inferredRole = 'ACT-02';
+      if (lowerRole.includes('pimpinan universitas') || lowerRole.includes('rektor')) inferredRole = 'ACT-01';
+      else if (lowerRole.includes('kepala pusdatin')) inferredRole = 'ACT-02';
       else if (tech.isFullAccess || lowerRole.includes('helpdesk') || lowerRole.includes('it support')) inferredRole = 'ACT-03';
       else if (lowerRole.includes('analyst') || lowerRole.includes('data')) inferredRole = 'ACT-05';
       else if (lowerRole.includes('lead')) inferredRole = 'ACT-06';
       else if (lowerRole.includes('frontend')) inferredRole = 'ACT-07';
       else if (lowerRole.includes('backend') || lowerRole.includes('programmer')) inferredRole = 'ACT-08';
       else if (lowerRole.includes('security') || lowerRole.includes('cyber')) inferredRole = 'ACT-09';
+      else if (lowerRole.includes('civitas') || lowerRole.includes('dosen') || lowerRole.includes('mahasiswa') || lowerRole.includes('karyawan')) inferredRole = 'ACT-10';
       else inferredRole = 'ACT-04';
     }
     const newUser: AppUser = {
       id,
-      nama: tech.nama || tech.name || 'Petugas Baru',
-      email: tech.email || `petugas${users.length + 1}@umc.ac.id`,
+      nama: tech.nama || tech.name || 'Pengguna Baru',
+      email,
       role: inferredRole,
       roleName: rawRoleName as TechnicianRole,
-      unit: tech.unit || 'PUSDATIN',
+      unit: tech.unit || 'PUSDATIN UMC',
       phone: tech.phone || '081234567890',
-      statusAkun: 'Aktif',
-      sumberData: 'SDM',
+      statusAkun: tech.statusAkun || 'Aktif',
+      sumberData: tech.sumberData || 'SSO Google',
+      civitasType: tech.civitasType,
       password: tech.password || 'pusdatin123',
       specialty: tech.specialty || '',
-      isFullAccess: tech.isFullAccess || false,
+      isFullAccess: tech.isFullAccess || inferredRole === 'ACT-02' || inferredRole === 'ACT-03',
       level: tech.level
     };
     this.save(STORAGE_KEYS.USERS, [...users, newUser]);
@@ -896,13 +913,18 @@ export class AppDatabase {
     const users = this.getUsers();
     const idx = users.findIndex(u => u.id === tech.id);
     if (idx === -1) return false;
+    const nextEmail = tech.email ? tech.email.trim().toLowerCase() : users[idx].email;
     users[idx] = {
       ...users[idx],
       nama: tech.nama || tech.name || users[idx].nama,
       roleName: (tech.roleName || users[idx].roleName) as TechnicianRole,
       role: (tech.role as ActorCode) || users[idx].role,
-      email: tech.email || users[idx].email,
+      email: nextEmail,
+      unit: tech.unit ?? users[idx].unit,
       phone: tech.phone || users[idx].phone,
+      statusAkun: tech.statusAkun || users[idx].statusAkun,
+      sumberData: tech.sumberData || users[idx].sumberData,
+      civitasType: tech.role && tech.role !== 'ACT-10' ? undefined : (tech.civitasType ?? users[idx].civitasType),
       password: tech.password || users[idx].password,
       specialty: tech.specialty ?? users[idx].specialty,
       isFullAccess: tech.isFullAccess ?? users[idx].isFullAccess,
@@ -910,6 +932,16 @@ export class AppDatabase {
     };
     this.save(STORAGE_KEYS.USERS, users);
     return true;
+  }
+
+  public static toggleUserStatus(id: string): AppUser | null {
+    const users = this.getUsers();
+    const idx = users.findIndex(u => u.id === id);
+    if (idx === -1) return null;
+    const nextStatus = users[idx].statusAkun === 'Aktif' ? 'Nonaktif' : 'Aktif';
+    users[idx] = { ...users[idx], statusAkun: nextStatus };
+    this.save(STORAGE_KEYS.USERS, users);
+    return users[idx];
   }
 
   public static deleteTechnician(id: string): boolean {
@@ -1668,6 +1700,7 @@ export class AppDatabase {
       lokasiPengambilan?: string;
       hasilPemeriksaanKembali?: 'Baik / Lengkap' | 'Ada Kendala';
       rincianKondisiKembali?: string;
+      completeHandover?: boolean;
     }
   ): { success: boolean; message: string; ticket?: LoanTicket } {
     const active = this.getActiveUser();
@@ -1679,13 +1712,97 @@ export class AppDatabase {
 
     const loan = loans[index];
     const statusLama = loan.status;
-    const nowStr = new Date().toLocaleString('id-ID');
+    const signatories = this.getDocumentSignatories();
 
-    // C.2: Admin Verifikasi Diterima -> Dikonfirmasi (alokasikan unit spesifik)
+    // C.2 & C.4 Unified: Setujui Pinjaman (ketika completeHandover = true langsung serahkan fisik; jika false/default jaga kompatibilitas 2 langkah)
     if (action === 'terima' || action === 'konfirmasi-alokasi') {
       const allocatedAsset = data.barcode ? this.getAssetByBarcodeOrUnique(data.barcode) : undefined;
       const handover = data.metodePengambilan || loan.metodePengambilan || 'Diambil di Ruang PUSDATIN';
       const schedule = data.jadwalPengambilan || `${data.tglAmbil || loan.tglPinjam} pukul 09:00 WIB`;
+      const isDirectHandover = action === 'terima' && data.completeHandover === true;
+
+      if (isDirectHandover) {
+        const nomorSurat = loan.nomorSuratPeminjaman || `SP-PUSDATIN/${new Date().getFullYear()}/XI/${loan.id.slice(-4)}`;
+        const resolvedBarcode = allocatedAsset?.barcode || data.barcode || loan.barcode;
+        const resolvedKodeUnik = allocatedAsset?.kodeUnikAset || data.kodeUnikAset || loan.kodeUnikAset;
+        const resolvedNama = allocatedAsset?.nama || data.namaBarang || loan.namaBarangT || loan.barangPinjaman;
+
+        loans[index] = {
+          ...loan,
+          status: 'Diserahkan',
+          barcode: resolvedBarcode,
+          kodeUnikAset: resolvedKodeUnik,
+          namaBarangT: resolvedNama,
+          kondisi: data.kondisi || 'Baik / Lengkap dengan Charger & Tas',
+          petugas: data.petugas || active.nama,
+          catatan: data.catatan || 'Peminjaman disetujui dan aset resmi diserahkan dengan Surat Peminjaman.',
+          tglAmbil: data.tglAmbil || new Date().toISOString().split('T')[0],
+          metodePengambilan: handover,
+          jadwalPengambilan: schedule,
+          lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+          nomorSuratPeminjaman: nomorSurat,
+          penandatangan: {
+            peminjam: loan.peminjam,
+            petugas: data.petugas || active.nama,
+            kepalaPusdatin: signatories.kepalaPusdatinNama
+          }
+        };
+        this.save(STORAGE_KEYS.LOANS, loans);
+
+        if (allocatedAsset) {
+          this.updateAssetStatus(
+            allocatedAsset.barcode,
+            'Dipinjam',
+            loan.unit,
+            true,
+            `Dipinjam oleh ${loan.peminjam} (${loan.unit}) - Surat: ${nomorSurat}`
+          );
+
+          const pengeluaranList = this.getBukuPengeluaran();
+          if (!pengeluaranList.some(o => o.idTiketPeminjaman === loan.id)) {
+            const outId = `OUT-${new Date().getFullYear()}-${String(pengeluaranList.length + 1).padStart(3, '0')}`;
+            const newOut: BukuPengeluaranItem = {
+              idPengeluaran: outId,
+              tanggalPenyerahan: new Date().toISOString().split('T')[0],
+              kodeUnikAset: allocatedAsset.kodeUnikAset,
+              barcode: allocatedAsset.barcode,
+              namaAset: allocatedAsset.nama,
+              untuk: `${loan.peminjam} (${loan.unit})`,
+              jenisPengeluaran: 'Peminjaman',
+              idTiketPeminjaman: loan.id,
+              keterangan: `Pengeluaran otomatis dipicu oleh persetujuan & penyerahan peminjaman Surat ${nomorSurat}`,
+              petugas: data.petugas || active.nama
+            };
+            this.save(STORAGE_KEYS.BUKU_PENGELUARAN, [newOut, ...pengeluaranList]);
+          }
+        }
+
+        this.addNotification({
+          tujuan: loan.kontak,
+          namaPenerima: loan.peminjam,
+          kanal: 'WhatsApp',
+          jenisNotifikasi: 'Peminjaman Diserahkan',
+          statusKirim: 'sent',
+          pesanPreview: `Pengajuan peminjaman ${loan.id} DISETUJUI & DISERAHKAN. Unit: ${resolvedNama} (${resolvedBarcode || '-'}). Surat: ${nomorSurat}.`
+        });
+
+        this.addAuditTrail({
+          entityType: 'Peminjaman Aset',
+          entityId: loan.id,
+          statusLama,
+          statusBaru: 'Diserahkan',
+          catatan: `Admin ${active.nama} menyetujui peminjaman & menyerahkan unit ${resolvedNama} (${resolvedBarcode || '-'}). Surat ${nomorSurat} diterbitkan.`,
+          idPengguna: active.id,
+          namaPengguna: active.nama,
+          rolePengguna: active.roleName
+        });
+
+        return {
+          success: true,
+          message: `Peminjaman ${loan.id} DISETUJUI & DISERAHKAN! Status aset menjadi Dipinjam, tercatat di Buku Pengeluaran, dan Surat Peminjaman diterbitkan.`,
+          ticket: loans[index]
+        };
+      }
 
       loans[index] = {
         ...loan,
@@ -1743,7 +1860,7 @@ export class AppDatabase {
         penandatangan: {
           peminjam: loan.peminjam,
           petugas: data.petugas || active.nama,
-          kepalaPusdatin: 'Dr. Ir. H. Ahmad Dahlan, M.T.'
+          kepalaPusdatin: signatories.kepalaPusdatinNama
         },
         tglAmbil: data.tglAmbil || new Date().toISOString().split('T')[0],
         catatan: data.catatan || 'Aset telah diserahkan resmi dengan Surat Peminjaman resmi.'
@@ -1762,20 +1879,22 @@ export class AppDatabase {
 
         // Catat ke Buku Pengeluaran Aset (Jalur 2 — Peminjaman)
         const pengeluaranList = this.getBukuPengeluaran();
-        const outId = `OUT-${new Date().getFullYear()}-${String(pengeluaranList.length + 1).padStart(3, '0')}`;
-        const newOut: BukuPengeluaranItem = {
-          idPengeluaran: outId,
-          tanggalPenyerahan: new Date().toISOString().split('T')[0],
-          kodeUnikAset: allocatedAsset.kodeUnikAset,
-          barcode: allocatedAsset.barcode,
-          namaAset: allocatedAsset.nama,
-          untuk: `${loan.peminjam} (${loan.unit})`,
-          jenisPengeluaran: 'Peminjaman',
-          idTiketPeminjaman: loan.id,
-          keterangan: `Pengeluaran otomatis dipicu oleh penyerahan peminjaman Surat ${nomorSurat}`,
-          petugas: active.nama
-        };
-        this.save(STORAGE_KEYS.BUKU_PENGELUARAN, [newOut, ...pengeluaranList]);
+        if (!pengeluaranList.some(o => o.idTiketPeminjaman === loan.id)) {
+          const outId = `OUT-${new Date().getFullYear()}-${String(pengeluaranList.length + 1).padStart(3, '0')}`;
+          const newOut: BukuPengeluaranItem = {
+            idPengeluaran: outId,
+            tanggalPenyerahan: new Date().toISOString().split('T')[0],
+            kodeUnikAset: allocatedAsset.kodeUnikAset,
+            barcode: allocatedAsset.barcode,
+            namaAset: allocatedAsset.nama,
+            untuk: `${loan.peminjam} (${loan.unit})`,
+            jenisPengeluaran: 'Peminjaman',
+            idTiketPeminjaman: loan.id,
+            keterangan: `Pengeluaran otomatis dipicu oleh penyerahan peminjaman Surat ${nomorSurat}`,
+            petugas: active.nama
+          };
+          this.save(STORAGE_KEYS.BUKU_PENGELUARAN, [newOut, ...pengeluaranList]);
+        }
       }
 
       this.addNotification({
@@ -1929,6 +2048,7 @@ export class AppDatabase {
   // --- 8.2 TABEL 2: HELPDESK & TIKET KERUSAKAN (MODUL B) ---
   public static getDamageTickets(): DamageTicket[] {
     const raw = this.load<DamageTicket[]>(STORAGE_KEYS.DAMAGES, INITIAL_DAMAGES);
+    const slaConfig = this.getSlaConfig();
     const now = new Date();
 
     return raw.map(t => {
@@ -1936,33 +2056,31 @@ export class AppDatabase {
       let updatedStatus = normalizedStatus;
 
       // BR-008: Mekanisme 2 hari kerja penutupan otomatis (Closed – Auto)
-      if (normalizedStatus === 'Resolved' && t.resolvedAt) {
-        const resolvedTime = new Date(t.resolvedAt).getTime();
+      if (normalizedStatus === 'Resolved' && (t.resolvedAtIso || t.resolvedAt)) {
+        const resolvedDate = parseFlexibleDate(t.resolvedAtIso || t.resolvedAt);
         const twoWorkDaysMs = 48 * 60 * 60 * 1000;
-        if (now.getTime() - resolvedTime > twoWorkDaysMs) {
+        if (resolvedDate && now.getTime() - resolvedDate.getTime() > twoWorkDaysMs) {
           updatedStatus = 'Closed – Auto';
         }
       }
 
-      // Hitung SLA status
-      let slaStatus: 'On Track' | 'Mendekati Batas' | 'Overdue' = t.slaStatus || 'On Track';
-      if (t.slaDeadline && (updatedStatus !== 'Resolved' && updatedStatus !== 'Closed – Auto' && updatedStatus !== 'Closed – Manual')) {
-        const deadline = new Date(t.slaDeadline).getTime();
-        const diffHours = (deadline - now.getTime()) / (1000 * 60 * 60);
-        if (diffHours < 0) {
-          slaStatus = 'Overdue';
-        } else if (diffHours < 4) {
-          slaStatus = 'Mendekati Batas';
-        } else {
-          slaStatus = 'On Track';
-        }
-      }
+      const evaluation = computeSlaEvaluation(
+        {
+          ...t,
+          status: updatedStatus
+        },
+        slaConfig,
+        now.getTime()
+      );
 
       return {
         ...t,
         status: updatedStatus,
-        slaStatus,
-        eskalasiPusdatin: slaStatus === 'Overdue' ? true : t.eskalasiPusdatin
+        frtTargetMinutes: t.frtTargetMinutes ?? evaluation.frtTargetMinutes,
+        rtTargetHours: t.rtTargetHours ?? evaluation.rtTargetHours,
+        slaTargetHours: t.slaTargetHours || evaluation.rtTargetHours,
+        slaStatus: evaluation.overallSlaStatus,
+        eskalasiPusdatin: evaluation.overallSlaStatus === 'Overdue' ? true : t.eskalasiPusdatin
       };
     });
   }
@@ -1971,22 +2089,21 @@ export class AppDatabase {
   public static addDamageTicket(ticket: Omit<DamageTicket, 'id' | 'status' | 'tanggalLapor' | 'slaDeadline' | 'slaTargetHours'>): DamageTicket {
     const tickets = this.getDamageTickets();
     const active = this.getActiveUser();
-    const dateCode = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const nowDisplay = now.toLocaleString('id-ID');
+    const dateCode = nowIso.split('T')[0].replace(/-/g, '');
     const rand = Math.floor(100 + Math.random() * 900);
     const id = `TKT-${dateCode}-${rand}`;
 
-    // BR-006: SLA target berdasarkan kategori dan urgensi
-    let slaHours = 24;
-    const cat = (ticket.kategoriMasalah || '').toLowerCase();
-    const urg = ticket.prioritas || ticket.urgensi || 'Sedang';
+    const slaConfig = this.getSlaConfig();
+    const urg: TicketUrgency = (ticket.prioritas || ticket.urgensi || 'Sedang') as TicketUrgency;
+    const rule = slaConfig[urg] || DEFAULT_SLA_CONFIG.Sedang;
+    const slaHours = rule.rtTargetHours;
+    const frtTargetMinutes = rule.frtTargetMinutes;
 
-    if (urg === 'Kritis') slaHours = 4;
-    else if (urg === 'Tinggi') slaHours = 12;
-    else if (cat.includes('jaringan') || cat.includes('server')) slaHours = 8;
-    else if (urg === 'Rendah') slaHours = 48;
-
-    const deadlineDate = new Date(Date.now() + slaHours * 60 * 60 * 1000);
-    const deadlineStr = deadlineDate.toLocaleString('id-ID');
+    const deadlineDate = new Date(now.getTime() + slaHours * 60 * 60 * 1000);
+    const deadlineIso = deadlineDate.toISOString();
 
     // BR-007: Distribusi otomatis awal berdasarkan kategori/PIC
     const picMatch = this.determinePic(`${ticket.kategoriMasalah} ${ticket.namaBarang} ${ticket.deskripsi}`);
@@ -1995,9 +2112,12 @@ export class AppDatabase {
       ...ticket,
       id,
       status: 'Open/Unassigned',
-      tanggalLapor: new Date().toLocaleString('id-ID'),
+      tanggalLapor: nowDisplay,
+      createdAtIso: nowIso,
+      frtTargetMinutes,
+      rtTargetHours: slaHours,
       slaTargetHours: slaHours,
-      slaDeadline: deadlineStr,
+      slaDeadline: deadlineIso,
       slaStatus: 'On Track',
       picTeknisi: ticket.picTeknisi || picMatch.role,
       namaPicTeknisi: ticket.namaPicTeknisi || picMatch.name,
@@ -2005,8 +2125,8 @@ export class AppDatabase {
       riwayatStatus: [
         {
           status: 'Open/Unassigned',
-          timestamp: new Date().toLocaleString('id-ID'),
-          catatan: `Laporan kerusakan diterbitkan via SSO Google UMC. Target SLA: ${slaHours} Jam.`,
+          timestamp: nowDisplay,
+          catatan: `Laporan kerusakan diterbitkan via SSO Google UMC. Target FRT: ${frtTargetMinutes} Menit | RT: ${slaHours} Jam.`,
           petugas: active.nama
         }
       ]
@@ -2031,7 +2151,7 @@ export class AppDatabase {
       kanal: 'WhatsApp',
       jenisNotifikasi: 'Tiket Dibuat',
       statusKirim: 'sent',
-      pesanPreview: `Tiket ${id} berhasil dibuat. Target SLA penyelesaian: ${slaHours} Jam (${deadlineStr}). Tim Helpdesk PUSDATIN segera menindaklanjuti.`
+      pesanPreview: `Tiket ${id} berhasil dibuat. Target SLA FRT ${frtTargetMinutes} menit / RT ${slaHours} jam. Tim Helpdesk PUSDATIN segera menindaklanjuti.`
     });
 
     this.addAuditTrail({
@@ -2039,7 +2159,7 @@ export class AppDatabase {
       entityId: id,
       statusLama: 'None',
       statusBaru: 'Open/Unassigned',
-      catatan: `Pembuatan tiket helpdesk oleh ${newTicket.pelapor} (${newTicket.kategoriMasalah}). SLA: ${slaHours} jam.`,
+      catatan: `Pembuatan tiket helpdesk oleh ${newTicket.pelapor} (${newTicket.kategoriMasalah}). FRT: ${frtTargetMinutes} mnt, RT: ${slaHours} jam.`,
       idPengguna: active.id,
       namaPengguna: active.nama,
       rolePengguna: active.roleName
@@ -2083,10 +2203,17 @@ export class AppDatabase {
     const tickets = this.getDamageTickets();
     const idx = tickets.findIndex(t => t.id === id);
     if (idx === -1) return false;
+    const rule = this.getSlaConfig()[urgensi] || DEFAULT_SLA_CONFIG.Sedang;
+    const baseCreated = parseFlexibleDate(tickets[idx].createdAtIso || tickets[idx].tanggalLapor) || new Date();
+    const newDeadlineIso = new Date(baseCreated.getTime() + rule.rtTargetHours * 3600000).toISOString();
     tickets[idx] = {
       ...tickets[idx],
       prioritas: urgensi,
-      urgensi: urgensi
+      urgensi: urgensi,
+      frtTargetMinutes: rule.frtTargetMinutes,
+      rtTargetHours: rule.rtTargetHours,
+      slaTargetHours: rule.rtTargetHours,
+      slaDeadline: newDeadlineIso
     };
     this.save(STORAGE_KEYS.DAMAGES, tickets);
     return true;
@@ -2156,14 +2283,26 @@ export class AppDatabase {
 
     const ticket = tickets[index];
     const statusLama = ticket.status;
-    const nowStr = new Date().toLocaleString('id-ID');
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const nowStr = now.toLocaleString('id-ID');
     const operator = options.petugasName || active.nama;
     const asset = ticket.barcode ? this.getAssetByBarcodeOrUnique(ticket.barcode) : undefined;
+
+    // Auto-stamp First Response Time (FRT) upon first technical action if not yet recorded
+    const firstResponseStamp =
+      effAction !== 're-open' && !ticket.firstResponseAtIso
+        ? {
+            firstResponseAtIso: nowIso,
+            firstResponseBy: operator
+          }
+        : {};
 
     // Lanjut Perbaikan
     if (effAction === 'lanjut-perbaikan') {
       tickets[index] = {
         ...ticket,
+        ...firstResponseStamp,
         status: 'In Progress',
         catatanAdmin: options.catatan || options.catatanAdmin || 'Perbaikan dilanjutkan oleh teknisi.',
         riwayatStatus: [
@@ -2212,6 +2351,7 @@ export class AppDatabase {
 
       tickets[index] = {
         ...ticket,
+        ...firstResponseStamp,
         status: 'Assigned',
         picTeknisi: targetRole,
         namaPicTeknisi: techName,
@@ -2280,6 +2420,7 @@ export class AppDatabase {
       const schedule = options.jadwalPemeriksaan || `${nowStr} (Pemeriksaan Segera)`;
       tickets[index] = {
         ...ticket,
+        ...firstResponseStamp,
         status: 'In Progress',
         jadwalPemeriksaan: schedule,
         catatanAdmin: options.catatan || `Teknisi telah menjadwalkan pemeriksaan dan memulai perbaikan (${schedule}).`,
@@ -2336,6 +2477,7 @@ export class AppDatabase {
 
       tickets[index] = {
         ...ticket,
+        ...firstResponseStamp,
         status: 'Pending – Menunggu Suku Cadang',
         cabangPerbaikan: 'Butuh Suku Cadang',
         kategoriPerbaikan: options.kategoriPerbaikan || 'Suku Cadang (Perlu Anggaran)',
@@ -2389,9 +2531,11 @@ export class AppDatabase {
 
       tickets[index] = {
         ...ticket,
+        ...firstResponseStamp,
         status: 'Resolved',
         waktuSelesai: nowStr,
-        resolvedAt: new Date().toISOString(),
+        resolvedAt: nowIso,
+        resolvedAtIso: nowIso,
         resolusiAkhir: resolusi,
         catatanAdmin: resolusi,
         riwayatStatus: [
@@ -2449,6 +2593,7 @@ export class AppDatabase {
       tickets[index] = {
         ...ticket,
         status: 'Re-opened',
+        resolvedAtIso: undefined,
         catatanAdmin: options.catatan || 'Pengguna melaporkan kendala belum terselesaikan sepenuhnya.',
         riwayatStatus: [
           ...(ticket.riwayatStatus || []),
@@ -2480,8 +2625,12 @@ export class AppDatabase {
     if (effAction === 'tutup-manual') {
       tickets[index] = {
         ...ticket,
+        ...firstResponseStamp,
         status: 'Closed – Manual',
         closedMode: 'Manual',
+        waktuSelesai: ticket.waktuSelesai || nowStr,
+        resolvedAt: ticket.resolvedAt || nowIso,
+        resolvedAtIso: ticket.resolvedAtIso || nowIso,
         riwayatStatus: [
           ...(ticket.riwayatStatus || []),
           {
@@ -2512,8 +2661,12 @@ export class AppDatabase {
     if (effAction === 'tidak-layak') {
       tickets[index] = {
         ...ticket,
+        ...firstResponseStamp,
         status: 'Closed – Manual',
         kondisiAkhirAset: 'Tidak Layak',
+        waktuSelesai: nowStr,
+        resolvedAt: nowIso,
+        resolvedAtIso: nowIso,
         riwayatStatus: [
           ...(ticket.riwayatStatus || []),
           {
@@ -3214,11 +3367,10 @@ export class AppDatabase {
     const totalSedangDiperbaiki = damages.filter(d => d.status === 'In Progress').length;
     const totalMenungguSparepart = damages.filter(d => d.status === 'Pending – Menunggu Suku Cadang').length;
 
-    // SLA Achievement
-    const closedTickets = damages.filter(d => d.status === 'Resolved' || d.status === 'Closed – Auto' || d.status === 'Closed – Manual');
+    // SLA Achievement & FRT/RT Metrics
+    const slaAgg = computeAggregateSlaStats(damages, this.getSlaConfig());
     const totalSlaOverdue = damages.filter(d => d.slaStatus === 'Overdue').length;
-    const onTimeClosed = closedTickets.filter(d => d.slaStatus !== 'Overdue').length;
-    const slaAchievementRate = closedTickets.length > 0 ? Math.round((onTimeClosed / closedTickets.length) * 100) : 95;
+    const slaAchievementRate = slaAgg.rtComplianceRate;
 
     const totalPengajuanSistem = proposals.length;
     const pengajuanDalamPengembangan = proposals.filter(p => p.status === 'status_pengembangan').length;
@@ -3237,6 +3389,10 @@ export class AppDatabase {
       totalMenungguSparepart,
       totalSlaOverdue,
       slaAchievementRate,
+      frtComplianceRate: slaAgg.frtComplianceRate,
+      rtComplianceRate: slaAgg.rtComplianceRate,
+      avgFrtMinutes: slaAgg.avgFrtMinutes,
+      avgRtHours: slaAgg.avgRtHours,
       totalPengajuanSistem,
       pengajuanDalamPengembangan,
       kategoriMap,
@@ -3276,16 +3432,121 @@ export class AppDatabase {
     });
   }
 
-  // --- KEPALA PUSDATIN CONFIG ---
-  public static getKepalaPusdatin(): { nama: string; nip: string } {
-    return this.load<{ nama: string; nip: string }>(STORAGE_KEYS.KEPALA, {
-      nama: 'Dr. Ir. H. Ahmad Dahlan, M.T.',
-      nip: 'NIDN. 0418077501'
+  // --- SLA CONFIG (FRT & RT PER URGENSI) ---
+  public static getSlaConfig(): SlaConfig {
+    const saved = this.load<Partial<SlaConfig> | null>(STORAGE_KEYS.SLA_CONFIG, null);
+    if (!saved) return DEFAULT_SLA_CONFIG;
+    return {
+      Kritis: saved.Kritis || DEFAULT_SLA_CONFIG.Kritis,
+      Tinggi: saved.Tinggi || DEFAULT_SLA_CONFIG.Tinggi,
+      Sedang: saved.Sedang || DEFAULT_SLA_CONFIG.Sedang,
+      Rendah: saved.Rendah || DEFAULT_SLA_CONFIG.Rendah
+    };
+  }
+
+  public static setSlaConfig(config: SlaConfig): { success: boolean; message: string } {
+    const active = this.getActiveUser();
+    if (active.role !== 'ACT-02' && active.role !== 'ACT-03') {
+      return { success: false, message: 'Hanya Kepala PUSDATIN (ACT-02) atau Admin (ACT-03) yang dapat mengubah kebijakan SLA.' };
+    }
+    const sanitized: SlaConfig = {
+      Kritis: {
+        frtTargetMinutes: Math.max(1, Number(config.Kritis.frtTargetMinutes) || 15),
+        rtTargetHours: Math.max(1, Number(config.Kritis.rtTargetHours) || 4)
+      },
+      Tinggi: {
+        frtTargetMinutes: Math.max(1, Number(config.Tinggi.frtTargetMinutes) || 30),
+        rtTargetHours: Math.max(1, Number(config.Tinggi.rtTargetHours) || 12)
+      },
+      Sedang: {
+        frtTargetMinutes: Math.max(1, Number(config.Sedang.frtTargetMinutes) || 60),
+        rtTargetHours: Math.max(1, Number(config.Sedang.rtTargetHours) || 24)
+      },
+      Rendah: {
+        frtTargetMinutes: Math.max(1, Number(config.Rendah.frtTargetMinutes) || 120),
+        rtTargetHours: Math.max(1, Number(config.Rendah.rtTargetHours) || 48)
+      }
+    };
+    this.save(STORAGE_KEYS.SLA_CONFIG, sanitized);
+    return { success: true, message: 'Kebijakan target SLA (FRT & RT) berhasil diperbarui!' };
+  }
+
+  // --- MASTER PENANDATANGAN DOKUMEN & KEPALA PUSDATIN CONFIG ---
+  public static getDefaultSignatoriesFromUsers(): DocumentSignatories {
+    const users = this.getUsers();
+    const pimpinanUniv = users.find(u => u.role === 'ACT-01' && u.statusAkun === 'Aktif') || users.find(u => u.role === 'ACT-01');
+    const kepalaPusdatin = users.find(u => u.role === 'ACT-02' && u.statusAkun === 'Aktif') || users.find(u => u.role === 'ACT-02');
+    const petugasAdmin = users.find(u => u.role === 'ACT-03' && u.statusAkun === 'Aktif') || users.find(u => u.role === 'ACT-03');
+    const legacyKepala = this.load<{ nama?: string; nip?: string } | null>(STORAGE_KEYS.KEPALA, null);
+
+    return {
+      pimpinanUnivNama: pimpinanUniv?.nama || 'Prof. Dr. H. Arif Nurudin, M.T.',
+      pimpinanUnivJabatan: pimpinanUniv?.unit || 'Rektor Universitas Muhammadiyah Cirebon',
+      pimpinanUnivNip: 'NIDN. 0412057201',
+      kepalaPusdatinNama: legacyKepala?.nama || kepalaPusdatin?.nama || 'Dr. Ir. H. Ahmad Dahlan, M.T.',
+      kepalaPusdatinNip: legacyKepala?.nip || 'NIDN. 0418077501',
+      petugasDefaultNama: petugasAdmin?.nama || 'Aditiya Ahmad Fadila, S.Kom.',
+      petugasDefaultJabatan: petugasAdmin?.roleName || 'IT Support & Helpdesk Specialist'
+    };
+  }
+
+  public static getDocumentSignatories(): DocumentSignatories {
+    const defaults = this.getDefaultSignatoriesFromUsers();
+    const saved = this.load<Partial<DocumentSignatories> | null>(STORAGE_KEYS.SIGNATORIES, null);
+    if (!saved) return defaults;
+    return {
+      pimpinanUnivNama: saved.pimpinanUnivNama || defaults.pimpinanUnivNama,
+      pimpinanUnivJabatan: saved.pimpinanUnivJabatan || defaults.pimpinanUnivJabatan,
+      pimpinanUnivNip: saved.pimpinanUnivNip ?? defaults.pimpinanUnivNip,
+      kepalaPusdatinNama: saved.kepalaPusdatinNama || defaults.kepalaPusdatinNama,
+      kepalaPusdatinNip: saved.kepalaPusdatinNip ?? defaults.kepalaPusdatinNip,
+      petugasDefaultNama: saved.petugasDefaultNama || defaults.petugasDefaultNama,
+      petugasDefaultJabatan: saved.petugasDefaultJabatan || defaults.petugasDefaultJabatan
+    };
+  }
+
+  public static setDocumentSignatories(signatories: DocumentSignatories): void {
+    this.save(STORAGE_KEYS.SIGNATORIES, signatories);
+    this.save(STORAGE_KEYS.KEPALA, {
+      nama: signatories.kepalaPusdatinNama,
+      nip: signatories.kepalaPusdatinNip
     });
   }
 
+  public static syncSignatoriesFromMasterUsers(): DocumentSignatories {
+    const users = this.getUsers();
+    const current = this.getDocumentSignatories();
+    const pimpinanUniv = users.find(u => u.role === 'ACT-01' && u.statusAkun === 'Aktif') || users.find(u => u.role === 'ACT-01');
+    const kepalaPusdatin = users.find(u => u.role === 'ACT-02' && u.statusAkun === 'Aktif') || users.find(u => u.role === 'ACT-02');
+    const petugasAdmin = users.find(u => u.role === 'ACT-03' && u.statusAkun === 'Aktif') || users.find(u => u.role === 'ACT-03');
+
+    const synced: DocumentSignatories = {
+      ...current,
+      pimpinanUnivNama: pimpinanUniv?.nama || current.pimpinanUnivNama,
+      pimpinanUnivJabatan: pimpinanUniv?.unit || current.pimpinanUnivJabatan,
+      kepalaPusdatinNama: kepalaPusdatin?.nama || current.kepalaPusdatinNama,
+      petugasDefaultNama: petugasAdmin?.nama || current.petugasDefaultNama,
+      petugasDefaultJabatan: petugasAdmin?.roleName || current.petugasDefaultJabatan
+    };
+    this.setDocumentSignatories(synced);
+    return synced;
+  }
+
+  public static getKepalaPusdatin(): { nama: string; nip: string } {
+    const sig = this.getDocumentSignatories();
+    return {
+      nama: sig.kepalaPusdatinNama,
+      nip: sig.kepalaPusdatinNip
+    };
+  }
+
   public static setKepalaPusdatin(nama: string, nip: string): void {
-    this.save(STORAGE_KEYS.KEPALA, { nama, nip });
+    const current = this.getDocumentSignatories();
+    this.setDocumentSignatories({
+      ...current,
+      kepalaPusdatinNama: nama,
+      kepalaPusdatinNip: nip
+    });
   }
 
   // --- PIC DETERMINATION (BR-007) ---

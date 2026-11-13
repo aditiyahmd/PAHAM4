@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppDatabase } from '../../services/db';
 import { PdfReportService } from '../../services/pdfReportService';
+import { computeSlaEvaluation } from '../../services/slaService';
 import {
   Search,
   CheckCircle2,
@@ -19,7 +20,8 @@ import {
   Check,
   RotateCcw,
   ShieldCheck,
-  Cpu
+  Cpu,
+  Gauge
 } from 'lucide-react';
 import { LoanTicket, DamageTicket } from '../../types';
 
@@ -441,6 +443,55 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                       </span>
                     )}
                   </div>
+
+                  {/* Komitmen Layanan (SLA FRT & RT) */}
+                  {(() => {
+                    const slaEval = computeSlaEvaluation(dmg, AppDatabase.getSlaConfig());
+                    return (
+                      <div className="bg-indigo-50/50 border-b border-indigo-100 px-6 py-3 text-xs">
+                        <div className="flex items-center gap-1.5 font-bold text-indigo-950 mb-2">
+                          <Gauge className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Komitmen & Realisasi SLA Layanan (Urgensi: {dmg.urgensi || dmg.prioritas || 'Sedang'})</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div className="p-2.5 rounded-lg bg-white border border-indigo-100 flex items-center justify-between gap-2">
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-slate-500 block">First Response Time (FRT)</span>
+                              <span className="font-mono font-semibold text-slate-900">{slaEval.frtLabel}</span>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                                slaEval.frtStatus === 'Melewati SLA'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : slaEval.frtStatus === 'Mendekati Batas'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {slaEval.frtStatus}
+                            </span>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-white border border-indigo-100 flex items-center justify-between gap-2">
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-slate-500 block">Resolution Time (RT)</span>
+                              <span className="font-mono font-semibold text-slate-900">{slaEval.rtLabel}</span>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                                slaEval.rtStatus === 'Melewati SLA'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : slaEval.rtStatus === 'Mendekati Batas'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {slaEval.rtStatus}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Spare parts banner if applicable */}
                   {dmg.sukuCadangList && dmg.sukuCadangList.length > 0 && (

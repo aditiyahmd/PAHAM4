@@ -1,4 +1,4 @@
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
   Asset,
@@ -12,6 +12,13 @@ import {
   AppStatistics
 } from '../types';
 import { KOP_OFFICIAL_BASE64 } from './kopBase64';
+import { AppDatabase } from './db';
+import {
+  computeAggregateSlaStats,
+  computeSlaEvaluation,
+  formatMinutesLabel,
+  formatHoursLabel
+} from './slaService';
 
 export interface MonthlyReportParams {
   bulan: string;
@@ -47,9 +54,10 @@ export class PdfReportService {
 
     const isReturned = loan.status === 'Dikembalikan';
     const judulSurat = isReturned ? 'BERITA ACARA PENGEMBALIAN ASET' : 'SURAT BUKTI PEMINJAMAN ASET KAMPUS';
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const petugasNama = options?.petugas || loan.petugas || 'Aditiya Ahmad Fadila';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || loan.petugas || masterSig.petugasDefaultNama;
 
     // Header Kop Surat Resmi UMC
     try {
@@ -146,7 +154,7 @@ export class PdfReportService {
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
-    doc.setTextColor(30, 41, 59);
+    doc.setTextColor(0, 0, 0);
 
     const todayDateStr = new Date().toLocaleDateString('id-ID', {
       day: 'numeric',
@@ -164,13 +172,14 @@ export class PdfReportService {
     const nameY = signY + 34;
 
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text(`( ${loan.peminjam} )`, 30, nameY, { align: 'center' });
     doc.text(`( ${petugasNama} )`, 105, nameY, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 165, nameY, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
+    doc.setTextColor(0, 0, 0);
     doc.text(`NIDN/NIK: ${loan.nik}`, 30, nameY + 4, { align: 'center' });
     doc.text('Pengelola Aset IT', 105, nameY + 4, { align: 'center' });
     if (kepalaNip) {
@@ -234,6 +243,8 @@ export class PdfReportService {
     const totalDamages = params.damages.length;
     const damagesKritis = params.damages.filter((d: DamageTicket) => d.urgensi === 'Kritis' || d.prioritas === 'Kritis').length;
     const damagesSelesai = params.damages.filter((d: DamageTicket) => d.status === 'Resolved' || d.status === 'Closed – Auto' || d.status === 'Closed – Manual').length;
+    const slaConfig = AppDatabase.getSlaConfig();
+    const slaAgg = computeAggregateSlaStats(params.damages, slaConfig);
 
     // SECTION 1: RINGKASAN JUMLAH ASET & STATISTIK EKSEKUTIF
     autoTable(doc, {
@@ -244,7 +255,8 @@ export class PdfReportService {
         ['Total Master Data Aset Kampus', `${totalAssets} Unit`, `Tersedia: ${assetsTersedia} | Dipinjam: ${assetsDipinjam} | Rusak/Servis: ${assetsRusak}`],
         ['Transaksi Peminjaman Aset', `${totalLoans} Transaksi`, `Aktif: ${loansAktif} | Selesai Kembali: ${loansKembali} | Terlambat: ${loansTerlambat}`],
         ['Tiket Kerusakan Perangkat', `${totalDamages} Laporan`, `Selesai: ${damagesSelesai} | Urgensi Kritis: ${damagesKritis} Unit`],
-        ['Kebutuhan Suku Cadang', `${params.spareParts?.length || 0} Komponen`, `Belum Dibeli: ${params.spareParts?.filter((s: any) => s.statusPengadaan === 'Belum Dibeli').length || 0} | Sudah Dibeli: ${params.spareParts?.filter((s: any) => s.statusPengadaan === 'Sudah Dibeli').length || 0} | Terpasang: ${params.spareParts?.filter((s: any) => s.statusPengadaan === 'Sudah Digunakan').length || 0}`]
+        ['Performa SLA Helpdesk (FRT & RT)', `FRT ${slaAgg.frtComplianceRate}% | RT ${slaAgg.rtComplianceRate}%`, `Rata-rata FRT: ${formatMinutesLabel(slaAgg.avgFrtMinutes)} | Rata-rata RT: ${formatHoursLabel(slaAgg.avgRtHours)}`],
+        ['Kebutuhan Suku Cadang', `${params.spareParts?.length || 0} Komponen`, `Diminta/Belum: ${params.spareParts?.filter((s: any) => s.statusPengadaan === 'Diminta' || s.statusPengadaan === 'Belum Dibeli').length || 0} | Proses/Beli: ${params.spareParts?.filter((s: any) => s.statusPengadaan === 'Disetujui' || s.statusPengadaan === 'Dipesan' || s.statusPengadaan === 'Diterima' || s.statusPengadaan === 'Sudah Dibeli').length || 0} | Terpasang: ${params.spareParts?.filter((s: any) => s.statusPengadaan === 'Terpasang' || s.statusPengadaan === 'Sudah Digunakan').length || 0}`]
       ],
       headStyles: {
         fillColor: [30, 41, 59],
@@ -375,24 +387,26 @@ export class PdfReportService {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(15, 23, 42);
-      doc.text('3. DAFTAR TIKET KERUSAKAN PERANGKAT & TINGKAT URGENSI', 15, currentY);
+      doc.text('3. DAFTAR TIKET KERUSAKAN PERANGKAT & PENGUKURAN SLA (FRT & RT)', 15, currentY);
 
       autoTable(doc, {
         startY: currentY + 2,
         theme: 'grid',
-        head: [['No', 'ID Tiket', 'Perangkat / Aset', 'Barcode', 'Lokasi', 'Pelapor', 'Urgensi', 'PIC Teknisi', 'Status', 'Tgl Lapor']],
-        body: params.damages.map((d: DamageTicket, idx: number) => [
-          (idx + 1).toString(),
-          d.id,
-          d.namaBarang,
-          d.barcode || '-',
-          d.lokasi,
-          d.pelapor,
-          d.urgensi || 'Sedang',
-          d.namaPicTeknisi || d.picTeknisi || '-',
-          d.status,
-          d.tanggalLapor
-        ]),
+        head: [['No', 'ID Tiket', 'Perangkat / Aset', 'Lokasi', 'Urgensi', 'FRT (Respons)', 'RT (Selesai)', 'PIC Teknisi', 'Status']],
+        body: params.damages.map((d: DamageTicket, idx: number) => {
+          const ev = computeSlaEvaluation(d, slaConfig);
+          return [
+            (idx + 1).toString(),
+            d.id,
+            d.namaBarang,
+            d.lokasi,
+            d.urgensi || 'Sedang',
+            `${ev.frtLabel} (${ev.frtStatus})`,
+            `${ev.rtLabel} (${ev.rtStatus})`,
+            d.namaPicTeknisi || d.picTeknisi || '-',
+            d.status
+          ];
+        }),
         headStyles: {
           fillColor: [220, 38, 38],
           textColor: [255, 255, 255],
@@ -401,13 +415,13 @@ export class PdfReportService {
           halign: 'center'
         },
         styles: {
-          fontSize: 7,
-          cellPadding: 1.8
+          fontSize: 6.8,
+          cellPadding: 1.7
         },
         columnStyles: {
           0: { halign: 'center', cellWidth: 8 },
           1: { cellWidth: 22, fontStyle: 'bold' },
-          6: { halign: 'center', fontStyle: 'bold' },
+          4: { halign: 'center', fontStyle: 'bold' },
           8: { halign: 'center', fontStyle: 'bold' }
         },
         margin: { left: 15, right: 15 }
@@ -516,9 +530,14 @@ export class PdfReportService {
       signY = 55;
     }
 
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const petugasFinal = params.petugas || masterSig.petugasDefaultNama;
+    const kepalaFinal = params.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const nipFinal = params.nipKepala || masterSig.kepalaPusdatinNip;
+
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
-    doc.setTextColor(30, 41, 59);
+    doc.setTextColor(0, 0, 0);
 
     const todayDateStr = new Date().toLocaleDateString('id-ID', {
       day: 'numeric',
@@ -534,15 +553,16 @@ export class PdfReportService {
 
     const nameY = signY + 30;
     doc.setFont('helvetica', 'bold');
-    doc.text(`( ${params.petugas} )`, 50, nameY, { align: 'center' });
-    doc.text(`( ${params.kepalaPusdatin} )`, 220, nameY, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    doc.text(`( ${petugasFinal} )`, 50, nameY, { align: 'center' });
+    doc.text(`( ${kepalaFinal} )`, 220, nameY, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
+    doc.setTextColor(0, 0, 0);
     doc.text('Staff IT PUSDATIN UMC', 50, nameY + 4, { align: 'center' });
-    if (params.nipKepala) {
-      doc.text(params.nipKepala, 220, nameY + 4, { align: 'center' });
+    if (nipFinal) {
+      doc.text(nipFinal, 220, nameY + 4, { align: 'center' });
     }
 
     return doc;
@@ -556,9 +576,10 @@ export class PdfReportService {
     options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const petugasNama = options?.petugas || item.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || item.petugas || masterSig.petugasDefaultNama;
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
@@ -664,24 +685,33 @@ export class PdfReportService {
     const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
     doc.text(`Cirebon, ${todayDateStr}`, 145, currentY);
 
     const signY = currentY + 6;
+    doc.setTextColor(0, 0, 0);
     doc.text('Pihak Penyedia / Pengirim,', 45, signY, { align: 'center' });
     doc.text('Petugas Penerima PUSDATIN,', 150, signY, { align: 'center' });
 
     const nameY = signY + 24;
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text(`( ${item.dari} )`, 45, nameY, { align: 'center' });
     doc.text(`( ${petugasNama} )`, 150, nameY, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
     doc.text('Mengetahui / Menyetujui,', 105, nameY + 8, { align: 'center' });
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text('Kepala PUSDATIN UMC', 105, nameY + 12, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 105, nameY + 30, { align: 'center' });
-    if (kepalaNip) doc.text(kepalaNip, 105, nameY + 34, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text(kepalaNip, 105, nameY + 34, { align: 'center' });
+    }
 
     return doc;
   }
@@ -695,9 +725,10 @@ export class PdfReportService {
     options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; title?: string; [key: string]: any }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || masterSig.petugasDefaultNama;
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
@@ -767,16 +798,19 @@ export class PdfReportService {
     const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
     doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
     doc.text('Petugas Pengelola Aset,', 50, signY + 6, { align: 'center' });
     doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
     if (kepalaNip) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
       doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
     }
 
@@ -791,9 +825,10 @@ export class PdfReportService {
     options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const petugasNama = options?.petugas || item.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || item.petugas || masterSig.petugasDefaultNama;
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
@@ -869,24 +904,33 @@ export class PdfReportService {
     const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
     doc.text(`Cirebon, ${todayDateStr}`, 145, currentY);
 
     const signY = currentY + 6;
+    doc.setTextColor(0, 0, 0);
     doc.text('Pihak Penerima Unit Kerja,', 45, signY, { align: 'center' });
     doc.text('Petugas Penyerah PUSDATIN,', 150, signY, { align: 'center' });
 
     const nameY = signY + 24;
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text(`( ${item.untuk} )`, 45, nameY, { align: 'center' });
     doc.text(`( ${petugasNama} )`, 150, nameY, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
     doc.text('Mengetahui / Menyetujui,', 105, nameY + 8, { align: 'center' });
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text('Kepala PUSDATIN UMC', 105, nameY + 12, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 105, nameY + 30, { align: 'center' });
-    if (kepalaNip) doc.text(kepalaNip, 105, nameY + 34, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text(kepalaNip, 105, nameY + 34, { align: 'center' });
+    }
 
     return doc;
   }
@@ -900,9 +944,10 @@ export class PdfReportService {
     options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || masterSig.petugasDefaultNama;
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
@@ -967,16 +1012,19 @@ export class PdfReportService {
     const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
     doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
     doc.text('Petugas Pengelola Inventaris,', 50, signY + 6, { align: 'center' });
     doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
     if (kepalaNip) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
       doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
     }
 
@@ -992,9 +1040,10 @@ export class PdfReportService {
     options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || masterSig.petugasDefaultNama;
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
@@ -1047,16 +1096,19 @@ export class PdfReportService {
     const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
     doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
     doc.text('Petugas Pengelola Aset,', 50, signY + 6, { align: 'center' });
     doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
     if (kepalaNip) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
       doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
     }
 
@@ -1072,9 +1124,10 @@ export class PdfReportService {
     options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const petugasNama = options?.petugas || 'Aditiya Ahmad Fadila, S.Kom.';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || masterSig.petugasDefaultNama;
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
@@ -1126,16 +1179,19 @@ export class PdfReportService {
     const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
     doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
     doc.text('Petugas Pengadaan Suku Cadang,', 50, signY + 6, { align: 'center' });
     doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
     doc.text(`( ${petugasNama} )`, 50, signY + 26, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
     if (kepalaNip) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
       doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
     }
 
@@ -1148,12 +1204,14 @@ export class PdfReportService {
   public static generateExecutiveDashboardPdf(
     stats: AppStatistics,
     monthStr: string,
-    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; rektorNama?: string; [key: string]: any }
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; rektorNama?: string; pimpinanJabatan?: string; [key: string]: any }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const kepalaNama = options?.kepalaPusdatin || 'Dr. Ir. H. Ahmad Dahlan, M.T.';
-    const kepalaNip = options?.nipKepala || 'NIDN. 0418077501';
-    const rektorNama = options?.rektorNama || 'Prof. Dr. H. Arif Nurudin, M.T.';
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const rektorNama = options?.rektorNama || masterSig.pimpinanUnivNama;
+    const pimpinanJabatan = options?.pimpinanJabatan || masterSig.pimpinanUnivJabatan || 'Rektor / Pimpinan Universitas';
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
@@ -1186,7 +1244,8 @@ export class PdfReportService {
         ['Aset Dalam Perbaikan / Servis', `${stats.maintenance || 0} Unit`, 'Proses reparasi & suku cadang'],
         ['Antrean Tiket Gangguan Masuk', `${stats.totalAntreanTiket} Tiket`, 'Tiket helpdesk baru & perlu ditangani'],
         ['Tiket Melewati Batas SLA', `${stats.totalSlaOverdue} Tiket`, stats.totalSlaOverdue === 0 ? 'Optimal (Tidak ada overdue)' : 'Perlu atensi teknis'],
-        ['Tingkat Kepatuhan SLA', `${stats.slaAchievementRate}%`, 'Persentase penyelesaian tepat waktu'],
+        ['Kepatuhan First Response Time (FRT)', `${stats.frtComplianceRate ?? 100}%`, `Rata-rata respon pertama: ${formatMinutesLabel(stats.avgFrtMinutes ?? 0)}`],
+        ['Kepatuhan Resolution Time (RT / SLA)', `${stats.rtComplianceRate ?? stats.slaAchievementRate}%`, `Rata-rata penyelesaian: ${formatHoursLabel(stats.avgRtHours ?? 0)}`],
         ['Peminjaman Menunggu Persetujuan', `${stats.totalPinjamMenunggu} Pengajuan`, 'Menunggu verifikasi admin'],
         ['Peminjaman Terlambat Kembali', `${stats.totalPinjamTerlambat} Unit`, stats.totalPinjamTerlambat === 0 ? 'Tertib' : 'Peringatan otomatis aktif'],
         ['Pengajuan Sistem Baru', `${stats.totalPengajuanSistem} Usulan`, `Dalam pengembangan: ${stats.pengajuanDalamPengembangan} sistem`]
@@ -1209,19 +1268,23 @@ export class PdfReportService {
     const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
     doc.text(`Cirebon, ${todayDateStr}`, 145, currentY);
 
     const signY = currentY + 6;
-    doc.text('Mengetahui, Rektor / Pimpinan Universitas', 45, signY, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Mengetahui, ${pimpinanJabatan}`, 48, signY, { align: 'center' });
     doc.text('Kepala PUSDATIN UMC,', 150, signY, { align: 'center' });
 
     const nameY = signY + 24;
     doc.setFont('helvetica', 'bold');
-    doc.text(`( ${rektorNama} )`, 45, nameY, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    doc.text(`( ${rektorNama} )`, 48, nameY, { align: 'center' });
     doc.text(`( ${kepalaNama} )`, 150, nameY, { align: 'center' });
     if (kepalaNip) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
       doc.text(kepalaNip, 150, nameY + 4, { align: 'center' });
     }
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AppStatistics } from '../../types';
+import { AppDatabase } from '../../services/db';
 import {
   Handshake,
   AlertTriangle,
@@ -21,6 +22,8 @@ interface UserDashboardProps {
 export const UserDashboard: React.FC<UserDashboardProps> = ({
   onNavigateTab
 }) => {
+  const activeUser = AppDatabase.getActiveUser();
+  const isMahasiswa = activeUser?.civitasType === 'Mahasiswa';
   const [activeSopTab, setActiveSopTab] = useState<'pinjam' | 'rusak' | 'sistem'>('pinjam');
 
   return (
@@ -68,14 +71,16 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>Lapor Kerusakan Perangkat</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => onNavigateTab('pengajuan-sistem-user')}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl transition-colors backdrop-blur-xs cursor-pointer"
-            >
-              <Wrench className="w-4 h-4 text-cyan-400" />
-              <span>Ajukan Sistem Baru (F-DEV-01)</span>
-            </button>
+            {!isMahasiswa && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('pengajuan-sistem-user')}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-200 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl transition-colors backdrop-blur-xs cursor-pointer"
+              >
+                <Wrench className="w-4 h-4 text-cyan-400" />
+                <span>Ajukan Sistem Baru (F-DEV-01)</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -99,7 +104,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             Alur SOP Pelayanan PUSDATIN UMC
           </h2>
           <p className="text-xs sm:text-sm text-slate-600">
-            Pelajari alur langkah terstandar untuk peminjaman aset, pelaporan kerusakan, dan usulan aplikasi baru.
+            {isMahasiswa
+              ? 'Pelajari alur langkah terstandar untuk peminjaman aset dan pelaporan kerusakan perangkat kampus.'
+              : 'Pelajari alur langkah terstandar untuk peminjaman aset, pelaporan kerusakan, dan usulan aplikasi baru.'}
           </p>
         </div>
 
@@ -128,17 +135,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             >
               SOP Lapor Kerusakan
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveSopTab('sistem')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeSopTab === 'sistem'
-                  ? 'bg-red-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              SOP Usulan Sistem Baru
-            </button>
+            {!isMahasiswa && (
+              <button
+                type="button"
+                onClick={() => setActiveSopTab('sistem')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeSopTab === 'sistem'
+                    ? 'bg-red-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                SOP Usulan Sistem Baru
+              </button>
+            )}
           </div>
         </div>
 
@@ -252,7 +261,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           )}
 
-          {activeSopTab === 'sistem' && (
+          {!isMahasiswa && activeSopTab === 'sistem' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between pb-4 border-b border-slate-200">
                 <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">

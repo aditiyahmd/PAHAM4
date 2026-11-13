@@ -14,8 +14,7 @@ import {
   LockKeyhole,
   BarChart3,
   Users,
-  X,
-  PanelLeftClose
+  X
 } from 'lucide-react';
 import { AppDatabase } from '../services/db';
 
@@ -294,10 +293,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={onToggleDesktopCollapse}
             data-testid="minimize-sidebar-desktop"
             className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-lg border border-slate-200/80 bg-white transition-colors cursor-pointer shrink-0"
-            title="Perkecil Menu Samping"
-            aria-label="Perkecil Menu Samping"
+            title="Tutup Menu Samping"
+            aria-label="Tutup Menu Samping"
           >
-            <PanelLeftClose className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 

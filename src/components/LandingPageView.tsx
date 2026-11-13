@@ -68,7 +68,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
 
             <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
               <strong>PAHAM</strong> (PUSDATIN Asset & Helpdesk Assistance Management) mengintegrasikan
-              inventarisasi aset kampus berbasis barcode/QR, peminjaman perangkat, penanganan kerusakan berstandar SLA,
+              inventarisasi aset kampus berbasis barcode, peminjaman perangkat, penanganan kerusakan berstandar SLA,
               hingga tata kelola pengajuan aplikasi baru di lingkungan Universitas Muhammadiyah Cirebon.
             </p>
 
@@ -141,7 +141,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               <div className="w-12 h-12 rounded-xl bg-red-100 text-red-700 flex items-center justify-center">
                 <Package className="w-6 h-6" />
               </div>
-              <h3 className="font-bold text-base text-slate-900">1. Manajemen Aset & Kode Unik QR</h3>
+              <h3 className="font-bold text-base text-slate-900">1. Manajemen Aset & Kode Unik Barcode</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 Pencatatan aset sejak Buku Penerimaan (faktur multi-item), registrasi fisik ber-barcode unik,
                 pengeluaran ke unit kerja, hingga Buku Aset Inventaris yang menghitung saldo stok riil kampus secara otomatis.

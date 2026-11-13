@@ -3,7 +3,6 @@ import {
   FileText,
   Search,
   ArrowUpRight,
-  QrCode,
   Calendar,
   Building,
   CheckCircle2,
@@ -18,6 +17,7 @@ import {
 import { AppDatabase } from '../../services/db';
 import { BukuPengeluaranItem, Asset } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
 
 interface BukuPengeluaranViewProps {
   onDataChanged?: () => void;
@@ -34,6 +34,7 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
   const [isJalur1ModalOpen, setIsJalur1ModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedPengeluaran, setSelectedPengeluaran] = useState<BukuPengeluaranItem | null>(null);
+  const [pendingBastItem, setPendingBastItem] = useState<BukuPengeluaranItem | null>(null);
 
   // Form State: Multi-Asset Pengeluaran
   const [selectedAssets, setSelectedAssets] = useState<Asset[]>([]);
@@ -102,13 +103,22 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
     }
   };
 
-  // Print Single Pengeluaran BAST
+  // Print Single Pengeluaran BAST (konfirmasi penandatangan lebih dulu)
   const handlePrintBast = (item: BukuPengeluaranItem) => {
-    const doc = PdfReportService.generateBukuPengeluaranBastPdf(item, {
-      title: `Berita Acara Pengeluaran / Penyerahan Aset - ${item.idPengeluaran}`
+    setPendingBastItem(item);
+  };
+
+  const handleConfirmPrintBast = (values: ConfirmedSignatoryValues) => {
+    if (!pendingBastItem) return;
+    const doc = PdfReportService.generateBukuPengeluaranBastPdf(pendingBastItem, {
+      title: `Berita Acara Pengeluaran / Penyerahan Aset - ${pendingBastItem.idPengeluaran}`,
+      kepalaPusdatin: values.kepalaPusdatin,
+      nipKepala: values.nipKepala,
+      petugas: values.petugas
     });
-    const safeId = item.idPengeluaran.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeId = pendingBastItem.idPengeluaran.replace(/[^a-zA-Z0-9_-]/g, '_');
     doc.save(`BAST_Pengeluaran_${safeId}.pdf`);
+    setPendingBastItem(null);
   };
 
   const filtered = pengeluaranList.filter(item => {
@@ -634,6 +644,17 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
           </div>
         </div>
       )}
+      <SignatoryConfirmModal
+        isOpen={Boolean(pendingBastItem)}
+        documentTitle={
+          pendingBastItem
+            ? `BAST Pengeluaran Aset: ${pendingBastItem.idPengeluaran}`
+            : 'BAST Pengeluaran Aset'
+        }
+        defaultPetugas={pendingBastItem?.petugas}
+        onClose={() => setPendingBastItem(null)}
+        onConfirm={handleConfirmPrintBast}
+      />
     </div>
   );
 };

@@ -3,7 +3,7 @@ import {
   FileText,
   PlusCircle,
   PackagePlus,
-  QrCode,
+  Barcode,
   Search,
   Calendar,
   Building2,
@@ -23,6 +23,7 @@ import { AppDatabase } from '../../services/db';
 import { BukuPenerimaanItem, PenerimaanBarangSubItem, Asset, AssetStatus } from '../../types';
 import { UnifiedAssetCode } from '../QRCodeView';
 import { PdfReportService } from '../../services/pdfReportService';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
 
 interface BukuPenerimaanViewProps {
   onDataChanged?: () => void;
@@ -51,6 +52,11 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
   const [selectedPenerimaan, setSelectedPenerimaan] = useState<BukuPenerimaanItem | null>(null);
   const [selectedSubItem, setSelectedSubItem] = useState<PenerimaanBarangSubItem | null>(null);
   const [selectedAssetForQR, setSelectedAssetForQR] = useState<Asset | null>(null);
+  const [pendingPrint, setPendingPrint] = useState<
+    | { type: 'bast'; item: BukuPenerimaanItem }
+    | { type: 'monthly'; list: BukuPenerimaanItem[]; period: string }
+    | null
+  >(null);
 
   // Queue state for registering all items in multi-item receipt
   const [registrationQueue, setRegistrationQueue] = useState<PenerimaanBarangSubItem[]>([]);
@@ -343,16 +349,12 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     setIsDetailModalOpen(true);
   };
 
-  // Print Single BAST
+  // Print Single BAST (konfirmasi penandatangan lebih dulu)
   const handlePrintBast = (item: BukuPenerimaanItem) => {
-    const doc = PdfReportService.generateBukuPenerimaanBastPdf(item, {
-      title: `Berita Acara Serah Terima Penerimaan - ${item.nomorBeritaAcara}`
-    });
-    const safeNo = (item.nomorBeritaAcara || item.idPenerimaan).replace(/[^a-zA-Z0-9_-]/g, '_');
-    doc.save(`BAST_Penerimaan_${safeNo}.pdf`);
+    setPendingPrint({ type: 'bast', item });
   };
 
-  // Print Monthly Receipts
+  // Print Monthly Receipts (konfirmasi penandatangan lebih dulu)
   const handlePrintMonthly = () => {
     const listToPrint = filterMonth
       ? penerimaanList.filter(p => p.tanggalPenerimaan.startsWith(filterMonth))
@@ -366,11 +368,33 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
       return;
     }
 
-    const doc = PdfReportService.generateBukuPenerimaanMonthlyPdf(listToPrint, filterMonth || 'Semua Periode', {
-      title: `Laporan Rekapitulasi Buku Penerimaan Aset TI UMC`
-    });
-    const safePeriod = (filterMonth || 'Semua_Periode').replace(/[^a-zA-Z0-9_-]/g, '_');
-    doc.save(`Rekap_Buku_Penerimaan_${safePeriod}.pdf`);
+    setPendingPrint({ type: 'monthly', list: listToPrint, period: filterMonth || 'Semua Periode' });
+  };
+
+  const handleConfirmSignatoryPrint = (values: ConfirmedSignatoryValues) => {
+    if (!pendingPrint) return;
+    if (pendingPrint.type === 'bast') {
+      const { item } = pendingPrint;
+      const doc = PdfReportService.generateBukuPenerimaanBastPdf(item, {
+        title: `Berita Acara Serah Terima Penerimaan - ${item.nomorBeritaAcara}`,
+        kepalaPusdatin: values.kepalaPusdatin,
+        nipKepala: values.nipKepala,
+        petugas: values.petugas
+      });
+      const safeNo = (item.nomorBeritaAcara || item.idPenerimaan).replace(/[^a-zA-Z0-9_-]/g, '_');
+      doc.save(`BAST_Penerimaan_${safeNo}.pdf`);
+    } else {
+      const { list, period } = pendingPrint;
+      const doc = PdfReportService.generateBukuPenerimaanMonthlyPdf(list, period, {
+        title: 'Laporan Rekapitulasi Buku Penerimaan Aset TI UMC',
+        kepalaPusdatin: values.kepalaPusdatin,
+        nipKepala: values.nipKepala,
+        petugas: values.petugas
+      });
+      const safePeriod = period.replace(/[^a-zA-Z0-9_-]/g, '_');
+      doc.save(`Rekap_Buku_Penerimaan_${safePeriod}.pdf`);
+    }
+    setPendingPrint(null);
   };
 
   // Filtering
@@ -906,7 +930,7 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                   <h3 className="font-bold text-slate-900 text-base">Registrasi Data Aset PUSDATIN</h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Faktur: <span className="font-mono font-bold text-slate-700">{selectedPenerimaan.nomorFaktur}</span> · Menerbitkan Kode Unik Aset & QR Code otomatis
+                  Faktur: <span className="font-mono font-bold text-slate-700">{selectedPenerimaan.nomorFaktur}</span> · Menerbitkan Kode Unik Aset & Barcode otomatis
                 </p>
               </div>
               <button
@@ -1384,8 +1408,8 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                           onClick={() => setSelectedAssetForQR(unit)}
                           className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded border border-slate-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
                         >
-                          <QrCode className="w-3 h-3 text-emerald-600" />
-                          <span>QR Label</span>
+                          <Barcode className="w-3 h-3 text-emerald-600" />
+                          <span>Label Barcode</span>
                         </button>
                       </div>
                     ))}
@@ -1420,14 +1444,14 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
         </div>
       )}
 
-      {/* MODAL 4: QR Code Preview */}
+      {/* MODAL 4: Barcode Preview */}
       {selectedAssetForQR && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                <QrCode className="w-4 h-4 text-emerald-600" />
-                Label QR Code & Barcode Aset
+                <Barcode className="w-4 h-4 text-emerald-600" />
+                Label Barcode Aset Resmi
               </h3>
               <button
                 type="button"
@@ -1456,6 +1480,17 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
           </div>
         </div>
       )}
+
+      <SignatoryConfirmModal
+        isOpen={Boolean(pendingPrint)}
+        documentTitle={
+          pendingPrint?.type === 'bast'
+            ? `BAST Penerimaan: ${pendingPrint.item.nomorBeritaAcara}`
+            : `Rekap Buku Penerimaan (${pendingPrint?.type === 'monthly' ? pendingPrint.period : ''})`
+        }
+        onClose={() => setPendingPrint(null)}
+        onConfirm={handleConfirmSignatoryPrint}
+      />
     </div>
   );
 };

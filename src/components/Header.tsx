@@ -3,9 +3,7 @@ import {
   LogOut,
   Bell,
   Menu,
-  LogIn,
-  PanelLeftClose,
-  PanelLeftOpen
+  LogIn
 } from 'lucide-react';
 import { AppUser } from '../types';
 
@@ -53,16 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label="Toggle navigation menu"
               title={isDesktopSidebarCollapsed ? 'Tampilkan Menu Samping' : 'Perkecil / Tutup Menu Samping'}
             >
-              <span className="lg:hidden">
-                <Menu className="w-5 h-5" />
-              </span>
-              <span className="hidden lg:inline-flex">
-                {isDesktopSidebarCollapsed ? (
-                  <PanelLeftOpen className="w-5 h-5 text-red-600" />
-                ) : (
-                  <PanelLeftClose className="w-5 h-5" />
-                )}
-              </span>
+              <Menu className="w-5 h-5" />
             </button>
           )}
 

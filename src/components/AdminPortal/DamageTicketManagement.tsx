@@ -1,7 +1,22 @@
 import React, { useState } from 'react';
 import { AppDatabase } from '../../services/db';
 import { WhatsAppNotificationService } from '../../services/whatsappService';
-import { DamageTicket, AssetStatus, RepairCategory, TechnicianRole, TicketUrgency, TechnicianUser } from '../../types';
+import {
+  DamageTicket,
+  AssetStatus,
+  RepairCategory,
+  TechnicianRole,
+  TicketUrgency,
+  TechnicianUser,
+  SlaConfig
+} from '../../types';
+import {
+  computeSlaEvaluation,
+  computeAggregateSlaStats,
+  formatMinutesLabel,
+  formatHoursLabel,
+  DEFAULT_SLA_CONFIG
+} from '../../services/slaService';
 import { BarcodeScannerModal } from '../Modals/BarcodeScannerModal';
 import {
   AlertTriangle,
@@ -42,7 +57,9 @@ import {
   ArrowRight,
   GitBranch,
   Check,
-  HelpCircle
+  HelpCircle,
+  SlidersHorizontal,
+  Gauge
 } from 'lucide-react';
 
 interface DamageTicketManagementProps {
@@ -119,8 +136,15 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const [internalStatus, setInternalStatus] = useState<'Open' | 'Assigned' | 'In Progress'>('Open');
   const [internalMetode, setInternalMetode] = useState<'Di Lokasi' | 'Dibawa ke PUSDATIN'>('Dibawa ke PUSDATIN');
 
+  // SLA Configuration (FRT & RT) states
+  const [slaConfig, setSlaConfig] = useState<SlaConfig>(() => AppDatabase.getSlaConfig());
+  const [showSlaModal, setShowSlaModal] = useState(false);
+  const [slaDraft, setSlaDraft] = useState<SlaConfig>(() => AppDatabase.getSlaConfig());
+  const [slaFeedback, setSlaFeedback] = useState<string | null>(null);
+
   const tickets = AppDatabase.getDamageTickets();
   const allAssets = AppDatabase.getAssets();
+  const slaSummary = computeAggregateSlaStats(tickets, slaConfig);
 
   const handleSelectAssetForInternal = (barcode: string) => {
     setInternalBarcode(barcode);
@@ -413,6 +437,20 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     return `https://wa.me/${clean}?text=${encodeURIComponent(msg)}`;
   };
 
+  const handleSaveSlaConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = AppDatabase.setSlaConfig(slaDraft);
+    if (!res.success) {
+      setSlaFeedback(res.message);
+      return;
+    }
+    setSlaConfig(AppDatabase.getSlaConfig());
+    setShowSlaModal(false);
+    setSlaFeedback(res.message);
+    onDataChanged();
+    setTimeout(() => setSlaFeedback(null), 4000);
+  };
+
   const exportToExcelCsv = () => {
     const headers = [
       'ID Tiket',
@@ -430,28 +468,43 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       'Jadwal Pemeriksaan',
       'Skenario & Cabang',
       'Suku Cadang',
+      'Target FRT (Menit)',
+      'Realisasi FRT',
+      'Status FRT',
+      'Target RT (Jam)',
+      'Realisasi RT',
+      'Status RT',
       'Resolusi Akhir',
       'Catatan Penanganan'
     ];
-    const rows = sortedTickets.map(t => [
-      `"${t.id}"`,
-      `"${t.tanggalLapor}"`,
-      `"${(t.namaBarang || '').replace(/"/g, '""')}"`,
-      `"${t.barcode || '-'}"`,
-      `"${(t.lokasi || '').replace(/"/g, '""')}"`,
-      `"${(t.pelapor || '').replace(/"/g, '""')}"`,
-      `"${t.kontakPelapor || '-'}"`,
-      `"${t.status}"`,
-      `"${t.kategoriMasalah || '-'}"`,
-      `"${t.jenisAset || 'Fisik'}"`,
-      `"${t.urgensi || 'Sedang'}"`,
-      `"${t.picTeknisi || '-'}"`,
-      `"${t.jadwalPemeriksaan || '-'}"`,
-      `"${t.skenarioPerbaikan || t.cabangPerbaikan || '-'}"`,
-      `"${t.namaSukuCadang || '-'}"`,
-      `"${(t.resolusiAkhir || '').replace(/"/g, '""')}"`,
-      `"${(t.catatanAdmin || '').replace(/"/g, '""')}"`
-    ]);
+    const rows = sortedTickets.map(t => {
+      const sla = computeSlaEvaluation(t, slaConfig);
+      return [
+        `"${t.id}"`,
+        `"${t.tanggalLapor}"`,
+        `"${(t.namaBarang || '').replace(/"/g, '""')}"`,
+        `"${t.barcode || '-'}"`,
+        `"${(t.lokasi || '').replace(/"/g, '""')}"`,
+        `"${(t.pelapor || '').replace(/"/g, '""')}"`,
+        `"${t.kontakPelapor || '-'}"`,
+        `"${t.status}"`,
+        `"${t.kategoriMasalah || '-'}"`,
+        `"${t.jenisAset || 'Fisik'}"`,
+        `"${t.urgensi || 'Sedang'}"`,
+        `"${t.picTeknisi || '-'}"`,
+        `"${t.jadwalPemeriksaan || '-'}"`,
+        `"${t.skenarioPerbaikan || t.cabangPerbaikan || '-'}"`,
+        `"${t.namaSukuCadang || '-'}"`,
+        String(sla.frtTargetMinutes),
+        `"${sla.frtLabel}"`,
+        `"${sla.frtStatus}"`,
+        String(sla.rtTargetHours),
+        `"${sla.rtLabel}"`,
+        `"${sla.rtStatus}"`,
+        `"${(t.resolusiAkhir || '').replace(/"/g, '""')}"`,
+        `"${(t.catatanAdmin || '').replace(/"/g, '""')}"`
+      ];
+    });
     const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -580,6 +633,22 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {canEditUrgency && (
+            <button
+              type="button"
+              data-testid="open-sla-policy-btn"
+              onClick={() => {
+                setSlaDraft(AppDatabase.getSlaConfig());
+                setShowSlaModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl shadow-xs transition-colors cursor-pointer"
+              title="Konfigurasi Target FRT & RT SLA per Tingkat Urgensi"
+            >
+              <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+              <span>Atur Target SLA (FRT & RT)</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={exportToExcelCsv}
@@ -600,6 +669,13 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
           </button>
         </div>
       </div>
+
+      {slaFeedback && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{slaFeedback}</span>
+        </div>
+      )}
 
       {/* Restricted PIC Notice */}
       {isRestrictedPic && activeTech && (
@@ -699,6 +775,69 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
         </button>
       </div>
 
+      {/* SLA FRT & RT Performance Monitoring Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="sla-kpi-strip">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">Kepatuhan FRT (Respons Pertama)</span>
+            <Gauge className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold font-mono text-indigo-700">
+              {slaSummary.frtComplianceRate}%
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Rata-rata {formatMinutesLabel(slaSummary.avgFrtMinutes)}
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">Kepatuhan RT (Waktu Penyelesaian)</span>
+            <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold font-mono text-emerald-700">
+              {slaSummary.rtComplianceRate}%
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Rata-rata {formatHoursLabel(slaSummary.avgRtHours)}
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">Komitmen Target SLA Aktif</span>
+            <SlidersHorizontal className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+          </div>
+          <div className="mt-1.5 text-[11px] text-slate-700 font-semibold space-y-0.5 font-mono">
+            <div>Kritis: FRT {slaConfig.Kritis.frtTargetMinutes}m · RT {slaConfig.Kritis.rtTargetHours}j</div>
+            <div>Tinggi: FRT {slaConfig.Tinggi.frtTargetMinutes}m · RT {slaConfig.Tinggi.rtTargetHours}j</div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">Status Pelanggaran SLA</span>
+            <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${slaSummary.rtOverdueCount + slaSummary.frtOverdueCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`} />
+          </div>
+          <div className="mt-1.5 text-xs font-bold">
+            {slaSummary.rtOverdueCount + slaSummary.frtOverdueCount > 0 ? (
+              <span className="text-rose-700">
+                {slaSummary.frtOverdueCount} FRT Overdue · {slaSummary.rtOverdueCount} RT Overdue
+              </span>
+            ) : (
+              <span className="text-emerald-700">0 Pelanggaran SLA Aktif</span>
+            )}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            Sedang: FRT {slaConfig.Sedang.frtTargetMinutes}m · RT {slaConfig.Sedang.rtTargetHours}j
+          </div>
+        </div>
+      </div>
+
       {/* Filter, Search & Sorting Controls */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -748,6 +887,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 <th className="px-4 py-3.5">Lokasi & Pelapor</th>
                 <th className="px-4 py-3.5">PIC Teknisi (Peran)</th>
                 <th className="px-4 py-3.5">Tahap SOP & Jadwal</th>
+                <th className="px-4 py-3.5">Komitmen SLA (FRT & RT)</th>
                 <th className="px-4 py-3.5">Gejala / Kebutuhan Part</th>
                 <th className="px-4 py-3.5 text-right">Tindakan SOP</th>
               </tr>
@@ -755,7 +895,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
             <tbody className="divide-y divide-slate-100">
               {sortedTickets.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-500">
+                  <td colSpan={8} className="p-12 text-center text-slate-500">
                     <p className="font-bold text-sm">Tidak ada tiket yang sesuai kriteria.</p>
                     <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci atau reset filter status.</p>
                   </td>
@@ -763,6 +903,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               ) : (
                 sortedTickets.map(t => {
                   const waLink = getWaLink(t.kontakPelapor, t.id, t.namaBarang);
+                  const slaEval = computeSlaEvaluation(t, slaConfig);
 
                   return (
                     <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
@@ -864,6 +1005,40 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                             <span className="truncate max-w-[170px]">{t.jadwalPemeriksaan}</span>
                           </div>
                         )}
+                      </td>
+
+                      {/* SLA FRT & RT Evaluation Cell */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="space-y-1 text-[10px]">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-bold border ${
+                                slaEval.frtStatus === 'Memenuhi SLA' || slaEval.frtStatus === 'Dalam Batas'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : slaEval.frtStatus === 'Mendekati Batas'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-rose-50 text-rose-800 border-rose-200'
+                              }`}
+                            >
+                              FRT: {slaEval.frtStatus}
+                            </span>
+                            <span className="font-mono text-slate-600">{slaEval.frtLabel}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-bold border ${
+                                slaEval.rtStatus === 'Memenuhi SLA' || slaEval.rtStatus === 'Dalam Batas'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : slaEval.rtStatus === 'Mendekati Batas'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-rose-50 text-rose-800 border-rose-200'
+                              }`}
+                            >
+                              RT: {slaEval.rtStatus}
+                            </span>
+                            <span className="font-mono text-slate-600">{slaEval.rtLabel}</span>
+                          </div>
+                        </div>
                       </td>
 
                       {/* Gejala / Catatan / Suku Cadang */}
@@ -973,6 +1148,49 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 ✕
               </button>
             </div>
+
+            {/* Ticket SLA FRT & RT Real-Time Summary */}
+            {(() => {
+              const ticketSla = computeSlaEvaluation(selectedTicket, slaConfig);
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase text-slate-500">First Response Time (FRT)</div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="font-mono font-semibold text-slate-800">{ticketSla.frtLabel}</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          ticketSla.frtStatus === 'Melewati SLA'
+                            ? 'bg-rose-100 text-rose-800'
+                            : ticketSla.frtStatus === 'Mendekati Batas'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {ticketSla.frtStatus}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase text-slate-500">Resolution Time (RT)</div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="font-mono font-semibold text-slate-800">{ticketSla.rtLabel}</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          ticketSla.rtStatus === 'Melewati SLA'
+                            ? 'bg-rose-100 text-rose-800'
+                            : ticketSla.rtStatus === 'Mendekati Batas'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {ticketSla.rtStatus}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* SOP Stage Selector / Mode Selection */}
             <div>
@@ -1607,6 +1825,117 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
             >
               Selesai & Tutup
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfigurasi Kebijakan SLA (FRT & RT) per Urgensi */}
+      {showSlaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                  <span>Pengaturan Target SLA Helpdesk (FRT & RT)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Atur batas waktu First Response Time (menit) dan Resolution Time (jam) berdasarkan tingkat urgensi tiket.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSlaModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSlaConfig} className="space-y-4 text-xs">
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-2.5">Tingkat Urgensi</th>
+                      <th className="px-4 py-2.5">Target FRT (Menit)</th>
+                      <th className="px-4 py-2.5">Target RT (Jam)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(['Kritis', 'Tinggi', 'Sedang', 'Rendah'] as TicketUrgency[]).map(level => (
+                      <tr key={level}>
+                        <td className="px-4 py-2.5 font-bold text-slate-900">{level}</td>
+                        <td className="px-4 py-2.5">
+                          <input
+                            type="number"
+                            min={1}
+                            required
+                            data-testid={`sla-frt-${level}`}
+                            value={slaDraft[level].frtTargetMinutes}
+                            onChange={e =>
+                              setSlaDraft(prev => ({
+                                ...prev,
+                                [level]: {
+                                  ...prev[level],
+                                  frtTargetMinutes: Math.max(1, Number(e.target.value) || 1)
+                                }
+                              }))
+                            }
+                            className="w-28 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold text-slate-900"
+                          />
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <input
+                            type="number"
+                            min={1}
+                            required
+                            data-testid={`sla-rt-${level}`}
+                            value={slaDraft[level].rtTargetHours}
+                            onChange={e =>
+                              setSlaDraft(prev => ({
+                                ...prev,
+                                [level]: {
+                                  ...prev[level],
+                                  rtTargetHours: Math.max(1, Number(e.target.value) || 1)
+                                }
+                              }))
+                            }
+                            className="w-28 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono font-bold text-slate-900"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSlaDraft(DEFAULT_SLA_CONFIG)}
+                  className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 underline cursor-pointer"
+                >
+                  Reset ke Standar Awal
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowSlaModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    data-testid="save-sla-policy-btn"
+                    className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs cursor-pointer"
+                  >
+                    Simpan Kebijakan SLA
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
       )}
