@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
+import jsPDF from 'jspdf';
 import { QrCode, Barcode, Printer, Download, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 interface UnifiedAssetCodeProps {
@@ -70,98 +71,70 @@ export const UnifiedAssetCode: React.FC<UnifiedAssetCodeProps> = ({
     }
   }, [activeTab, barcode]);
 
-  const handlePrintLabel = () => {
-    const printWindow = window.open('', '_blank', 'width=450,height=600');
-    if (!printWindow) return;
+  const handlePrintLabel = async () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [70, 45] });
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Label Aset - ${kodeUnikAset || barcode}</title>
-          <style>
-            @page {
-              size: 70mm 45mm;
-              margin: 2mm;
-            }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-              margin: 0;
-              padding: 6px;
-              color: #0f172a;
-              box-sizing: border-box;
-            }
-            .label-card {
-              border: 1.5px dashed #64748b;
-              border-radius: 6px;
-              padding: 8px;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              text-align: center;
-              max-width: 250px;
-              margin: 0 auto;
-            }
-            .header {
-              font-size: 9px;
-              font-weight: 800;
-              color: #1e3a8a;
-              text-transform: uppercase;
-              letter-spacing: 0.5px;
-              margin-bottom: 2px;
-            }
-            .sub-header {
-              font-size: 7.5px;
-              color: #64748b;
-              margin-bottom: 6px;
-            }
-            .qr-img {
-              width: 110px;
-              height: 110px;
-              margin: 2px auto;
-            }
-            .asset-name {
-              font-size: 11px;
-              font-weight: 700;
-              margin-top: 4px;
-              line-height: 1.2;
-            }
-            .asset-code {
-              font-family: monospace;
-              font-size: 10px;
-              font-weight: 700;
-              background: #f1f5f9;
-              padding: 2px 6px;
-              border-radius: 4px;
-              margin-top: 3px;
-              display: inline-block;
-            }
-            .meta {
-              font-size: 7.5px;
-              color: #475569;
-              margin-top: 4px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="label-card">
-            <div class="header">PUSDATIN UMC - INVENTARIS RESMI</div>
-            <div class="sub-header">UNIVERSITAS MUHAMMADIYAH CIREBON</div>
-            <img class="qr-img" src="${qrDataUrl}" alt="QR Aset" />
-            <div class="asset-name">${namaAset}</div>
-            <div class="asset-code">${kodeUnikAset || barcode}</div>
-            <div class="meta">Scan: ${barcode} ${lokasi ? '| ' + lokasi : ''}</div>
-          </div>
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(function() { window.close(); }, 500);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    doc.setDrawColor(100, 116, 139);
+    doc.setLineWidth(0.35);
+    doc.rect(2, 2, 66, 41);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(30, 58, 138);
+    doc.text('PUSDATIN UMC - INVENTARIS RESMI', 35, 5.5, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON', 35, 8.2, { align: 'center' });
+
+    if (activeTab === 'qr') {
+      const imgUrl =
+        qrDataUrl ||
+        (await QRCode.toDataURL(qrPayload, {
+          width: 280,
+          margin: 1,
+          color: { dark: '#0f172a', light: '#ffffff' },
+          errorCorrectionLevel: 'M'
+        }));
+      doc.addImage(imgUrl, 'PNG', 24.5, 9.8, 21, 21);
+    } else {
+      const canvas = document.createElement('canvas');
+      JsBarcode(canvas, (barcode || 'AST-000').trim(), {
+        format: 'CODE128',
+        width: 2,
+        height: 48,
+        displayValue: true,
+        font: 'monospace',
+        fontSize: 12,
+        textMargin: 4,
+        margin: 6,
+        background: '#ffffff',
+        lineColor: '#0f172a'
+      });
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 11.5, 50, 17.5);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    const shortName = namaAset.length > 42 ? `${namaAset.slice(0, 40)}...` : namaAset;
+    doc.text(shortName, 35, 34.2, { align: 'center' });
+
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(15, 23, 42);
+    doc.text(kodeUnikAset || barcode, 35, 37.6, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(71, 85, 105);
+    const metaText = `Scan: ${barcode}${lokasi ? ' | ' + lokasi : ''}`;
+    const shortMeta = metaText.length > 52 ? `${metaText.slice(0, 50)}...` : metaText;
+    doc.text(shortMeta, 35, 40.8, { align: 'center' });
+
+    const safeCode = (kodeUnikAset || barcode).replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`Label_Aset_${safeCode}.pdf`);
   };
 
   return (

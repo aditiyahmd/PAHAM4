@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import jsPDF from 'jspdf';
+import JsBarcode from 'jsbarcode';
 import { AppDatabase } from '../../services/db';
 import { Asset, AssetStatus } from '../../types';
 import { BarcodeView } from '../BarcodeView';
@@ -219,46 +221,57 @@ export const AssetInventory: React.FC<AssetInventoryProps> = ({ onDataChanged })
   });
 
   const printBatchThermalLabels = () => {
-    const printWin = window.open('', '_blank', 'width=380,height=300');
-    if (!printWin) {
-      alert('Harap izinkan popup browser untuk mencetak stiker thermal.');
-      return;
-    }
+    if (generatedItems.length === 0) return;
 
-    let ticketsHtml = '';
-    generatedItems.forEach(item => {
-      ticketsHtml += `
-        <div class="thermal-ticket">
-          <div class="brand">PUSDATIN UMC</div>
-          <div class="barcode-box">||| | | ||| | |||</div>
-          <div class="title">${item.nama.replace(/"/g, '&quot;')}</div>
-          <div class="code">* ${item.barcode} *</div>
-        </div>
-      `;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [58, 30] });
+
+    generatedItems.forEach((item, index) => {
+      if (index > 0) {
+        doc.addPage([58, 30], 'landscape');
+      }
+
+      const canvas = document.createElement('canvas');
+      JsBarcode(canvas, item.barcode.trim(), {
+        format: 'CODE128',
+        width: 2,
+        height: 52,
+        displayValue: true,
+        fontSize: 13,
+        font: 'monospace',
+        textMargin: 3,
+        margin: 6,
+        background: '#ffffff',
+        lineColor: '#000000'
+      });
+
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.3);
+      doc.rect(1.5, 1.5, 55, 27);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('PUSDATIN UMC · ASET RESMI', 29, 4.8, { align: 'center' });
+
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 5, 6, 48, 15.5);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6);
+      doc.setTextColor(30, 41, 59);
+      const shortName = item.nama.length > 40 ? `${item.nama.slice(0, 38)}...` : item.nama;
+      doc.text(shortName, 29, 24.5, { align: 'center' });
+
+      const meta = [item.kategori, item.lokasi].filter(Boolean).join(' · ');
+      if (meta) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5);
+        doc.setTextColor(100, 116, 139);
+        const shortMeta = meta.length > 48 ? `${meta.slice(0, 46)}...` : meta;
+        doc.text(shortMeta, 29, 27.2, { align: 'center' });
+      }
     });
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Cetak Label Barcode</title>
-        <style>
-          body { font-family: monospace; margin: 0; padding: 10px; }
-          .thermal-ticket { border-bottom: 1px dashed #000; padding: 10px 0; text-align: center; }
-          .brand { font-weight: bold; font-size: 14px; }
-          .barcode-box { font-size: 22px; letter-spacing: 2px; margin: 6px 0; }
-          .title { font-size: 11px; margin-bottom: 4px; }
-          .code { font-size: 12px; font-weight: bold; }
-        </style>
-      </head>
-      <body onload="window.print()">
-        ${ticketsHtml}
-      </body>
-      </html>
-    `;
-
-    printWin.document.write(htmlContent);
-    printWin.document.close();
+    doc.save(`Batch_Stiker_Barcode_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   return (

@@ -117,11 +117,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 
   // Export Full PDF (Requirement 3.1)
   const handleDownloadPdfReport = () => {
-    PdfReportService.generateExecutiveDashboardPdf(stats, selectedMonth, {
+    const doc = PdfReportService.generateExecutiveDashboardPdf(stats, selectedMonth, {
       penerimaanCount: penerimaanList.length,
       pengeluaranCount: pengeluaranList.length,
       totalAsetValue: totalNilaiAset
     });
+    const safeMonth = (selectedMonth || 'Periode').replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`Laporan_Eksekutif_Dashboard_UMC_${safeMonth}.pdf`);
   };
 
   // Operational metrics

@@ -31,6 +31,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard-pimpinan');
   const [activeTrackId, setActiveTrackId] = useState<string>('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(
+    () => sessionStorage.getItem('pusdatin_sso_logged_in') === 'true'
+  );
 
   // Modals
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -46,10 +50,23 @@ export default function App() {
 
   useEffect(() => {
     refreshData();
-  }, [activeTab, pageMode]);
+  }, [activeTab, pageMode, isLoggedIn]);
+
+  const activeUser = AppDatabase.getActiveUser();
+
+  const handleToggleSidebar = () => {
+    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+      setIsDesktopSidebarCollapsed(prev => !prev);
+    } else {
+      setIsMobileSidebarOpen(prev => !prev);
+    }
+  };
 
   const handleLoginSuccess = () => {
+    sessionStorage.setItem('pusdatin_sso_logged_in', 'true');
+    setIsLoggedIn(true);
     const user = AppDatabase.getActiveUser();
+    refreshData();
     if (user.role === 'ACT-01') {
       setPageMode('executive');
       setActiveTab('dashboard-pimpinan');
@@ -73,8 +90,10 @@ export default function App() {
   const handleLogout = () => {
     sessionStorage.removeItem('pusdatin_sso_logged_in');
     sessionStorage.removeItem('pusdatin_admin_auth');
+    setIsLoggedIn(false);
     const civitas = AppDatabase.getUsers().find(u => u.role === 'ACT-10');
     if (civitas) AppDatabase.setActiveUser(civitas.id);
+    setIsMobileSidebarOpen(false);
     setPageMode('landing');
   };
 
@@ -108,6 +127,7 @@ export default function App() {
   const handleSelectActor = (user: AppUser) => {
     refreshData();
     sessionStorage.setItem('pusdatin_sso_logged_in', 'true');
+    setIsLoggedIn(true);
     if (user.role === 'ACT-01') {
       setPageMode('executive');
       setActiveTab('dashboard-pimpinan');
@@ -133,11 +153,14 @@ export default function App() {
       {/* Top Header */}
       <Header
         pageMode={pageMode}
+        isLoggedIn={isLoggedIn}
+        activeUser={isLoggedIn ? activeUser : undefined}
+        isDesktopSidebarCollapsed={isDesktopSidebarCollapsed}
         onNavigatePage={handleNavigatePage}
         onOpenLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
         onOpenEmailLogs={() => setIsEmailModalOpen(true)}
-        onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
+        onToggleSidebar={handleToggleSidebar}
         onOpenActorSwitcher={() => setIsActorModalOpen(true)}
         pendingLoanCount={stats.totalPinjamMenunggu}
         pendingDamageCount={stats.totalAntreanTiket}
@@ -148,12 +171,16 @@ export default function App() {
       {pageMode === 'landing' ? (
         <main className="flex-1">
           <LandingPageView
+            isLoggedIn={isLoggedIn}
             onLogin={() => setIsLoginModalOpen(true)}
+            onGoToPortal={() => handleLoginSuccess()}
             onSelectRoleQuick={(roleCode: string) => {
               const users = AppDatabase.getUsers();
               const target = users.find(u => u.role === roleCode || u.id === roleCode);
               if (target) {
                 AppDatabase.setActiveUser(target.id);
+                sessionStorage.setItem('pusdatin_sso_logged_in', 'true');
+                setIsLoggedIn(true);
                 refreshData();
                 if (target.role === 'ACT-01') {
                   setPageMode('executive');
@@ -178,7 +205,7 @@ export default function App() {
         </main>
       ) : (
         /* PORTAL MODES (USER, EXECUTIVE, ADMIN) */
-        <div className="flex-1 flex max-w-7xl w-full mx-auto">
+        <div className="flex-1 flex w-full">
           {/* Navigation Sidebar */}
           <Sidebar
             pageMode={pageMode}
@@ -187,6 +214,8 @@ export default function App() {
             onNavigateHome={() => setPageMode('landing')}
             isOpenMobile={isMobileSidebarOpen}
             onCloseMobile={() => setIsMobileSidebarOpen(false)}
+            isDesktopCollapsed={isDesktopSidebarCollapsed}
+            onToggleDesktopCollapse={() => setIsDesktopSidebarCollapsed(prev => !prev)}
             pendingLoanCount={stats.totalPinjamMenunggu}
             pendingDamageCount={stats.totalAntreanTiket}
             overdueCount={stats.totalPinjamTerlambat}
@@ -195,7 +224,11 @@ export default function App() {
           />
 
           {/* Main Viewport Content */}
-          <main className="flex-1 lg:pl-72 p-4 sm:p-6 lg:p-8 min-w-0">
+          <main
+            className={`flex-1 min-w-0 transition-all duration-300 ${
+              isDesktopSidebarCollapsed ? 'lg:pl-0' : 'lg:pl-72'
+            } p-4 sm:p-6 lg:p-8`}
+          >
             {/* 1. USER PORTAL VIEWS */}
             {pageMode === 'user' && (
               <div className="max-w-5xl mx-auto space-y-6">
@@ -346,4 +379,3 @@ export default function App() {
     </div>
   );
 }
-

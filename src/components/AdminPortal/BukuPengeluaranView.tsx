@@ -104,9 +104,11 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
 
   // Print Single Pengeluaran BAST
   const handlePrintBast = (item: BukuPengeluaranItem) => {
-    PdfReportService.generateBukuPengeluaranBastPdf(item, {
+    const doc = PdfReportService.generateBukuPengeluaranBastPdf(item, {
       title: `Berita Acara Pengeluaran / Penyerahan Aset - ${item.idPengeluaran}`
     });
+    const safeId = item.idPengeluaran.replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`BAST_Pengeluaran_${safeId}.pdf`);
   };
 
   const filtered = pengeluaranList.filter(item => {

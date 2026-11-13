@@ -47,9 +47,10 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
   });
 
   const handlePrintInventaris = () => {
-    PdfReportService.generateBukuInventarisPdf(rekapList, filteredAssets, {
+    const doc = PdfReportService.generateBukuInventarisPdf(rekapList, filteredAssets, {
       title: 'Buku Aset Inventaris (Rekapitulasi Saldo Stok & Nilai Aset TI UMC)'
     });
+    doc.save(`Buku_Aset_Inventaris_UMC_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   return (

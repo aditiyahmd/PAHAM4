@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
+import jsPDF from 'jspdf';
 import { Download, Printer, Copy, Check } from 'lucide-react';
 
 interface BarcodeViewProps {
@@ -99,78 +100,59 @@ export const BarcodeView: React.FC<BarcodeViewProps> = ({
   };
 
   const printThermalLabel = () => {
-    const printWin = window.open('', '_blank', 'width=380,height=300');
-    if (!printWin) {
-      alert('Harap izinkan popup browser untuk mencetak stiker thermal.');
-      return;
+    const cleanValue = (value || 'AST-000').trim();
+    let actualFormat: 'CODE128' | 'EAN8' = format;
+    if (format === 'EAN8' && !/^\d{7,8}$/.test(cleanValue)) {
+      actualFormat = 'CODE128';
     }
 
-    const svgHtml = svgRef.current ? svgRef.current.outerHTML : '';
-    const cleanTitle = name ? name.replace(/"/g, '&quot;') : '';
+    const canvas = document.createElement('canvas');
+    JsBarcode(canvas, cleanValue, {
+      format: actualFormat,
+      width: 2,
+      height: 52,
+      displayValue: true,
+      fontSize: 13,
+      font: 'monospace',
+      textMargin: 3,
+      margin: 6,
+      background: '#ffffff',
+      lineColor: '#000000'
+    });
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Stiker Barcode - ${value}</title>
-        <style>
-          @page { size: 58mm 28mm; margin: 0; }
-          body {
-            margin: 0;
-            padding: 1.5mm 0 0 0;
-            font-family: Arial, sans-serif;
-            width: 48mm;
-            text-align: center;
-            box-sizing: border-box;
-          }
-          .brand {
-            font-size: 7pt;
-            font-weight: bold;
-            letter-spacing: 0.5px;
-            color: #000;
-            margin-bottom: 0.5mm;
-          }
-          .barcode-container svg {
-            display: block;
-            margin: 0 auto;
-            max-width: 44mm;
-            height: 12mm;
-          }
-          .title {
-            font-size: 8pt;
-            font-weight: bold;
-            margin-top: 0.8mm;
-            line-height: 1.1;
-            max-height: 6.5mm;
-            overflow: hidden;
-            word-break: break-word;
-          }
-          .code {
-            font-size: 7.5pt;
-            font-family: monospace;
-            font-weight: bold;
-            margin-top: 0.4mm;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="brand">PUSDATIN UMC</div>
-        <div class="barcode-container">
-          ${svgHtml}
-        </div>
-        ${cleanTitle ? `<div class="title">${cleanTitle}</div>` : ''}
-        <script>
-          window.onload = function() {
-            window.print();
-            setTimeout(function() { window.close(); }, 500);
-          };
-        </script>
-      </body>
-      </html>
-    `;
+    const barcodePng = canvas.toDataURL('image/png');
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [58, 30] });
 
-    printWin.document.write(htmlContent);
-    printWin.document.close();
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.3);
+    doc.rect(1.5, 1.5, 55, 27);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('PUSDATIN UMC · ASET RESMI', 29, 4.8, { align: 'center' });
+
+    doc.addImage(barcodePng, 'PNG', 5, 6, 48, 15.5);
+
+    if (name) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6);
+      doc.setTextColor(30, 41, 59);
+      const shortName = name.length > 40 ? `${name.slice(0, 38)}...` : name;
+      doc.text(shortName, 29, 24.5, { align: 'center' });
+    }
+
+    if (kategori || lokasi) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5);
+      doc.setTextColor(100, 116, 139);
+      const meta = [kategori, lokasi].filter(Boolean).join(' · ');
+      const shortMeta = meta.length > 48 ? `${meta.slice(0, 46)}...` : meta;
+      doc.text(shortMeta, 29, 27.2, { align: 'center' });
+    }
+
+    const safeCode = cleanValue.replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`Stiker_Barcode_${safeCode}.pdf`);
   };
 
   return (

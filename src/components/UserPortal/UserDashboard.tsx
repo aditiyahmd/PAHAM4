@@ -29,9 +29,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       <div className="bg-linear-to-br from-slate-900 via-slate-800 to-red-950 text-white rounded-2xl p-6 sm:p-8 shadow-sm relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-10">
           <img
-            src="/assets/aistudio/umc_seal_logo_31e5fdc7.png"
+            src="/assets/aistudio/WhatsApp_Image_2026-11-13_at_10.12.42_2b1f1e05.jpeg"
             alt="Watermark UMC"
-            className="w-72 h-auto"
+            className="w-60 h-60 object-contain rounded-full"
           />
         </div>
 

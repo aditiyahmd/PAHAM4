@@ -260,10 +260,13 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
 
           {/* Cetak Laporan Suku Cadang PDF */}
           <button
+            type="button"
             onClick={() => {
-              PdfReportService.generateSparePartsPdf(filteredParts, statusFilter);
+              const doc = PdfReportService.generateSparePartsPdf(filteredParts, statusFilter);
+              const safeStatus = statusFilter.replace(/[^a-zA-Z0-9_-]/g, '_');
+              doc.save(`Laporan_Suku_Cadang_${safeStatus}_${new Date().toISOString().split('T')[0]}.pdf`);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
             title="Cetak Rekap Kebutuhan Suku Cadang berdasarkan status yang dipilih"
           >
             <Printer className="w-3.5 h-3.5" />

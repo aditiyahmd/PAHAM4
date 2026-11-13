@@ -193,9 +193,10 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
       .filter(Boolean)
       .join(' | ') || 'Semua Data Master Aset';
 
-    PdfReportService.generateMasterAsetPdf(filteredAssets, filterDesc, {
+    const doc = PdfReportService.generateMasterAsetPdf(filteredAssets, filterDesc, {
       title: 'Laporan Master Aset TI Universitas Muhammadiyah Cirebon'
     });
+    doc.save(`Laporan_Master_Aset_UMC_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const exportCsv = () => {

@@ -15,8 +15,7 @@ import {
   BarChart3,
   Users,
   X,
-  Lock,
-  Home
+  PanelLeftClose
 } from 'lucide-react';
 import { AppDatabase } from '../services/db';
 
@@ -27,6 +26,8 @@ interface SidebarProps {
   onNavigateHome: () => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  isDesktopCollapsed: boolean;
+  onToggleDesktopCollapse: () => void;
   pendingLoanCount: number;
   pendingDamageCount: number;
   overdueCount?: number;
@@ -49,11 +50,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigateHome,
   isOpenMobile,
   onCloseMobile,
+  isDesktopCollapsed,
+  onToggleDesktopCollapse,
   pendingLoanCount,
   pendingDamageCount,
-  overdueCount = 0,
-  onOpenLogin,
-  onOpenActorSwitcher
+  overdueCount = 0
 }) => {
   const activeUser = AppDatabase.getActiveUser();
 
@@ -64,7 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ).length;
 
   // 1. User Portal Menu Items (Dosen, Karyawan, Mahasiswa)
-  // Note: "Ajukan Sistem Baru" only appears for Dosen or Karyawan (hidden for Mahasiswa)
   const isMahasiswa = activeUser.civitasType === 'Mahasiswa';
   const userMenuItems: MenuItem[] = [
     { id: 'dashboard-civitas', label: 'Dashboard', icon: LayoutDashboard },
@@ -95,12 +95,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
-  // 3. Admin Portal Menu Items by Technical Role (Section 2.3)
+  // 3. Admin Portal Menu Items by Technical Role
   const roleCode = activeUser.role;
   let adminMenuItems: MenuItem[] = [];
 
   if (roleCode === 'ACT-02' || roleCode === 'ACT-03') {
-    // Pimpinan PUSDATIN & IT Support Specialist (Admin Sistem): Semua menu
     adminMenuItems = [
       {
         id: 'dashboard-pimpinan',
@@ -172,7 +171,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     ];
   } else if (roleCode === 'ACT-04') {
-    // Cloud & Infrastructure Engineer: Dashboard dengan notifikasi tiket yang didelegasikan kepadanya, dan Helpdesk & Tiket SLA
     adminMenuItems = [
       {
         id: 'dashboard-pic',
@@ -190,8 +188,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     ];
   } else {
-    // ACT-05, ACT-06, ACT-07, ACT-08, ACT-09:
-    // Dashboard dengan notifikasi tiket yang didelegasikan, Helpdesk & Tiket SLA, dan Pengajuan Sistem Baru
     adminMenuItems = [
       {
         id: 'dashboard-pic',
@@ -217,7 +213,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ];
   }
 
-  // Pick current menu item set based on pageMode
   let currentItems: MenuItem[] = [];
   let portalTitle = 'Portal Layanan Civitas';
 
@@ -237,28 +232,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile Backdrop */}
       {isOpenMobile && (
         <div
-          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs lg:hidden"
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs lg:hidden"
           onClick={onCloseMobile}
         />
       )}
 
-      {/* Sidebar Panel */}
+      {/* Sidebar Panel: below top Header on desktop (lg:top-16 lg:z-30), drawer on mobile */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+        data-testid="sidebar-panel"
+        className={`fixed top-0 lg:top-16 bottom-0 left-0 z-50 lg:z-30 w-72 bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 ease-in-out ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${isDesktopCollapsed ? 'lg:-translate-x-full' : 'lg:translate-x-0'}`}
       >
-        {/* Brand Header */}
-        <div className="h-16 px-6 border-b border-slate-200 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img
-              src="/assets/aistudio/Pusdatin_c64eee6c.png"
-              alt="Logo PUSDATIN UMC"
-              className="h-9 w-auto object-contain cursor-pointer"
-              onClick={onNavigateHome}
-            />
+        {/* Mobile Brand Header (hidden on lg since main top Header sits above) */}
+        <div className="h-16 px-5 border-b border-slate-200 flex items-center justify-between lg:hidden">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={onNavigateHome}>
+            <div className="h-9 w-9 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0">
+              <img
+                src="/assets/aistudio/WhatsApp_Image_2026-11-13_at_10.12.42_2b1f1e05.jpeg"
+                alt="Logo UMC PUSDATIN"
+                className="h-full w-full object-contain rounded-md"
+              />
+            </div>
             <div>
-              <div className="flex items-center gap-1.5 cursor-pointer" onClick={onNavigateHome}>
+              <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-sm text-slate-900 block leading-tight">
                   PAHAM
                 </span>
@@ -275,15 +272,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={onCloseMobile}
-            className="lg:hidden p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+            aria-label="Tutup Menu"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Desktop Portal Context Bar + Minimize Button */}
+        <div className="hidden lg:flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/70">
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+              Area Kerja Aktif
+            </span>
+            <span className="text-xs font-extrabold text-slate-800 truncate block">
+              {portalTitle}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onToggleDesktopCollapse}
+            data-testid="minimize-sidebar-desktop"
+            className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-lg border border-slate-200/80 bg-white transition-colors cursor-pointer shrink-0"
+            title="Perkecil Menu Samping"
+            aria-label="Perkecil Menu Samping"
+          >
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
+        </div>
+
         {/* Navigation Section */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
-
           <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             {pageMode === 'user'
               ? 'Menu Layanan Civitas'
@@ -331,7 +350,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </div>
 
-        {/* Footer info & quick switch */}
+        {/* Footer info */}
         <div className="p-4 border-t border-slate-200 bg-slate-50/50">
           <div className="text-[11px] text-slate-500 text-center space-y-1">
             <div>
@@ -346,4 +365,3 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </>
   );
 };
-

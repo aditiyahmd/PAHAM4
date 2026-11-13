@@ -15,7 +15,9 @@ import {
   Trash2,
   Layers,
   ChevronDown,
-  Filter
+  Filter,
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
 import { BukuPenerimaanItem, PenerimaanBarangSubItem, Asset, AssetStatus } from '../../types';
@@ -54,6 +56,10 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
   const [registrationQueue, setRegistrationQueue] = useState<PenerimaanBarangSubItem[]>([]);
   const [queueCurrentIndex, setQueueCurrentIndex] = useState<number>(0);
   const [totalQueueItems, setTotalQueueItems] = useState<number>(0);
+  const [statusBanner, setStatusBanner] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
 
   // Form State: Buku Penerimaan Multi-Item
   const [formHeader, setFormHeader] = useState({
@@ -185,17 +191,40 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     setIsBatchRegModalOpen(true);
   };
 
+  const getEffectiveSubItems = (item: BukuPenerimaanItem): PenerimaanBarangSubItem[] => {
+    if (item.items && item.items.length > 0) return item.items;
+    const qty = item.banyaknya || item.jumlah || 1;
+    const unitPrice = item.hargaSatuan || 0;
+    return [
+      {
+        idSubItem: `${item.idPenerimaan}-01`,
+        namaAset: item.namaAset || 'Perangkat Aset TI',
+        kategori: item.kategori || categories[0] || 'Komputer & Laptop',
+        banyaknya: qty,
+        hargaSatuan: unitPrice,
+        jumlahHarga: item.jumlahHarga || qty * unitPrice,
+        terdaftarCount: item.tercatatUnitCount || 0
+      }
+    ];
+  };
+
   // Submit Multi-Item Penerimaan
   const handleSubmitPenerimaan = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formHeader.dari || !formHeader.nomorFaktur) {
-      alert('Mohon lengkapi Pengirim/Vendor dan Nomor Faktur!');
+      setStatusBanner({
+        type: 'error',
+        message: 'Mohon lengkapi Pengirim/Vendor dan Nomor Faktur!'
+      });
       return;
     }
 
     const invalidItem = formItems.find(it => !it.namaAset.trim() || it.banyaknya <= 0);
     if (invalidItem) {
-      alert('Mohon isi nama barang dan jumlah unit minimal 1 untuk semua item!');
+      setStatusBanner({
+        type: 'error',
+        message: 'Mohon isi nama barang dan jumlah unit minimal 1 untuk semua item!'
+      });
       return;
     }
 
@@ -221,14 +250,16 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
     });
 
     if (res.success && res.data) {
-      alert(res.message);
+      setStatusBanner({ type: 'success', message: res.message });
       setIsAddModalOpen(false);
       reloadData();
       // Start batch registration queue for all items in the receipt
-      const unregItems = (res.data.items || []).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
+      const unregItems = getEffectiveSubItems(res.data).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
       if (unregItems.length > 0) {
         openBatchRegistration(res.data, unregItems[0], unregItems, 0, unregItems.length);
       }
+    } else if (!res.success) {
+      setStatusBanner({ type: 'error', message: res.message });
     }
   };
 
@@ -239,7 +270,7 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
 
     const sisa = Math.max(0, selectedSubItem.banyaknya - (selectedSubItem.terdaftarCount || 0));
     if (sisa <= 0) {
-      alert('Semua unit barang ini sudah diregistrasi!');
+      setStatusBanner({ type: 'info', message: 'Semua unit barang ini sudah diregistrasi.' });
       setIsBatchRegModalOpen(false);
       return;
     }
@@ -279,22 +310,30 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
       reloadData();
       // Check remaining unregistered items in the current receipt
       const updatedPenerimaan = AppDatabase.getBukuPenerimaan().find(p => p.idPenerimaan === selectedPenerimaan.idPenerimaan);
-      const remainingUnreg = (updatedPenerimaan?.items || []).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
+      const remainingUnreg = updatedPenerimaan
+        ? getEffectiveSubItems(updatedPenerimaan).filter(it => (it.terdaftarCount || 0) < it.banyaknya)
+        : [];
 
-      if (remainingUnreg.length > 0) {
+      if (remainingUnreg.length > 0 && updatedPenerimaan) {
         const nextItem = remainingUnreg[0];
         const nextIndex = queueCurrentIndex + 1;
-        alert(`Berhasil meregistrasi ${sisa} unit "${batchRegForm.namaAset}". Melanjutkan registrasi barang ke-${nextIndex + 1} dari ${totalQueueItems}: "${nextItem.namaAset}" (${Math.max(0, nextItem.banyaknya - (nextItem.terdaftarCount || 0))} unit)...`);
-        openBatchRegistration(updatedPenerimaan!, nextItem, remainingUnreg, nextIndex, totalQueueItems);
+        setStatusBanner({
+          type: 'success',
+          message: `Berhasil meregistrasi ${sisa} unit "${batchRegForm.namaAset}". Melanjutkan registrasi barang ke-${nextIndex + 1} dari ${totalQueueItems}: "${nextItem.namaAset}".`
+        });
+        openBatchRegistration(updatedPenerimaan, nextItem, remainingUnreg, nextIndex, totalQueueItems);
       } else {
-        alert(`Seluruh ${totalQueueItems} jenis barang dalam faktur ${selectedPenerimaan.nomorFaktur} berhasil diregistrasi ke sistem inventaris!`);
+        setStatusBanner({
+          type: 'success',
+          message: `Seluruh ${totalQueueItems} jenis barang dalam faktur ${selectedPenerimaan.nomorFaktur} berhasil diregistrasi ke sistem inventaris!`
+        });
         setIsBatchRegModalOpen(false);
         if (res.registeredAssets && res.registeredAssets.length > 0) {
           setSelectedAssetForQR(res.registeredAssets[0]);
         }
       }
     } else {
-      alert(res.message);
+      setStatusBanner({ type: 'error', message: res.message });
     }
   };
 
@@ -306,9 +345,11 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
 
   // Print Single BAST
   const handlePrintBast = (item: BukuPenerimaanItem) => {
-    PdfReportService.generateBukuPenerimaanBastPdf(item, {
+    const doc = PdfReportService.generateBukuPenerimaanBastPdf(item, {
       title: `Berita Acara Serah Terima Penerimaan - ${item.nomorBeritaAcara}`
     });
+    const safeNo = (item.nomorBeritaAcara || item.idPenerimaan).replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`BAST_Penerimaan_${safeNo}.pdf`);
   };
 
   // Print Monthly Receipts
@@ -318,13 +359,18 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
       : penerimaanList;
 
     if (listToPrint.length === 0) {
-      alert('Tidak ada data penerimaan untuk bulan yang dipilih.');
+      setStatusBanner({
+        type: 'info',
+        message: 'Tidak ada data penerimaan untuk bulan yang dipilih.'
+      });
       return;
     }
 
-    PdfReportService.generateBukuPenerimaanMonthlyPdf(listToPrint, filterMonth || 'Semua Periode', {
+    const doc = PdfReportService.generateBukuPenerimaanMonthlyPdf(listToPrint, filterMonth || 'Semua Periode', {
       title: `Laporan Rekapitulasi Buku Penerimaan Aset TI UMC`
     });
+    const safePeriod = (filterMonth || 'Semua_Periode').replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`Rekap_Buku_Penerimaan_${safePeriod}.pdf`);
   };
 
   // Filtering
@@ -395,6 +441,37 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
         </div>
       </div>
 
+      {/* Inline Status Banner */}
+      {statusBanner && (
+        <div
+          role="status"
+          className={`px-4 py-3 rounded-xl border flex items-center justify-between gap-3 text-xs font-semibold ${
+            statusBanner.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : statusBanner.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-900'
+              : 'bg-sky-50 border-sky-200 text-sky-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {statusBanner.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-current shrink-0" />
+            )}
+            <span>{statusBanner.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusBanner(null)}
+            aria-label="Tutup notifikasi"
+            className="p-1 rounded-lg hover:bg-black/5 cursor-pointer shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Search & Filter Bar */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
         {/* Search input (handles Nomor Berita Acara, Faktur, Aset, Vendor) */}
@@ -454,8 +531,12 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filtered.map(item => {
-                const totalItemUnits = item.items?.reduce((s, it) => s + it.banyaknya, 0) || item.banyaknya || 0;
-                const totalRegistered = item.items?.reduce((s, it) => s + (it.terdaftarCount || 0), 0) || 0;
+                const effectiveItems = getEffectiveSubItems(item);
+                const totalItemUnits = effectiveItems.reduce((s, it) => s + it.banyaknya, 0);
+                const totalRegistered =
+                  item.items && item.items.length > 0
+                    ? item.items.reduce((s, it) => s + (it.terdaftarCount || 0), 0)
+                    : (item.tercatatUnitCount || 0);
                 const isFullyRegistered = totalRegistered >= totalItemUnits;
 
                 return (
@@ -549,8 +630,9 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                           <button
                             type="button"
                             onClick={() => {
-                              const unregItems = (item.items || []).filter(it => (it.terdaftarCount || 0) < it.banyaknya);
-                              const targetItem = unregItems[0] || item.items?.[0];
+                              const effectiveItems = getEffectiveSubItems(item);
+                              const unregItems = effectiveItems.filter(it => (it.terdaftarCount || 0) < it.banyaknya);
+                              const targetItem = unregItems[0] || effectiveItems[0];
                               if (targetItem) {
                                 openBatchRegistration(item, targetItem, unregItems, 0, unregItems.length || 1);
                               }
@@ -1233,21 +1315,47 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
                           );
                         })
                       ) : (
-                        <tr>
-                          <td className="py-2 px-3 font-semibold text-slate-900">{selectedPenerimaan.namaAset || 'Perangkat Aset'}</td>
-                          <td className="py-2 px-3 text-slate-600">{selectedPenerimaan.kategori || '-'}</td>
-                          <td className="py-2 px-3 font-mono font-bold">{selectedPenerimaan.banyaknya || 1} unit</td>
-                          <td className="py-2 px-3 font-mono">Rp {(selectedPenerimaan.hargaSatuan || 0).toLocaleString('id-ID')}</td>
-                          <td className="py-2 px-3 font-mono font-bold text-emerald-700">
-                            Rp {(selectedPenerimaan.jumlahHarga || 0).toLocaleString('id-ID')}
-                          </td>
-                          <td className="py-2 px-3">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                              Unit Standar
-                            </span>
-                          </td>
-                          <td className="py-2 px-3 text-right">-</td>
-                        </tr>
+                        (() => {
+                          const fallbackItems = getEffectiveSubItems(selectedPenerimaan);
+                          const sub = fallbackItems[0];
+                          const isComplete = (sub.terdaftarCount || 0) >= sub.banyaknya;
+                          return (
+                            <tr>
+                              <td className="py-2 px-3 font-semibold text-slate-900">{sub.namaAset}</td>
+                              <td className="py-2 px-3 text-slate-600">{sub.kategori}</td>
+                              <td className="py-2 px-3 font-mono font-bold">{sub.banyaknya} unit</td>
+                              <td className="py-2 px-3 font-mono">Rp {sub.hargaSatuan.toLocaleString('id-ID')}</td>
+                              <td className="py-2 px-3 font-mono font-bold text-emerald-700">
+                                Rp {sub.jumlahHarga.toLocaleString('id-ID')}
+                              </td>
+                              <td className="py-2 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    isComplete ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {sub.terdaftarCount || 0}/{sub.banyaknya} Terdaftar
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                {!isComplete && (activeUser.role === 'ACT-02' || activeUser.role === 'ACT-03') ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsDetailModalOpen(false);
+                                      openBatchRegistration(selectedPenerimaan, sub, [sub], 0, 1);
+                                    }}
+                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold cursor-pointer"
+                                  >
+                                    Registrasi Unit
+                                  </button>
+                                ) : (
+                                  '-'
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })()
                       )}
                     </tbody>
                   </table>

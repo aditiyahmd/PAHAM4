@@ -28,19 +28,21 @@ import {
 import { AppDatabase } from '../services/db';
 
 interface LandingPageViewProps {
+  isLoggedIn?: boolean;
   onLogin: () => void;
+  onGoToPortal?: () => void;
   onQuickTrack: (ticketId: string) => void;
   onSelectRoleQuick: (roleCode: string) => void;
 }
 
 export const LandingPageView: React.FC<LandingPageViewProps> = ({
+  isLoggedIn = false,
   onLogin,
-  onQuickTrack,
-  onSelectRoleQuick
+  onGoToPortal,
+  onQuickTrack
 }) => {
   const [activeSopTab, setActiveSopTab] = useState<'pinjam' | 'rusak' | 'sistem'>('pinjam');
   const [trackInput, setTrackInput] = useState('');
-  const stats = AppDatabase.getStatistics();
 
   const handleTrackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,56 +53,6 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
-      {/* HERO NAVIGATION */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img
-              src="/assets/aistudio/Pusdatin_c64eee6c.png"
-              alt="Logo PUSDATIN UMC"
-              className="h-11 w-auto object-contain"
-            />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-lg font-black tracking-tight text-slate-950">PAHAM</span>
-                <span className="text-[10px] font-extrabold px-1.5 py-0.5 bg-red-100 text-red-700 rounded border border-red-200">
-                  UMC
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
-                PUSDATIN Asset & Helpdesk Assistance Management
-              </p>
-            </div>
-          </div>
-
-          <nav className="hidden lg:flex items-center gap-6 text-xs font-semibold text-slate-600">
-            <a href="#tentang-sistem" className="hover:text-red-700 transition-colors">
-              Tentang Sistem
-            </a>
-            <a href="#alur-sop" className="hover:text-red-700 transition-colors">
-              Alur SOP Layanan
-            </a>
-            <a href="#profil-pusdatin" className="hover:text-red-700 transition-colors">
-              Profil PUSDATIN
-            </a>
-            <a href="#struktur-organisasi" className="hover:text-red-700 transition-colors">
-              Struktur Organisasi
-            </a>
-          </nav>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onLogin}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow transition-all cursor-pointer"
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Login SSO Google</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
       {/* 3. HERO SECTION */}
       <section className="relative overflow-hidden bg-gradient-to-b from-red-50/60 via-slate-50 to-white pt-12 pb-16 border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -124,11 +76,11 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <button
                 type="button"
-                onClick={onLogin}
+                onClick={isLoggedIn && onGoToPortal ? onGoToPortal : onLogin}
                 className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
               >
                 <Lock className="w-4 h-4" />
-                <span>Masuk</span>
+                <span>{isLoggedIn ? 'Buka Portal Sistem' : 'Masuk'}</span>
                 <ArrowRight className="w-4 h-4 ml-1" />
               </button>
 
@@ -449,12 +401,20 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
             <div className="lg:col-span-5 space-y-4">
-              <div className="p-3 bg-red-50 rounded-2xl border border-red-100 inline-block">
+              <div className="p-2.5 bg-white rounded-2xl border border-red-100 shadow-xs inline-flex items-center gap-3">
                 <img
-                  src="/assets/aistudio/umc_seal_logo_31e5fdc7.png"
-                  alt="Seal UMC"
-                  className="h-16 w-auto object-contain"
+                  src="/assets/aistudio/WhatsApp_Image_2026-11-13_at_10.12.42_2b1f1e05.jpeg"
+                  alt="Logo Resmi UMC"
+                  className="h-14 w-14 object-contain rounded-xl"
                 />
+                <div className="pr-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-red-700">
+                    Unit Pelaksana Teknis
+                  </div>
+                  <div className="text-sm font-black text-slate-900">
+                    PUSDATIN UMC
+                  </div>
+                </div>
               </div>
               <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-950">
                 Pusat Data dan Teknologi Informasi (PUSDATIN) UMC
@@ -632,11 +592,13 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
       <footer className="bg-slate-950 text-slate-400 py-10 border-t border-slate-800 text-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <img
-              src="/assets/aistudio/Pusdatin_c64eee6c.png"
-              alt="Logo PUSDATIN UMC"
-              className="h-8 w-auto object-contain brightness-90"
-            />
+            <div className="h-10 w-10 rounded-xl bg-white p-1 flex items-center justify-center shrink-0">
+              <img
+                src="/assets/aistudio/WhatsApp_Image_2026-11-13_at_10.12.42_2b1f1e05.jpeg"
+                alt="Logo PUSDATIN UMC"
+                className="h-full w-full object-contain rounded-md"
+              />
+            </div>
             <div>
               <div className="font-bold text-slate-200">
                 PUSDATIN Universitas Muhammadiyah Cirebon
@@ -651,10 +613,10 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
             <span>Hak Cipta © 2026 UMC. Hak Cipta Dilindungi Undang-Undang.</span>
             <button
               type="button"
-              onClick={onLogin}
+              onClick={isLoggedIn && onGoToPortal ? onGoToPortal : onLogin}
               className="text-red-400 hover:text-red-300 font-bold underline cursor-pointer"
             >
-              Login Petugas
+              {isLoggedIn ? 'Buka Portal' : 'Login Petugas'}
             </button>
           </div>
         </div>
