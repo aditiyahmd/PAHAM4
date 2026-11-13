@@ -259,4 +259,132 @@ describe('PAHAM System Pusdatin UMC - Business Rules & RBAC Verification', () =>
     assert.strictEqual(updatedRcv.items![0].terdaftarCount, 2);
     assert.strictEqual(updatedRcv.items![1].terdaftarCount, 2);
   });
+
+  it('Lampiran 1: Incoming loans start as Diajukan and transition cleanly through Dikonfirmasi, Diserahkan, Dikembalikan, and Ditolak', () => {
+    AppDatabase.setActiveUser('USR-ACT-10A');
+    const created = AppDatabase.addLoan({
+      peminjam: 'Dosen Uji Coba',
+      nik: '19900101',
+      unit: 'Fakultas Teknik',
+      kontak: '081234567899',
+      email: 'dosen.uji@umc.ac.id',
+      barangPinjaman: 'Proyektor Epson',
+      jumlah: 1,
+      tglPinjam: '2026-11-20',
+      tglKembali: '2026-11-22',
+      catatan: 'Kuliah umum'
+    });
+    assert.strictEqual(created.status, 'Diajukan');
+
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const assets = AppDatabase.getAssets();
+    const availableAsset = assets.find(a => a.status === 'Tersedia') || assets[0];
+
+    const resConfirm = AppDatabase.processLoanTicket(created.id, 'terima', {
+      barcode: availableAsset.barcode,
+      catatan: 'Unit dialokasikan'
+    });
+    assert.strictEqual(resConfirm.success, true);
+    assert.strictEqual(resConfirm.ticket?.status, 'Dikonfirmasi');
+
+    const resHandover = AppDatabase.processLoanTicket(created.id, 'serahkan', {
+      barcode: availableAsset.barcode,
+      catatan: 'Diserahkan fisik'
+    });
+    assert.strictEqual(resHandover.success, true);
+    assert.strictEqual(resHandover.ticket?.status, 'Diserahkan');
+
+    const resReturn = AppDatabase.processLoanTicket(created.id, 'kembali', {
+      hasilPemeriksaanKembali: 'Baik / Lengkap'
+    });
+    assert.strictEqual(resReturn.success, true);
+    assert.strictEqual(resReturn.ticket?.status, 'Dikembalikan');
+
+    const createdRejected = AppDatabase.addLoan({
+      peminjam: 'Mahasiswa Uji',
+      nik: '20260002',
+      unit: 'HMJ Informatika',
+      kontak: '081234567898',
+      email: 'mhs.uji@umc.ac.id',
+      barangPinjaman: 'Kamera DSLR',
+      jumlah: 1,
+      tglPinjam: '2026-11-25',
+      tglKembali: '2026-11-26'
+    });
+    assert.strictEqual(createdRejected.status, 'Diajukan');
+    const resReject = AppDatabase.processLoanTicket(createdRejected.id, 'tolak', {
+      alasanPenolakan: 'Jadwal bentrok'
+    });
+    assert.strictEqual(resReject.success, true);
+    const reloadedRejected = AppDatabase.getLoans().find(l => l.id === createdRejected.id);
+    assert.strictEqual(reloadedRejected?.status, 'Ditolak');
+  });
+
+  it('Lampiran 2: Only Admin (ACT-03) and Kepala PUSDATIN (ACT-02) can update ticket urgency', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const tickets = AppDatabase.getDamageTickets();
+    assert.ok(tickets.length > 0);
+    const targetTicket = tickets[0];
+    const initialUrgency = targetTicket.urgensi || targetTicket.prioritas || 'Sedang';
+
+    // Non-admin technician (ACT-04) must be blocked
+    AppDatabase.setActiveUser('USR-ACT-04');
+    const blocked = AppDatabase.updateDamageTicketUrgency(targetTicket.id, 'Rendah');
+    assert.strictEqual(blocked, false);
+    assert.strictEqual(AppDatabase.getDamageTickets().find(t => t.id === targetTicket.id)?.urgensi, initialUrgency);
+
+    // Civitas (ACT-10) must be blocked
+    AppDatabase.setActiveUser('USR-ACT-10A');
+    const blockedCivitas = AppDatabase.updateDamageTicketUrgency(targetTicket.id, 'Rendah');
+    assert.strictEqual(blockedCivitas, false);
+
+    // Kepala PUSDATIN (ACT-02) is allowed
+    AppDatabase.setActiveUser('USR-ACT-02');
+    const allowedKepala = AppDatabase.updateDamageTicketUrgency(targetTicket.id, 'Kritis');
+    assert.strictEqual(allowedKepala, true);
+    assert.strictEqual(AppDatabase.getDamageTickets().find(t => t.id === targetTicket.id)?.urgensi, 'Kritis');
+
+    // Admin (ACT-03) is allowed
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const allowedAdmin = AppDatabase.updateDamageTicketUrgency(targetTicket.id, 'Tinggi');
+    assert.strictEqual(allowedAdmin, true);
+    assert.strictEqual(AppDatabase.getDamageTickets().find(t => t.id === targetTicket.id)?.urgensi, 'Tinggi');
+  });
+
+  it('Lampiran 5: Delegation resolves targetTechnicianId properly and updates assigned technician fields', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const tickets = AppDatabase.getDamageTickets();
+    const targetTicket = tickets[0];
+    const targetTech = AppDatabase.getUsers().find(u => u.id === 'USR-ACT-07')!;
+    assert.ok(targetTech);
+
+    const res = AppDatabase.processDamageTicket(targetTicket.id, 'delegasikan', {
+      targetTechnicianId: targetTech.id,
+      catatan: 'Alihkan ke bidang antarmuka web'
+    });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.ticket?.assignedTechnicianId, targetTech.id);
+    assert.strictEqual(res.ticket?.delegasiKeTechnicianId, targetTech.id);
+    assert.strictEqual(res.ticket?.picTeknisi, targetTech.roleName);
+    assert.strictEqual(res.ticket?.namaPicTeknisi, targetTech.nama);
+  });
+
+  it('Lampiran 6: Free-text Peran / Bidang persists and non-full-access PIC does not receive ACT-03', () => {
+    const uniqueEmail = `custom.pic.${Date.now()}@umc.ac.id`;
+    const added = AppDatabase.addTechnician({
+      nama: 'Teknisi Uji Spesialis',
+      email: uniqueEmail,
+      roleName: 'Spesialis Audio Visual Kampus',
+      isFullAccess: false,
+      specialty: 'Audio Visual & Proyektor'
+    });
+    assert.strictEqual(added, true);
+
+    const saved = AppDatabase.getTechnicians().find(t => t.email === uniqueEmail);
+    assert.ok(saved);
+    assert.strictEqual(saved.roleName, 'Spesialis Audio Visual Kampus');
+    assert.notStrictEqual(saved.role, 'ACT-03');
+    assert.strictEqual(saved.isFullAccess, false);
+  });
 });
+

@@ -860,12 +860,25 @@ export class AppDatabase {
   public static addTechnician(tech: Partial<AppUser> & { name?: string }): boolean {
     const users = this.getUsers();
     const id = `USR-${Date.now()}`;
+    const rawRoleName = (tech.roleName || 'IT Support & Helpdesk Specialist').trim();
+    const lowerRole = rawRoleName.toLowerCase();
+    let inferredRole: ActorCode = (tech.role as ActorCode) || 'ACT-04';
+    if (!tech.role) {
+      if (lowerRole.includes('kepala pusdatin')) inferredRole = 'ACT-02';
+      else if (tech.isFullAccess || lowerRole.includes('helpdesk') || lowerRole.includes('it support')) inferredRole = 'ACT-03';
+      else if (lowerRole.includes('analyst') || lowerRole.includes('data')) inferredRole = 'ACT-05';
+      else if (lowerRole.includes('lead')) inferredRole = 'ACT-06';
+      else if (lowerRole.includes('frontend')) inferredRole = 'ACT-07';
+      else if (lowerRole.includes('backend') || lowerRole.includes('programmer')) inferredRole = 'ACT-08';
+      else if (lowerRole.includes('security') || lowerRole.includes('cyber')) inferredRole = 'ACT-09';
+      else inferredRole = 'ACT-04';
+    }
     const newUser: AppUser = {
       id,
       nama: tech.nama || tech.name || 'Petugas Baru',
       email: tech.email || `petugas${users.length + 1}@umc.ac.id`,
-      role: (tech.role as ActorCode) || 'ACT-03',
-      roleName: (tech.roleName || 'IT Support & Helpdesk Specialist') as TechnicianRole,
+      role: inferredRole,
+      roleName: rawRoleName as TechnicianRole,
       unit: tech.unit || 'PUSDATIN',
       phone: tech.phone || '081234567890',
       statusAkun: 'Aktif',
@@ -2063,6 +2076,10 @@ export class AppDatabase {
   }
 
   public static updateDamageTicketUrgency(id: string, urgensi: TicketUrgency): boolean {
+    const active = this.getActiveUser();
+    if (active.role !== 'ACT-02' && active.role !== 'ACT-03') {
+      return false;
+    }
     const tickets = this.getDamageTickets();
     const idx = tickets.findIndex(t => t.id === id);
     if (idx === -1) return false;
@@ -2173,11 +2190,25 @@ export class AppDatabase {
       return { success: true, message: `Perbaikan tiket ${ticket.id} dilanjutkan!`, ticket: tickets[index] };
     }
 
-    // B.2: Distribusi Tiket oleh Admin (BR-007)
+    // B.2: Distribusi & Delegasi Tiket oleh Admin / Teknisi (BR-007)
     if (effAction === 'distribusi-pic') {
-      const targetRole = options.picTeknisiBaru || ticket.picTeknisi || 'IT Support & Helpdesk Specialist';
-      const matched = this.getUsers().find(u => u.roleName === targetRole);
+      const matchedById = options.targetTechnicianId
+        ? this.getUsers().find(u => u.id === options.targetTechnicianId)
+        : undefined;
+      const targetRole = (
+        matchedById?.roleName ||
+        options.picTeknisiBaru ||
+        ticket.picTeknisi ||
+        'IT Support & Helpdesk Specialist'
+      ) as TechnicianRole;
+      const matched = matchedById || this.getUsers().find(u => u.roleName === targetRole);
       const techName = options.namaPicBaru || matched?.nama || targetRole;
+      const noteText =
+        options.catatan ||
+        options.catatanAdmin ||
+        (action === 'delegasikan'
+          ? `Tiket didelegasikan ke ${targetRole} (${techName}) oleh ${operator}.`
+          : `Tiket didistribusikan ke PIC ${targetRole} (${techName}).`);
 
       tickets[index] = {
         ...ticket,
@@ -2186,13 +2217,25 @@ export class AppDatabase {
         namaPicTeknisi: techName,
         assignedTechnicianId: matched?.id,
         tanggalDitugaskan: nowStr,
-        catatanAdmin: options.catatan || `Tiket didistribusikan ke PIC ${targetRole} (${techName}).`,
+        ...(action === 'delegasikan'
+          ? {
+              delegasiKeTechnicianId: matched?.id,
+              namaDelegasiTeknisi: techName,
+              delegasiDari: active.nama,
+              tanggalDelegasi: nowStr,
+              catatanDelegasi: noteText
+            }
+          : {}),
+        catatanAdmin: noteText,
         riwayatStatus: [
           ...(ticket.riwayatStatus || []),
           {
             status: 'Assigned',
             timestamp: nowStr,
-            catatan: `Distribusi tiket ke PIC: ${targetRole} (${techName}) oleh ${operator}.`,
+            catatan:
+              action === 'delegasikan'
+                ? `Delegasi tiket ke ${targetRole} (${techName}) oleh ${operator}.`
+                : `Distribusi tiket ke PIC: ${targetRole} (${techName}) oleh ${operator}.`,
             petugas: operator
           }
         ]
@@ -2213,7 +2256,10 @@ export class AppDatabase {
         entityId: ticket.id,
         statusLama,
         statusBaru: 'Assigned',
-        catatan: `Distribusi tiket ke PIC ${targetRole} (${techName}) oleh ${operator}`,
+        catatan:
+          action === 'delegasikan'
+            ? `Delegasi tiket ke ${targetRole} (${techName}) oleh ${operator}`
+            : `Distribusi tiket ke PIC ${targetRole} (${techName}) oleh ${operator}`,
         idPengguna: active.id,
         namaPengguna: active.nama,
         rolePengguna: active.roleName
@@ -2221,7 +2267,10 @@ export class AppDatabase {
 
       return {
         success: true,
-        message: `Tiket ${ticket.id} didistribusikan ke ${techName} (${targetRole})!`,
+        message:
+          action === 'delegasikan'
+            ? `Tiket ${ticket.id} berhasil didelegasikan ke ${targetRole} (${techName})!`
+            : `Tiket ${ticket.id} didistribusikan ke ${techName} (${targetRole})!`,
         ticket: tickets[index]
       };
     }

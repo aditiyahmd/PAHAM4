@@ -39,11 +39,13 @@ interface LoanManagementProps {
 
 export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'Semua' | LoanStatus | 'Terlambat'>('Semua');
+  const [statusFilter, setStatusFilter] = useState<
+    'Semua' | 'Baru' | 'Dikonfirmasi' | 'Diserahkan' | 'Dikembalikan' | 'Ditolak' | 'Terlambat'
+  >('Semua');
   const [selectedTicket, setSelectedTicket] = useState<LoanTicket | null>(null);
 
   // Modal form states for processing existing loan
-  const [modalAction, setModalAction] = useState<'terima' | 'tolak' | 'kembali'>('terima');
+  const [modalAction, setModalAction] = useState<'terima' | 'serahkan' | 'tolak' | 'kembali'>('terima');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [namaBarangAuto, setNamaBarangAuto] = useState('');
   const [kondisi, setKondisi] = useState('Baik / Lengkap');
@@ -70,7 +72,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   // Post-action dispatch modal (WhatsApp & Email confirmation)
   const [completedActionModal, setCompletedActionModal] = useState<{
     ticket: LoanTicket;
-    action: 'terima' | 'kembali' | 'tolak';
+    action: 'terima' | 'serahkan' | 'kembali' | 'tolak';
     waUrl: string | null;
     emailSent: boolean;
     message: string;
@@ -109,8 +111,15 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
 
   const todayStr = new Date().toISOString().split('T')[0];
 
+  const isLoanWaiting = (st: LoanStatus | string) => st === 'Diajukan' || st === 'Menunggu';
+  const isLoanConfirmed = (st: LoanStatus | string) => st === 'Dikonfirmasi' || st === 'Diterima';
+  const isLoanHandedOver = (st: LoanStatus | string) => st === 'Diserahkan' || st === 'Disetujui' || st === 'Terlambat';
+  const isLoanReturned = (st: LoanStatus | string) =>
+    st === 'Dikembalikan' || st === 'Diterima Kembali' || st === 'Ditutup';
+  const isLoanRejected = (st: LoanStatus | string) => st === 'Ditolak';
+
   // Identifikasi peminjaman yang aktif dan belum dikembalikan melebihi tenggat (Overdue)
-  const overdueLoans = loans.filter(l => l.status === 'Disetujui' && l.tglKembali < todayStr);
+  const overdueLoans = loans.filter(l => isLoanHandedOver(l.status) && l.tglKembali < todayStr);
 
   const getDaysLate = (tglKembali: string) => {
     const diff = Math.max(0, new Date(todayStr).getTime() - new Date(tglKembali).getTime());
@@ -118,7 +127,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   };
 
   // SMART CONFLICT DETECTOR: Mendeteksi pengajuan peminjaman bersamaan untuk aset yang sama (Case Study B.2b)
-  const pendingLoans = loans.filter(l => l.status === 'Menunggu');
+  const pendingLoans = loans.filter(l => isLoanWaiting(l.status));
   const conflictMap: Record<string, LoanTicket[]> = {};
   pendingLoans.forEach(l => {
     const key = l.barangPinjaman.toLowerCase().trim();
@@ -126,6 +135,16 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
     conflictMap[key].push(l);
   });
   const conflictGroups = Object.entries(conflictMap).filter(([_, list]) => list.length > 1);
+
+  const countByFilter = (st: 'Semua' | 'Baru' | 'Dikonfirmasi' | 'Diserahkan' | 'Dikembalikan' | 'Ditolak') => {
+    if (st === 'Semua') return loans.length;
+    if (st === 'Baru') return loans.filter(l => isLoanWaiting(l.status)).length;
+    if (st === 'Dikonfirmasi') return loans.filter(l => isLoanConfirmed(l.status)).length;
+    if (st === 'Diserahkan') return loans.filter(l => isLoanHandedOver(l.status)).length;
+    if (st === 'Dikembalikan') return loans.filter(l => isLoanReturned(l.status)).length;
+    if (st === 'Ditolak') return loans.filter(l => isLoanRejected(l.status)).length;
+    return 0;
+  };
 
   const filteredLoans = loans.filter(l => {
     const matchesSearch =
@@ -137,15 +156,23 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
       (l.barcode && l.barcode.toLowerCase().includes(searchTerm.toLowerCase()));
 
     if (statusFilter === 'Terlambat') {
-      return matchesSearch && l.status === 'Disetujui' && l.tglKembali < todayStr;
+      return matchesSearch && isLoanHandedOver(l.status) && l.tglKembali < todayStr;
     }
-    const matchesStatus = statusFilter === 'Semua' || l.status === statusFilter;
+    let matchesStatus = true;
+    if (statusFilter === 'Baru') matchesStatus = isLoanWaiting(l.status);
+    else if (statusFilter === 'Dikonfirmasi') matchesStatus = isLoanConfirmed(l.status);
+    else if (statusFilter === 'Diserahkan') matchesStatus = isLoanHandedOver(l.status);
+    else if (statusFilter === 'Dikembalikan') matchesStatus = isLoanReturned(l.status);
+    else if (statusFilter === 'Ditolak') matchesStatus = isLoanRejected(l.status);
+
     return matchesSearch && matchesStatus;
   });
 
-  const openProcessModal = (ticket: LoanTicket, defaultAction?: 'terima' | 'kembali' | 'tolak', preselectedBarcode?: string) => {
+  const openProcessModal = (ticket: LoanTicket, defaultAction?: 'terima' | 'serahkan' | 'kembali' | 'tolak', preselectedBarcode?: string) => {
     setSelectedTicket(ticket);
-    const initialAction = defaultAction || (ticket.status === 'Disetujui' ? 'kembali' : 'terima');
+    const initialAction =
+      defaultAction ||
+      (isLoanHandedOver(ticket.status) ? 'kembali' : isLoanConfirmed(ticket.status) ? 'serahkan' : 'terima');
     setModalAction(initialAction);
     setBarcodeInput(preselectedBarcode || ticket.barcode || '');
     setNamaBarangAuto(ticket.namaBarangT || '');
@@ -208,8 +235,8 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   const handleProcessSubmit = () => {
     if (!selectedTicket) return;
 
-    if (modalAction === 'terima' && !barcodeInput.trim()) {
-      alert('Harap alokasikan nomor barcode aset sebelum menyetujui peminjaman!');
+    if ((modalAction === 'terima' || modalAction === 'serahkan') && !barcodeInput.trim()) {
+      alert('Harap alokasikan nomor barcode aset sebelum menyetujui atau menyerahkan peminjaman!');
       return;
     }
 
@@ -243,9 +270,18 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
 
       const updatedTicket: LoanTicket = {
         ...selectedTicket,
-        status: modalAction === 'terima' ? 'Disetujui' : modalAction === 'kembali' ? 'Dikembalikan' : 'Ditolak',
-        barcode: finalBarcode,
-        namaBarangT: finalNamaBarang,
+        ...(res.ticket || {}),
+        status:
+          res.ticket?.status ||
+          (modalAction === 'terima'
+            ? 'Dikonfirmasi'
+            : modalAction === 'serahkan'
+            ? 'Diserahkan'
+            : modalAction === 'kembali'
+            ? 'Dikembalikan'
+            : 'Ditolak'),
+        barcode: res.ticket?.barcode || finalBarcode,
+        namaBarangT: res.ticket?.namaBarangT || finalNamaBarang,
         kondisi,
         petugas,
         catatan: finalCatatan,
@@ -257,7 +293,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
       };
 
       let waUrl: string | null = null;
-      if (modalAction === 'terima') {
+      if (modalAction === 'terima' || modalAction === 'serahkan') {
         if (isAlternateAllocation) {
           waUrl = WhatsAppNotificationService.getAlternateAssignedUrl(updatedTicket, selectedTicket.barangPinjaman, finalNamaBarang);
         } else {
@@ -698,7 +734,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
 
         {/* Status Filter Buttons */}
         <div className="flex items-center gap-1 overflow-x-auto w-full md:w-auto p-1 bg-slate-100 rounded-lg border border-slate-200/80">
-          {(['Semua', 'Menunggu', 'Disetujui', 'Dikembalikan', 'Ditolak'] as const).map(st => (
+          {(['Semua', 'Baru', 'Dikonfirmasi', 'Diserahkan', 'Dikembalikan', 'Ditolak'] as const).map(st => (
             <button
               key={st}
               type="button"
@@ -709,7 +745,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {st} {st !== 'Semua' && `(${loans.filter(l => l.status === st).length})`}
+              {st} {st !== 'Semua' && `(${countByFilter(st)})`}
             </button>
           ))}
 
@@ -759,11 +795,13 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredLoans.map(loan => {
-                    const isWaiting = loan.status === 'Menunggu';
-                    const isApproved = loan.status === 'Disetujui';
-                    const isReturned = loan.status === 'Dikembalikan';
-                    const isOverdue = isApproved && loan.tglKembali < todayStr;
-                    const isDueToday = isApproved && loan.tglKembali === todayStr;
+                    const isWaiting = isLoanWaiting(loan.status);
+                    const isConfirmed = isLoanConfirmed(loan.status);
+                    const isHandedOver = isLoanHandedOver(loan.status);
+                    const isReturned = isLoanReturned(loan.status);
+                    const isRejected = isLoanRejected(loan.status);
+                    const isOverdue = isHandedOver && loan.tglKembali < todayStr;
+                    const isDueToday = isHandedOver && loan.tglKembali === todayStr;
 
                     return (
                       <tr
@@ -800,21 +838,29 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                               <Clock className="w-3 h-3 text-amber-600" />
                               <span>Jatuh Tempo Hari Ini</span>
                             </div>
-                          ) : isApproved ? (
+                          ) : isConfirmed ? (
+                            <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-indigo-100 text-indigo-800">
+                              Dikonfirmasi
+                            </span>
+                          ) : isHandedOver ? (
                             <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-800">
-                              Disetujui
+                              Diserahkan
                             </span>
                           ) : isWaiting ? (
-                            <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800">
-                              Menunggu
+                            <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-sky-100 text-sky-800">
+                              Baru
                             </span>
                           ) : isReturned ? (
                             <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-blue-100 text-blue-800">
                               Diterima Kembali
                             </span>
-                          ) : (
+                          ) : isRejected ? (
                             <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-red-100 text-red-800">
                               Ditolak
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-700">
+                              {loan.status}
                             </span>
                           )}
                         </td>
@@ -882,8 +928,23 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
             {/* Mobile Card List View */}
             <div className="lg:hidden divide-y divide-slate-100">
               {filteredLoans.map(loan => {
-                const isApproved = loan.status === 'Disetujui';
-                const isOverdue = isApproved && loan.tglKembali < todayStr;
+                const isWaiting = isLoanWaiting(loan.status);
+                const isConfirmed = isLoanConfirmed(loan.status);
+                const isHandedOver = isLoanHandedOver(loan.status);
+                const isReturned = isLoanReturned(loan.status);
+                const isRejected = isLoanRejected(loan.status);
+                const isOverdue = isHandedOver && loan.tglKembali < todayStr;
+                const badgeText = isWaiting
+                  ? 'Baru'
+                  : isConfirmed
+                  ? 'Dikonfirmasi'
+                  : isHandedOver
+                  ? 'Diserahkan'
+                  : isReturned
+                  ? 'Diterima Kembali'
+                  : isRejected
+                  ? 'Ditolak'
+                  : loan.status;
 
                 return (
                   <div
@@ -905,11 +966,13 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                         </span>
                       ) : (
                         <span className={`px-2 py-0.5 text-[11px] font-bold rounded-full ${
-                          loan.status === 'Disetujui' ? 'bg-emerald-100 text-emerald-800' :
-                          loan.status === 'Menunggu' ? 'bg-amber-100 text-amber-800' :
-                          loan.status === 'Dikembalikan' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'
+                          isConfirmed ? 'bg-indigo-100 text-indigo-800' :
+                          isHandedOver ? 'bg-emerald-100 text-emerald-800' :
+                          isWaiting ? 'bg-sky-100 text-sky-800' :
+                          isReturned ? 'bg-blue-100 text-blue-800' :
+                          isRejected ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'
                         }`}>
-                          {loan.status}
+                          {badgeText}
                         </span>
                       )}
                     </div>
@@ -1344,11 +1407,11 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                 <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
                   Pilih Tindakan Petugas:
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setModalAction('terima')}
-                    className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all ${
+                    className={`py-2 px-2.5 text-xs font-bold rounded-lg border transition-all ${
                       modalAction === 'terima'
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -1358,8 +1421,19 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                   </button>
                   <button
                     type="button"
+                    onClick={() => setModalAction('serahkan')}
+                    className={`py-2 px-2.5 text-xs font-bold rounded-lg border transition-all ${
+                      modalAction === 'serahkan'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Serahkan Fisik
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setModalAction('kembali')}
-                    className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all ${
+                    className={`py-2 px-2.5 text-xs font-bold rounded-lg border transition-all ${
                       modalAction === 'kembali'
                         ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -1370,7 +1444,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                   <button
                     type="button"
                     onClick={() => setModalAction('tolak')}
-                    className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all ${
+                    className={`py-2 px-2.5 text-xs font-bold rounded-lg border transition-all ${
                       modalAction === 'tolak'
                         ? 'bg-red-600 text-white border-red-600 shadow-xs'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -1381,8 +1455,8 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                 </div>
               </div>
 
-              {/* Fields saat Setujui Pinjaman */}
-              {modalAction === 'terima' && (
+              {/* Fields saat Setujui Pinjaman atau Serahkan Fisik */}
+              {(modalAction === 'terima' || modalAction === 'serahkan') && (
                 <div className="space-y-3 pt-2 border-t border-slate-100">
                   {/* Pilihan Cepat dari Stok Tersedia (Termasuk Solusi Unit Alternatif) */}
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
@@ -1679,7 +1753,7 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
               </button>
               <button
                 type="button"
-                disabled={isProcessing || Boolean(barcodeWarning && modalAction === 'terima')}
+                disabled={isProcessing || Boolean(barcodeWarning && (modalAction === 'terima' || modalAction === 'serahkan'))}
                 onClick={handleProcessSubmit}
                 className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs transition-colors disabled:opacity-50"
               >

@@ -71,7 +71,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
   const openAddTechModal = () => {
     setEditingTech(null);
     setTechName('');
-    setTechRole('IT Support & Helpdesk Specialist');
+    setTechRole('' as TechnicianRole);
     setTechEmail('');
     setTechPassword('admin');
     setTechPhone('081234567890');
@@ -96,8 +96,8 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
 
   const handleSaveTechnician = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!techName.trim() || !techEmail.trim() || !techPassword.trim()) {
-      showFeedback('error', 'Nama, Email (Username), dan Password wajib diisi!');
+    if (!techName.trim() || !techRole.trim() || !techEmail.trim() || !techPassword.trim()) {
+      showFeedback('error', 'Nama, Peran / Bidang, Email (Username), dan Password wajib diisi!');
       return;
     }
 
@@ -107,7 +107,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
         ...editingTech,
         nama: techName.trim(),
         name: techName.trim(),
-        roleName: techRole,
+        roleName: techRole.trim() as TechnicianRole,
         email: techEmail.trim().toLowerCase(),
         password: techPassword.trim(),
         phone: techPhone.trim(),
@@ -129,7 +129,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
       const created = AppDatabase.addTechnician({
         nama: techName.trim(),
         name: techName.trim(),
-        roleName: techRole,
+        roleName: techRole.trim() as TechnicianRole,
         email: techEmail.trim().toLowerCase(),
         password: techPassword.trim(),
         phone: techPhone.trim(),
@@ -500,18 +500,14 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                       <label className="block font-bold text-slate-700 mb-1">
                         Peran / Bidang: <span className="text-red-600">*</span>
                       </label>
-                      <select
+                      <input
+                        type="text"
+                        required
                         value={techRole}
                         onChange={e => setTechRole(e.target.value as TechnicianRole)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-900 focus:bg-white"
-                      >
-                        <option value="Programmer">Programmer</option>
-                        <option value="Junior Programmer">Junior Programmer</option>
-                        <option value="Cloud & Infrastructure Engineer">Cloud & Infrastructure Engineer</option>
-                        <option value="Cyber Security Officer">Cyber Security Officer</option>
-                        <option value="IT Support & Helpdesk Specialist">IT Support & Helpdesk Specialist</option>
-                        <option value="Kepala PUSDATIN">Kepala PUSDATIN</option>
-                      </select>
+                        placeholder="Contoh: IT Support & Helpdesk Specialist"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
                     </div>
 
                     <div>

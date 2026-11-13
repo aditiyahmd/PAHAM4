@@ -105,7 +105,8 @@ export type TechnicianRole =
   | 'Hardware/Jaringan'
   | 'Teknisi'
   | 'Helpdesk'
-  | 'Admin';
+  | 'Admin'
+  | (string & {});
 
 export interface AppUser {
   id: string; // id_pengguna / id_account

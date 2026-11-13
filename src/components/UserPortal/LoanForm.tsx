@@ -79,12 +79,12 @@ export const LoanForm: React.FC<LoanFormProps> = ({ onSuccessSubmit, onNavigateT
     };
 
     setTimeout(async () => {
-      AppDatabase.addLoan(newLoan);
-      await EmailNotificationService.sendLoanSubmitted(newLoan);
-      setSubmittedTicket(newLoan);
+      const createdLoan = AppDatabase.addLoan(newLoan);
+      await EmailNotificationService.sendLoanSubmitted(createdLoan);
+      setSubmittedTicket(createdLoan);
       setShowSuccessModal(true);
       setIsSubmitting(false);
-      onSuccessSubmit(newLoan);
+      onSuccessSubmit(createdLoan);
 
       // Reset form
       setNama('');

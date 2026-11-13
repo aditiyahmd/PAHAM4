@@ -42,7 +42,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
   const todayStr = new Date().toISOString().split('T')[0];
   const overdueLoans = stats.overdueLoans || [];
   const damageTickets = AppDatabase.getDamageTickets();
-  const technicians = AppDatabase.getTechnicians();
+  const technicians = AppDatabase.getTechnicians().filter(
+    tech => tech.role !== 'ACT-01' && tech.role !== 'ACT-10'
+  );
 
   const handleSendReminder = async (loan: LoanTicket) => {
     setSendingReminderId(loan.id);
@@ -333,7 +335,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
 
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
-              4 Teknisi Tersedia
+              {technicianStats.length} Teknisi Tersedia
             </span>
           </div>
         </div>
@@ -346,8 +348,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-900 line-clamp-1">{tech.name}</h4>
-                  <p className="text-[11px] text-slate-500">{tech.role}</p>
+                  <h4 className="text-xs font-bold text-slate-900 line-clamp-1">{tech.name || tech.nama}</h4>
+                  <p className="text-[11px] text-slate-500">{tech.roleName || tech.role}</p>
                 </div>
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="Aktif Bertugas" />
               </div>

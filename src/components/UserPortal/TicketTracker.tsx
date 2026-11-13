@@ -159,10 +159,25 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
             <>
               {/* Matched Loans */}
               {matchedLoans.map(loan => {
-                const isWaiting = loan.status === 'Menunggu';
-                const isApproved = loan.status === 'Disetujui';
-                const isReturned = loan.status === 'Dikembalikan';
+                const isWaiting = loan.status === 'Diajukan' || loan.status === 'Menunggu';
+                const isApproved =
+                  loan.status === 'Dikonfirmasi' ||
+                  loan.status === 'Diterima' ||
+                  loan.status === 'Diserahkan' ||
+                  loan.status === 'Disetujui' ||
+                  loan.status === 'Terlambat';
+                const isReturned =
+                  loan.status === 'Dikembalikan' ||
+                  loan.status === 'Diterima Kembali' ||
+                  loan.status === 'Ditutup';
                 const isRejected = loan.status === 'Ditolak';
+                const displayLoanStatus = isWaiting
+                  ? 'Baru'
+                  : loan.status === 'Dikonfirmasi'
+                  ? 'Dikonfirmasi'
+                  : loan.status === 'Diserahkan'
+                  ? 'Diserahkan'
+                  : loan.status;
 
                 return (
                   <div key={loan.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
@@ -194,10 +209,11 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
 
                         <span className={`px-3 py-1 text-xs font-bold rounded-full ${
                           isApproved ? 'bg-emerald-100 text-emerald-800' :
-                          isWaiting ? 'bg-amber-100 text-amber-800' :
-                          isReturned ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'
+                          isWaiting ? 'bg-sky-100 text-sky-800' :
+                          isReturned ? 'bg-blue-100 text-blue-800' :
+                          isRejected ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-800'
                         }`}>
-                          {loan.status}
+                          {displayLoanStatus}
                         </span>
                       </div>
                     </div>
@@ -357,11 +373,11 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                     </div>
                     {(() => {
                       const getStepNumber = (st: string) => {
-                        if (st === 'Open' || st === 'Baru') return 1;
+                        if (st === 'Open/Unassigned' || st === 'Open' || st === 'Baru' || st === 'Re-opened') return 1;
                         if (st === 'Assigned' || st === 'Diterima') return 2;
                         if (st === 'In Progress' || st === 'Perbaikan') return 3;
-                        if (st === 'Pending Procurement' || st === 'Menunggu Suku Cadang') return 4;
-                        if (st === 'Closed' || st === 'Selesai' || st === 'Rusak Total') return 5;
+                        if (st === 'Pending – Menunggu Suku Cadang' || st === 'Pending Procurement' || st === 'Menunggu Suku Cadang') return 4;
+                        if (st === 'Resolved' || st === 'Closed – Auto' || st === 'Closed – Manual' || st === 'Closed' || st === 'Selesai' || st === 'Rusak Total') return 5;
                         return 1;
                       };
                       const currentStep = getStepNumber(dmg.status);

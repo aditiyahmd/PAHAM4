@@ -60,6 +60,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   // SOP 5-Tahap Modal action types
   const currentUser = AppDatabase.getActiveUser();
   const canAccessTahap2 = currentUser?.role === 'ACT-02' || currentUser?.role === 'ACT-03';
+  const canEditUrgency = currentUser?.role === 'ACT-02' || currentUser?.role === 'ACT-03';
 
   const [actionType, setActionType] = useState<
     | 'verifikasi-delegasi'
@@ -90,12 +91,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const [repairCategory, setRepairCategory] = useState<RepairCategory>('Suku Cadang (Stok Ada)');
   const [komponenList, setKomponenList] = useState<string[]>([]);
   const [newKomponenInput, setNewKomponenInput] = useState('');
-  const [sumberAnggaran, setSumberAnggaran] = useState<'Stok Internal PUSDATIN' | 'Pengajuan RKAT Kampus' | 'Biaya Unit/Fakultas'>('Stok Internal PUSDATIN');
   const [reassignedPic, setReassignedPic] = useState<TechnicianRole>('IT Support & Helpdesk Specialist');
   const [modalUrgency, setModalUrgency] = useState<TicketUrgency>('Sedang');
 
   // Delegasi states
-  const [targetDelegasiId, setTargetDelegasiId] = useState('TECH-005');
+  const [targetDelegasiId, setTargetDelegasiId] = useState('');
 
   // Scanner modal states
   const [showInternalScanner, setShowInternalScanner] = useState(false);
@@ -172,7 +172,17 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const activeTech = AppDatabase.getActiveTechnician();
   const isRestrictedPic = activeTech && !activeTech.isFullAccess;
   const techniciansList = AppDatabase.getTechnicians();
-  const availableRoles: TechnicianRole[] = Array.from(new Set(techniciansList.map(t => (t.roleName || t.role) as TechnicianRole)));
+  const pusdatinTechnicians = techniciansList.filter(t => t.role !== 'ACT-01' && t.role !== 'ACT-10');
+  const delegatableTechnicians = techniciansList.filter(
+    tc =>
+      tc.role !== 'ACT-01' &&
+      tc.role !== 'ACT-02' &&
+      tc.role !== 'ACT-10' &&
+      tc.id !== activeTech?.id
+  );
+  const availableRoles: TechnicianRole[] = Array.from(
+    new Set(pusdatinTechnicians.map(t => (t.roleName || t.role) as TechnicianRole))
+  );
 
   const handleQuickUpdateUrgency = (ticketId: string, newUrgency: TicketUrgency) => {
     AppDatabase.updateDamageTicketUrgency(ticketId, newUrgency);
@@ -218,7 +228,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     if (statusFilter === 'Semua') {
       matchesStatus = true;
     } else if (statusFilter === 'Open') {
-      matchesStatus = t.status === 'Open' || t.status === 'Baru';
+      matchesStatus = t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened';
     } else if (statusFilter === 'Assigned') {
       matchesStatus = t.status === 'Assigned' || t.status === 'Diterima';
     } else if (statusFilter === 'In Progress') {
@@ -226,7 +236,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     } else if (statusFilter === 'Pending Procurement') {
       matchesStatus = t.status === 'Pending – Menunggu Suku Cadang' || (t.status as string) === 'Pending Procurement' || (t.status as string) === 'Menunggu Suku Cadang';
     } else if (statusFilter === 'Closed') {
-      matchesStatus = t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual';
+      matchesStatus = t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual' || (t.status as string) === 'Closed' || (t.status as string) === 'Selesai';
     } else {
       matchesStatus = t.status === statusFilter;
     }
@@ -281,13 +291,17 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     let defaultAction: typeof actionType = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     if (specificAction) {
       defaultAction = specificAction;
-    } else if (t.status === 'Open' || t.status === 'Baru') {
+    } else if (t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened') {
       defaultAction = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     } else if (t.status === 'Assigned' || t.status === 'Diterima') {
       defaultAction = 'jadwalkan-inspeksi';
     } else if (t.status === 'In Progress' || t.status === 'Perbaikan') {
       defaultAction = 'perbaikan';
-    } else if (t.status === 'Pending Procurement' || t.status === 'Menunggu Suku Cadang') {
+    } else if (
+      t.status === 'Pending – Menunggu Suku Cadang' ||
+      (t.status as string) === 'Pending Procurement' ||
+      (t.status as string) === 'Menunggu Suku Cadang'
+    ) {
       defaultAction = 'lanjut-perbaikan';
     } else {
       defaultAction = 'selesai';
@@ -313,13 +327,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     }
     setNewKomponenInput('');
 
-    setSumberAnggaran(t.sumberAnggaran || 'Stok Internal PUSDATIN');
     setReassignedPic(t.picTeknisi || 'IT Support & Helpdesk Specialist');
     setModalUrgency(t.urgensi || 'Sedang');
 
-    // Default target delegasi
-    const otherTech = techniciansList.find(tc => tc.id !== activeTech?.id);
-    setTargetDelegasiId(otherTech ? otherTech.id : 'TECH-005');
+    // Default target delegasi (di luar pimpinan universitas & pimpinan PUSDATIN)
+    const otherTech = delegatableTechnicians[0];
+    setTargetDelegasiId(otherTech ? otherTech.id : '');
 
     // Default status akhir aset
     if (t.jenisAset === 'Non-Fisik') {
@@ -361,7 +374,6 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       kategoriPerbaikan: actionType === 'suku-cadang' ? repairCategory : actionType === 'rusak-total' ? 'Rusak Total (Afkir)' : undefined,
       komponenList: actionType === 'suku-cadang' ? komponenList : undefined,
       namaSukuCadang: actionType === 'suku-cadang' ? komponenList.join(', ') : undefined,
-      sumberAnggaran: actionType === 'suku-cadang' ? sumberAnggaran : undefined,
       picTeknisiBaru: actionType === 'ubah-pic' || actionType === 'verifikasi-delegasi' ? reassignedPic : undefined,
       targetTechnicianId: actionType === 'delegasikan' ? targetDelegasiId : undefined,
       urgensiBaru: modalUrgency
@@ -503,11 +515,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   };
 
   const renderStageBadge = (status: string) => {
-    if (status === 'Open' || status === 'Baru') {
+    if (status === 'Open/Unassigned' || status === 'Open' || status === 'Baru' || status === 'Re-opened') {
       return (
         <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-red-100 text-red-800 border border-red-200 inline-flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
-          <span>1. Open / Baru</span>
+          <span>{status === 'Re-opened' ? 'Re-opened' : '1. Open / Baru'}</span>
         </span>
       );
     }
@@ -527,7 +539,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
         </span>
       );
     }
-    if (status === 'Pending Procurement' || status === 'Menunggu Suku Cadang') {
+    if (status === 'Pending – Menunggu Suku Cadang' || status === 'Pending Procurement' || status === 'Menunggu Suku Cadang') {
       return (
         <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
           <PackageSearch className="w-3 h-3 text-amber-600" />
@@ -546,7 +558,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     return (
       <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1">
         <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-        <span>5. Closed / Selesai</span>
+        <span>{status === 'Resolved' ? '5. Resolved' : '5. Closed / Selesai'}</span>
       </span>
     );
   };
@@ -758,22 +770,42 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <span className="font-mono font-bold text-slate-900 block">{t.id}</span>
                         <div className="mt-1 flex items-center gap-1">
-                          <select
-                            value={t.urgensi || 'Sedang'}
-                            onChange={e => handleQuickUpdateUrgency(t.id, e.target.value as TicketUrgency)}
-                            title="Ubah Urgensi Tiket (Hak Admin)"
-                            className={`text-[10px] font-bold rounded-md px-1.5 py-0.5 border cursor-pointer focus:outline-none transition-colors ${
-                              t.urgensi === 'Kritis' ? 'bg-red-100 text-red-800 border-red-300 font-extrabold' :
-                              t.urgensi === 'Tinggi' ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                              t.urgensi === 'Sedang' ? 'bg-sky-100 text-sky-800 border-sky-300' :
-                              'bg-slate-100 text-slate-700 border-slate-300'
-                            }`}
-                          >
-                            <option value="Kritis">🔥 Kritis</option>
-                            <option value="Tinggi">⚠️ Tinggi</option>
-                            <option value="Sedang">⚡ Sedang</option>
-                            <option value="Rendah">🟢 Rendah</option>
-                          </select>
+                          {canEditUrgency ? (
+                            <select
+                              value={t.urgensi || 'Sedang'}
+                              onChange={e => handleQuickUpdateUrgency(t.id, e.target.value as TicketUrgency)}
+                              title="Ubah Urgensi Tiket (Hak Admin & Kepala PUSDATIN)"
+                              className={`text-[10px] font-bold rounded-md px-1.5 py-0.5 border cursor-pointer focus:outline-none transition-colors ${
+                                t.urgensi === 'Kritis' ? 'bg-red-100 text-red-800 border-red-300 font-extrabold' :
+                                t.urgensi === 'Tinggi' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                                t.urgensi === 'Sedang' ? 'bg-sky-100 text-sky-800 border-sky-300' :
+                                'bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                            >
+                              <option value="Kritis">🔥 Kritis</option>
+                              <option value="Tinggi">⚠️ Tinggi</option>
+                              <option value="Sedang">⚡ Sedang</option>
+                              <option value="Rendah">🟢 Rendah</option>
+                            </select>
+                          ) : (
+                            <span
+                              title="Urgensi hanya dapat diubah oleh Admin (IT Support & Helpdesk Specialist) dan Kepala PUSDATIN"
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold rounded-md px-2 py-0.5 border ${
+                                t.urgensi === 'Kritis' ? 'bg-red-100 text-red-800 border-red-300 font-extrabold' :
+                                t.urgensi === 'Tinggi' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                                t.urgensi === 'Sedang' ? 'bg-sky-100 text-sky-800 border-sky-300' :
+                                'bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                            >
+                              {t.urgensi === 'Kritis'
+                                ? '🔥 Kritis'
+                                : t.urgensi === 'Tinggi'
+                                ? '⚠️ Tinggi'
+                                : t.urgensi === 'Sedang'
+                                ? '⚡ Sedang'
+                                : '🟢 Rendah'}
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -857,14 +889,14 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
                       {/* Contextual SOP Action Button */}
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        {t.status === 'Open' || t.status === 'Baru' ? (
+                        {t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened' ? (
                           <button
                             type="button"
-                            onClick={() => openProcessModal(t, 'verifikasi-delegasi')}
+                            onClick={() => openProcessModal(t, canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi')}
                             className="px-3 py-1.5 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-lg shadow-xs transition-colors flex items-center gap-1 ml-auto cursor-pointer"
                           >
                             <UserCheck className="w-3.5 h-3.5" />
-                            <span>Verifikasi & Delegasi</span>
+                            <span>{canAccessTahap2 ? 'Verifikasi & Delegasi' : 'Proses Tiket'}</span>
                           </button>
                         ) : t.status === 'Assigned' || t.status === 'Diterima' ? (
                           <button
@@ -875,7 +907,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                             <CalendarClock className="w-3.5 h-3.5" />
                             <span>Jadwalkan Inspeksi</span>
                           </button>
-                        ) : t.status === 'Pending Procurement' || t.status === 'Menunggu Suku Cadang' ? (
+                        ) : t.status === 'Pending – Menunggu Suku Cadang' || (t.status as string) === 'Pending Procurement' || (t.status as string) === 'Menunggu Suku Cadang' ? (
                           <button
                             type="button"
                             onClick={() => openProcessModal(t, 'lanjut-perbaikan')}
@@ -1209,21 +1241,6 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                     )}
                   </div>
                 </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Sumber Anggaran Pengadaan:
-                  </label>
-                  <select
-                    value={sumberAnggaran}
-                    onChange={e => setSumberAnggaran(e.target.value as any)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                  >
-                    <option value="Stok Internal PUSDATIN">Stok Internal PUSDATIN (Stok Siap Pakai)</option>
-                    <option value="Pengajuan RKAT Kampus">Pengajuan RKAT Kampus (Pembelian Baru)</option>
-                    <option value="Biaya Unit/Fakultas">Biaya Unit / Fakultas Pemilik</option>
-                  </select>
-                </div>
               </div>
             )}
 
@@ -1337,13 +1354,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                     onChange={e => setTargetDelegasiId(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-violet-300 rounded-lg text-xs font-bold text-slate-900"
                   >
-                    {techniciansList
-                      .filter(tc => tc.id !== activeTech?.id)
-                      .map(tc => (
-                        <option key={tc.id} value={tc.id}>
-                          {tc.role} {tc.level ? `(${tc.level})` : ''}
-                        </option>
-                      ))}
+                    {delegatableTechnicians.map(tc => (
+                      <option key={tc.id} value={tc.id}>
+                        {tc.roleName || tc.role}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
