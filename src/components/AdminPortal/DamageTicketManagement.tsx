@@ -7,6 +7,7 @@ import {
   RepairCategory,
   TechnicianRole,
   TicketUrgency,
+  TicketType,
   TechnicianUser,
   SlaConfig
 } from '../../types';
@@ -59,7 +60,9 @@ import {
   Check,
   HelpCircle,
   SlidersHorizontal,
-  Gauge
+  Gauge,
+  PauseCircle,
+  Globe
 } from 'lucide-react';
 
 interface DamageTicketManagementProps {
@@ -69,22 +72,26 @@ interface DamageTicketManagementProps {
 export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ onDataChanged }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('Semua');
+  const [ticketTypeFilter, setTicketTypeFilter] = useState<'Semua' | TicketType>('Semua');
   const [picFilter, setPicFilter] = useState<string>('Semua');
   const [urgencyFilter, setUrgencyFilter] = useState<'Semua' | TicketUrgency>('Semua');
   const [sortBy, setSortBy] = useState<'terbaru' | 'terlama' | 'urgensi' | 'status'>('terbaru');
   const [selectedTicket, setSelectedTicket] = useState<DamageTicket | null>(null);
 
-  // SOP 5-Tahap Modal action types
+  // SOP Modal action types
   const currentUser = AppDatabase.getActiveUser();
   const canAccessTahap2 = currentUser?.role === 'ACT-02' || currentUser?.role === 'ACT-03';
   const canEditUrgency = currentUser?.role === 'ACT-02' || currentUser?.role === 'ACT-03';
 
   const [actionType, setActionType] = useState<
     | 'verifikasi-delegasi'
+    | 'need-info'
     | 'jadwalkan-inspeksi'
     | 'perbaikan'
     | 'suku-cadang'
+    | 'vendor-eksternal'
     | 'lanjut-perbaikan'
+    | 'eskalasi-problem-rfc'
     | 'rusak-total'
     | 'selesai'
     | 'ubah-pic'
@@ -98,6 +105,15 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const [jadwalInspeksiModal, setJadwalInspeksiModal] = useState('');
   const [skenarioModal, setSkenarioModal] = useState<'Non-Fisik (Remote/Server)' | 'Fisik (On-site)' | 'Fisik (Bawa ke PUSDATIN)'>('Fisik (On-site)');
   const [resolusiAkhirModal, setResolusiAkhirModal] = useState('');
+
+  // Vendor eksternal (3c) & Problem/RFC escalation (3d) states
+  const [vendorEksternalNama, setVendorEksternalNama] = useState('');
+  const [vendorEksternalTiket, setVendorEksternalTiket] = useState('');
+  const [workaroundInput, setWorkaroundInput] = useState('');
+  const [targetProblemType, setTargetProblemType] = useState<'Problem' | 'RFC'>('Problem');
+  const [problemJudulInput, setProblemJudulInput] = useState('');
+  const [problemTargetHoursInput, setProblemTargetHoursInput] = useState<number>(336);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const [statusAsetBaru, setStatusAsetBaru] = useState<AssetStatus>('Tersedia');
   const [lokasiTujuan, setLokasiTujuan] = useState('');
@@ -135,6 +151,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const [internalUrgensi, setInternalUrgensi] = useState<TicketUrgency>('Sedang');
   const [internalStatus, setInternalStatus] = useState<'Open' | 'Assigned' | 'In Progress'>('Open');
   const [internalMetode, setInternalMetode] = useState<'Di Lokasi' | 'Dibawa ke PUSDATIN'>('Dibawa ke PUSDATIN');
+  const [internalError, setInternalError] = useState<string | null>(null);
 
   // SLA Configuration (FRT & RT) states
   const [slaConfig, setSlaConfig] = useState<SlaConfig>(() => AppDatabase.getSlaConfig());
@@ -158,10 +175,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const handleCreateInternalSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!internalNamaBarang.trim() || !internalDeskripsi.trim()) {
-      alert('Harap isi nama perangkat dan deskripsi kerusakan!');
+      setInternalError('Harap isi nama perangkat dan deskripsi kerusakan.');
       return;
     }
 
+    setInternalError(null);
     setIsProcessing(true);
     const asset = internalBarcode.trim() ? AppDatabase.getAssetByBarcodeOrUnique(internalBarcode.trim()) : undefined;
     const createdTicket = AppDatabase.addDamageTicket({
@@ -188,8 +206,9 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       setInternalNamaBarang('');
       setInternalLokasi('');
       setInternalDeskripsi('');
+      setSlaFeedback(`Berhasil mencatat temuan kerusakan internal (${id}).`);
       onDataChanged();
-      alert(`Berhasil mencatat temuan kerusakan internal (${id})!`);
+      setTimeout(() => setSlaFeedback(null), 4000);
     }, 250);
   };
 
@@ -217,9 +236,10 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     const val = newKomponenInput.trim();
     if (!val) return;
     if (komponenList.includes(val)) {
-      alert('Nama komponen ini sudah ada di daftar!');
+      setModalError(`Komponen "${val}" sudah ada dalam daftar.`);
       return;
     }
+    setModalError(null);
     setKomponenList(prev => [...prev, val]);
     setNewKomponenInput('');
   };
@@ -248,17 +268,25 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       (t.picTeknisi && t.picTeknisi.toLowerCase().includes(searchTerm.toLowerCase())) ||
       t.barcode.includes(searchTerm);
 
+    const matchesTicketType = ticketTypeFilter === 'Semua' || (t.ticketType || 'Incident') === ticketTypeFilter;
+
     let matchesStatus = true;
     if (statusFilter === 'Semua') {
       matchesStatus = true;
     } else if (statusFilter === 'Open') {
       matchesStatus = t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened';
+    } else if (statusFilter === 'Need More Info') {
+      matchesStatus = t.status === 'Need More Info';
     } else if (statusFilter === 'Assigned') {
       matchesStatus = t.status === 'Assigned' || t.status === 'Diterima';
     } else if (statusFilter === 'In Progress') {
       matchesStatus = t.status === 'In Progress' || t.status === 'Perbaikan';
     } else if (statusFilter === 'Pending Procurement') {
-      matchesStatus = t.status === 'Pending – Menunggu Suku Cadang' || (t.status as string) === 'Pending Procurement' || (t.status as string) === 'Menunggu Suku Cadang';
+      matchesStatus =
+        t.status === 'Pending – Menunggu Suku Cadang' ||
+        t.status === 'Pending – Menunggu Vendor Eksternal' ||
+        (t.status as string) === 'Pending Procurement' ||
+        (t.status as string) === 'Menunggu Suku Cadang';
     } else if (statusFilter === 'Closed') {
       matchesStatus = t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual' || (t.status as string) === 'Closed' || (t.status as string) === 'Selesai';
     } else {
@@ -268,19 +296,21 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     const matchesPic = picFilter === 'Semua' || t.picTeknisi === picFilter;
     const matchesUrgency = urgencyFilter === 'Semua' || t.urgensi === urgencyFilter;
 
-    return matchesSearch && matchesStatus && matchesPic && matchesUrgency;
+    return matchesSearch && matchesTicketType && matchesStatus && matchesPic && matchesUrgency;
   });
 
   const urgencyOrder: Record<string, number> = { Kritis: 4, Tinggi: 3, Sedang: 2, Rendah: 1 };
   const statusOrder: Record<string, number> = {
-    'Open/Unassigned': 6,
+    'Open/Unassigned': 7,
+    'Need More Info': 6,
     Assigned: 5,
     'In Progress': 4,
     'Pending – Menunggu Suku Cadang': 3,
+    'Pending – Menunggu Vendor Eksternal': 3,
     Resolved: 2,
     'Closed – Auto': 1,
     'Closed – Manual': 1,
-    'Re-opened': 5
+    'Re-opened': 6
   };
 
   const sortedTickets = [...filteredTickets].sort((a, b) => {
@@ -302,20 +332,27 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   // KPI Stage Counts
   const stageCounts = {
     total: tickets.length,
-    open: tickets.filter(t => t.status === 'Open/Unassigned' || (t.status as string) === 'Open' || (t.status as string) === 'Baru').length,
+    open: tickets.filter(t => t.status === 'Open/Unassigned' || (t.status as string) === 'Open' || (t.status as string) === 'Baru' || t.status === 'Re-opened').length,
+    needInfo: tickets.filter(t => t.status === 'Need More Info').length,
     assigned: tickets.filter(t => t.status === 'Assigned' || (t.status as string) === 'Diterima').length,
     inProgress: tickets.filter(t => t.status === 'In Progress' || (t.status as string) === 'Perbaikan').length,
-    pendingProcurement: tickets.filter(t => t.status === 'Pending – Menunggu Suku Cadang').length,
-    closed: tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual').length
+    pendingProcurement: tickets.filter(t => t.status === 'Pending – Menunggu Suku Cadang' || t.status === 'Pending – Menunggu Vendor Eksternal').length,
+    closed: tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual').length,
+    incidents: tickets.filter(t => (t.ticketType || 'Incident') === 'Incident').length,
+    problems: tickets.filter(t => t.ticketType === 'Problem').length,
+    rfcs: tickets.filter(t => t.ticketType === 'RFC').length
   };
 
   const openProcessModal = (t: DamageTicket, specificAction?: typeof actionType) => {
     setSelectedTicket(t);
+    setModalError(null);
 
     let defaultAction: typeof actionType = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     if (specificAction) {
       defaultAction = specificAction;
     } else if (t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened') {
+      defaultAction = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
+    } else if (t.status === 'Need More Info') {
       defaultAction = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     } else if (t.status === 'Assigned' || t.status === 'Diterima') {
       defaultAction = 'jadwalkan-inspeksi';
@@ -323,6 +360,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       defaultAction = 'perbaikan';
     } else if (
       t.status === 'Pending – Menunggu Suku Cadang' ||
+      t.status === 'Pending – Menunggu Vendor Eksternal' ||
       (t.status as string) === 'Pending Procurement' ||
       (t.status as string) === 'Menunggu Suku Cadang'
     ) {
@@ -340,6 +378,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     setResolusiAkhirModal(t.resolusiAkhir || '');
     setDibawaKePusdatin(t.metodePerbaikan === 'Dibawa ke PUSDATIN');
     setRepairCategory(t.kategoriPerbaikan || 'Suku Cadang (Stok Ada)');
+    setVendorEksternalNama(t.vendorEksternalNama || '');
+    setVendorEksternalTiket(t.vendorEksternalTiket || '');
+    setWorkaroundInput(t.workaround || '');
+    setTargetProblemType('Problem');
+    setProblemJudulInput(`[Problem] ${t.namaBarang}`);
+    setProblemTargetHoursInput((slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours);
 
     // Populate multiple components if existing
     if (t.sukuCadangList && t.sukuCadangList.length > 0) {
@@ -382,11 +426,18 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
   const handleProcessSubmit = () => {
     if (!selectedTicket) return;
+    setModalError(null);
+
+    if (actionType === 'eskalasi-problem-rfc' && !workaroundInput.trim()) {
+      setModalError('Harap isi Workaround (solusi sementara) untuk pengguna sebelum membuat tiket Problem / RFC.');
+      return;
+    }
 
     setIsProcessing(true);
 
     const res = AppDatabase.processDamageTicket(selectedTicket.id, actionType, {
       catatanAdmin,
+      catatan: catatanAdmin,
       statusAsetBaru,
       dibawaKePusdatin,
       lokasiBaruCustom: actionType === 'selesai' ? lokasiTujuan : undefined,
@@ -398,20 +449,35 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       kategoriPerbaikan: actionType === 'suku-cadang' ? repairCategory : actionType === 'rusak-total' ? 'Rusak Total (Afkir)' : undefined,
       komponenList: actionType === 'suku-cadang' ? komponenList : undefined,
       namaSukuCadang: actionType === 'suku-cadang' ? komponenList.join(', ') : undefined,
-      picTeknisiBaru: actionType === 'ubah-pic' || actionType === 'verifikasi-delegasi' ? reassignedPic : undefined,
+      picTeknisiBaru: actionType === 'ubah-pic' || actionType === 'verifikasi-delegasi' || actionType === 'eskalasi-problem-rfc' ? reassignedPic : undefined,
       targetTechnicianId: actionType === 'delegasikan' ? targetDelegasiId : undefined,
-      urgensiBaru: modalUrgency
+      urgensiBaru: modalUrgency,
+      vendorEksternalNama: actionType === 'vendor-eksternal' ? vendorEksternalNama : undefined,
+      vendorEksternalTiket: actionType === 'vendor-eksternal' ? vendorEksternalTiket : undefined,
+      workaround: actionType === 'eskalasi-problem-rfc' ? workaroundInput : undefined,
+      targetTicketType: actionType === 'eskalasi-problem-rfc' ? targetProblemType : undefined,
+      problemJudul: actionType === 'eskalasi-problem-rfc' ? problemJudulInput : undefined,
+      problemTargetHours: actionType === 'eskalasi-problem-rfc' ? problemTargetHoursInput : undefined
     });
 
-    let displayStatusLabel = 'Diperbarui';
-    if (actionType === 'verifikasi-delegasi') displayStatusLabel = 'Assigned / Didelegasikan';
-    else if (actionType === 'jadwalkan-inspeksi') displayStatusLabel = 'In Progress (Inspeksi Dijadwalkan)';
-    else if (actionType === 'perbaikan' || actionType === 'lanjut-perbaikan') displayStatusLabel = 'In Progress / Sedang Diproses';
-    else if (actionType === 'suku-cadang') displayStatusLabel = 'Pending Procurement (Menunggu Pembelian)';
-    else if (actionType === 'rusak-total') displayStatusLabel = 'Closed (Rusak Total / Afkir)';
-    else if (actionType === 'selesai') displayStatusLabel = 'Closed / Selesai';
+    if (!res.success) {
+      setIsProcessing(false);
+      setModalError(res.message);
+      return;
+    }
 
-    const waNote = catatanAdmin || resolusiAkhirModal || `Status tiket diperbarui menjadi: ${displayStatusLabel}`;
+    let displayStatusLabel = 'Diperbarui';
+    if (actionType === 'verifikasi-delegasi') displayStatusLabel = 'Assigned (SLA RT Dimulai)';
+    else if (actionType === 'need-info') displayStatusLabel = 'Need More Info (Auto-Close 3x24j)';
+    else if (actionType === 'jadwalkan-inspeksi') displayStatusLabel = 'In Progress (Inspeksi Dijadwalkan)';
+    else if (actionType === 'perbaikan' || actionType === 'lanjut-perbaikan') displayStatusLabel = 'In Progress (SLA Aktif)';
+    else if (actionType === 'suku-cadang') displayStatusLabel = 'Pending Suku Cadang (SLA Terjeda)';
+    else if (actionType === 'vendor-eksternal') displayStatusLabel = 'Pending Vendor Eksternal (SLA Terjeda)';
+    else if (actionType === 'eskalasi-problem-rfc') displayStatusLabel = `Resolved via Workaround & ${targetProblemType}`;
+    else if (actionType === 'rusak-total') displayStatusLabel = 'Closed (Rusak Total / Afkir)';
+    else if (actionType === 'selesai') displayStatusLabel = 'Resolved (Konfirmasi 1x24j)';
+
+    const waNote = catatanAdmin || resolusiAkhirModal || workaroundInput || `Status tiket diperbarui menjadi: ${displayStatusLabel}`;
     const waUrl = WhatsAppNotificationService.getDamageStatusUrl(selectedTicket, displayStatusLabel as any, waNote);
 
     setTimeout(() => {
@@ -568,11 +634,27 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   };
 
   const renderStageBadge = (status: string) => {
-    if (status === 'Open/Unassigned' || status === 'Open' || status === 'Baru' || status === 'Re-opened') {
+    if (status === 'Open/Unassigned' || status === 'Open' || status === 'Baru') {
       return (
         <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-red-100 text-red-800 border border-red-200 inline-flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
-          <span>{status === 'Re-opened' ? 'Re-opened' : '1. Open / Baru'}</span>
+          <span>1. Open / Baru</span>
+        </span>
+      );
+    }
+    if (status === 'Re-opened') {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-300 inline-flex items-center gap-1">
+          <RotateCcw className="w-3 h-3 text-rose-700" />
+          <span>Re-opened</span>
+        </span>
+      );
+    }
+    if (status === 'Need More Info') {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
+          <HelpCircle className="w-3 h-3 text-amber-700" />
+          <span>Need More Info</span>
         </span>
       );
     }
@@ -595,8 +677,16 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     if (status === 'Pending – Menunggu Suku Cadang' || status === 'Pending Procurement' || status === 'Menunggu Suku Cadang') {
       return (
         <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
-          <PackageSearch className="w-3 h-3 text-amber-600" />
-          <span>4. Menunggu Pembelian</span>
+          <PauseCircle className="w-3 h-3 text-amber-700" />
+          <span>4.a Suku Cadang (Jeda SLA)</span>
+        </span>
+      );
+    }
+    if (status === 'Pending – Menunggu Vendor Eksternal') {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-cyan-100 text-cyan-900 border border-cyan-300 inline-flex items-center gap-1">
+          <Globe className="w-3 h-3 text-cyan-700" />
+          <span>4.b Vendor Eksternal (Jeda SLA)</span>
         </span>
       );
     }
@@ -611,7 +701,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     return (
       <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1">
         <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-        <span>{status === 'Resolved' ? '5. Resolved' : '5. Closed / Selesai'}</span>
+        <span>{status === 'Resolved' ? '5. Resolved' : status === 'Closed – Auto' ? 'Auto-Closed' : '5. Closed / Selesai'}</span>
       </span>
     );
   };
@@ -694,8 +784,8 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
         </div>
       )}
 
-      {/* SOP 5-Stage Interactive Metric Strips */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+      {/* SOP Stage Interactive Metric Strips */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         <button
           type="button"
           onClick={() => setStatusFilter('Semua')}
@@ -717,9 +807,22 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
           }`}
         >
           <span className={`text-[10px] font-bold uppercase tracking-wider block ${statusFilter === 'Open' ? 'text-red-100' : 'text-red-600'}`}>
-            1. Open / Baru
+            1. Open / Reopen
           </span>
           <span className="text-xl font-bold font-mono mt-0.5 block">{stageCounts.open}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter('Need More Info')}
+          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+            statusFilter === 'Need More Info' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <span className={`text-[10px] font-bold uppercase tracking-wider block ${statusFilter === 'Need More Info' ? 'text-amber-100' : 'text-amber-700'}`}>
+            Need More Info
+          </span>
+          <span className="text-xl font-bold font-mono mt-0.5 block">{stageCounts.needInfo}</span>
         </button>
 
         <button
@@ -752,11 +855,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
           type="button"
           onClick={() => setStatusFilter('Pending Procurement')}
           className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-            statusFilter === 'Pending Procurement' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-slate-200 hover:border-slate-300'
+            statusFilter === 'Pending Procurement' ? 'bg-cyan-700 text-white border-cyan-700' : 'bg-white border-slate-200 hover:border-slate-300'
           }`}
         >
-          <span className={`text-[10px] font-bold uppercase tracking-wider block ${statusFilter === 'Pending Procurement' ? 'text-amber-100' : 'text-amber-600'}`}>
-            4. Menunggu Beli
+          <span className={`text-[10px] font-bold uppercase tracking-wider block ${statusFilter === 'Pending Procurement' ? 'text-cyan-100' : 'text-cyan-700'}`}>
+            4. Pending (Jeda)
           </span>
           <span className="text-xl font-bold font-mono mt-0.5 block">{stageCounts.pendingProcurement}</span>
         </button>
@@ -769,7 +872,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
           }`}
         >
           <span className={`text-[10px] font-bold uppercase tracking-wider block ${statusFilter === 'Closed' ? 'text-emerald-100' : 'text-emerald-600'}`}>
-            5. Closed / Selesai
+            5. Resolved/Closed
           </span>
           <span className="text-xl font-bold font-mono mt-0.5 block">{stageCounts.closed}</span>
         </button>
@@ -794,7 +897,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
           <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            <span className="leading-snug">Kepatuhan RT (Waktu Penyelesaian)</span>
+            <span className="leading-snug">Kepatuhan RT (Penyelesaian)</span>
             <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
@@ -809,12 +912,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
           <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            <span className="leading-snug">Komitmen Target SLA Aktif</span>
-            <SlidersHorizontal className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+            <span className="leading-snug">Status Timer SLA Saat Ini</span>
+            <PauseCircle className="w-4 h-4 text-cyan-600 shrink-0 mt-0.5" />
           </div>
-          <div className="mt-1.5 text-[11px] text-slate-700 font-semibold space-y-0.5 font-mono">
-            <div>Kritis: FRT {slaConfig.Kritis.frtTargetMinutes}m · RT {slaConfig.Kritis.rtTargetHours}j</div>
-            <div>Tinggi: FRT {slaConfig.Tinggi.frtTargetMinutes}m · RT {slaConfig.Tinggi.rtTargetHours}j</div>
+          <div className="mt-1.5 text-[11px] text-slate-700 font-semibold space-y-0.5">
+            <div>{slaSummary.waitingStage2Count} Menunggu Tahap 2 (RT belum jalan)</div>
+            <div>{slaSummary.pausedCount} Tiket Sedang Terjeda (Paused)</div>
           </div>
         </div>
 
@@ -832,14 +935,40 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               <span className="text-emerald-700">0 Pelanggaran SLA Aktif</span>
             )}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">
-            Sedang: FRT {slaConfig.Sedang.frtTargetMinutes}m · RT {slaConfig.Sedang.rtTargetHours}j
+          <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
+            Problem: {Math.round((slaConfig.Problem?.rtTargetHours || 336) / 24)}h · RFC: {Math.round((slaConfig.RFC?.rtTargetHours || 720) / 24)}h
           </div>
         </div>
       </div>
 
-      {/* Filter, Search & Sorting Controls */}
+      {/* Filter, Search, Incident/Problem/RFC Tabs & Sorting Controls */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="ticket-type-tabs">
+            {(
+              [
+                { key: 'Semua', label: `Semua Jenis (${stageCounts.total})` },
+                { key: 'Incident', label: `Insiden Harian (${stageCounts.incidents})` },
+                { key: 'Problem', label: `Problem Ticket (${stageCounts.problems})` },
+                { key: 'RFC', label: `Change Request / RFC (${stageCounts.rfcs})` }
+              ] as const
+            ).map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setTicketTypeFilter(tab.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  ticketTypeFilter === tab.key
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="md:col-span-2 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -847,7 +976,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Cari ID tiket, nama barang, pelapor, kontak WA, lokasi..."
+              placeholder="Cari ID tiket (TKT/PRB/RFC), nama barang, pelapor, lokasi..."
               className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-600"
             />
           </div>
@@ -907,9 +1036,27 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
                   return (
                     <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
-                      {/* ID & Urgensi */}
+                      {/* ID, Jenis Tiket & Urgensi */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className="font-mono font-bold text-slate-900 block">{t.id}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-slate-900">{t.id}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                              t.ticketType === 'Problem'
+                                ? 'bg-purple-100 text-purple-800 border-purple-200'
+                                : t.ticketType === 'RFC'
+                                ? 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                                : 'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}
+                          >
+                            {t.ticketType || 'Incident'}
+                          </span>
+                        </div>
+                        {(t.linkedProblemTicketId || t.linkedParentTicketId) && (
+                          <div className="text-[9px] font-mono text-indigo-700 mt-0.5">
+                            {t.linkedProblemTicketId ? `↳ Eskalasi: ${t.linkedProblemTicketId}` : `↳ Induk: ${t.linkedParentTicketId}`}
+                          </div>
+                        )}
                         <div className="mt-1 flex items-center gap-1">
                           {canEditUrgency ? (
                             <select
@@ -1029,6 +1176,10 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                               className={`px-1.5 py-0.5 rounded font-bold border ${
                                 slaEval.rtStatus === 'Memenuhi SLA' || slaEval.rtStatus === 'Dalam Batas'
                                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : slaEval.rtStatus === 'Terjeda (Paused)'
+                                  ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                                  : slaEval.rtStatus === 'Menunggu Tahap 2'
+                                  ? 'bg-slate-100 text-slate-700 border-slate-200'
                                   : slaEval.rtStatus === 'Mendekati Batas'
                                   ? 'bg-amber-50 text-amber-800 border-amber-200'
                                   : 'bg-rose-50 text-rose-800 border-rose-200'
@@ -1038,12 +1189,22 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                             </span>
                             <span className="font-mono text-slate-600">{slaEval.rtLabel}</span>
                           </div>
+                          {t.vendorEksternalNama && (
+                            <div className="text-[9px] text-cyan-800 font-semibold">
+                              Vendor: {t.vendorEksternalNama} ({t.vendorEksternalTiket || '-'})
+                            </div>
+                          )}
                         </div>
                       </td>
 
                       {/* Gejala / Catatan / Suku Cadang */}
                       <td className="px-4 py-3.5 max-w-xs">
                         <p className="line-clamp-2 text-slate-700">{t.deskripsi}</p>
+                        {t.workaround && (
+                          <div className="mt-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[9px] text-emerald-900 font-semibold">
+                            Workaround: {t.workaround}
+                          </div>
+                        )}
                         {t.sukuCadangList && t.sukuCadangList.length > 0 ? (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {t.sukuCadangList.map((sp, idx) => (
@@ -1071,7 +1232,16 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                             className="px-3 py-1.5 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-lg shadow-xs transition-colors flex items-center gap-1 ml-auto cursor-pointer"
                           >
                             <UserCheck className="w-3.5 h-3.5" />
-                            <span>{canAccessTahap2 ? 'Verifikasi & Delegasi' : 'Proses Tiket'}</span>
+                            <span>{canAccessTahap2 ? 'Tahap 2: Verifikasi & SLA' : 'Proses Tiket'}</span>
+                          </button>
+                        ) : t.status === 'Need More Info' ? (
+                          <button
+                            type="button"
+                            onClick={() => openProcessModal(t, canAccessTahap2 ? 'verifikasi-delegasi' : 'need-info')}
+                            className="px-3 py-1.5 text-xs font-bold text-amber-950 bg-amber-200 hover:bg-amber-300 rounded-lg shadow-xs transition-colors flex items-center gap-1 ml-auto cursor-pointer"
+                          >
+                            <HelpCircle className="w-3.5 h-3.5" />
+                            <span>Pantau Need Info</span>
                           </button>
                         ) : t.status === 'Assigned' || t.status === 'Diterima' ? (
                           <button
@@ -1082,14 +1252,17 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                             <CalendarClock className="w-3.5 h-3.5" />
                             <span>Jadwalkan Inspeksi</span>
                           </button>
-                        ) : t.status === 'Pending – Menunggu Suku Cadang' || (t.status as string) === 'Pending Procurement' || (t.status as string) === 'Menunggu Suku Cadang' ? (
+                        ) : t.status === 'Pending – Menunggu Suku Cadang' ||
+                          t.status === 'Pending – Menunggu Vendor Eksternal' ||
+                          (t.status as string) === 'Pending Procurement' ||
+                          (t.status as string) === 'Menunggu Suku Cadang' ? (
                           <button
                             type="button"
                             onClick={() => openProcessModal(t, 'lanjut-perbaikan')}
                             className="px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs transition-colors flex items-center gap-1 ml-auto cursor-pointer"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>Komponen Datang & Lanjut</span>
+                            <span>Tahap 5: Lanjut SLA</span>
                           </button>
                         ) : t.status === 'In Progress' || t.status === 'Perbaikan' ? (
                           <button
@@ -1156,10 +1329,10 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
                   <div>
                     <div className="text-[10px] font-bold uppercase text-slate-500">First Response Time (FRT)</div>
-                    <div className="flex items-center justify-between mt-1">
+                    <div className="flex items-center justify-between mt-1 gap-1">
                       <span className="font-mono font-semibold text-slate-800">{ticketSla.frtLabel}</span>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
                           ticketSla.frtStatus === 'Melewati SLA'
                             ? 'bg-rose-100 text-rose-800'
                             : ticketSla.frtStatus === 'Mendekati Batas'
@@ -1173,12 +1346,16 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                   </div>
                   <div>
                     <div className="text-[10px] font-bold uppercase text-slate-500">Resolution Time (RT)</div>
-                    <div className="flex items-center justify-between mt-1">
+                    <div className="flex items-center justify-between mt-1 gap-1">
                       <span className="font-mono font-semibold text-slate-800">{ticketSla.rtLabel}</span>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
                           ticketSla.rtStatus === 'Melewati SLA'
                             ? 'bg-rose-100 text-rose-800'
+                            : ticketSla.rtStatus === 'Terjeda (Paused)'
+                            ? 'bg-cyan-100 text-cyan-800'
+                            : ticketSla.rtStatus === 'Menunggu Tahap 2'
+                            ? 'bg-slate-200 text-slate-700'
                             : ticketSla.rtStatus === 'Mendekati Batas'
                             ? 'bg-amber-100 text-amber-800'
                             : 'bg-emerald-100 text-emerald-800'
@@ -1192,38 +1369,59 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               );
             })()}
 
+            {modalError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-800">
+                {modalError}
+              </div>
+            )}
+
             {/* SOP Stage Selector / Mode Selection */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 Pilih Tahapan / Keputusan Penanganan SOP:
               </label>
               <select
+                data-testid="ticket-action-select"
                 value={actionType}
-                onChange={e => setActionType(e.target.value as any)}
+                onChange={e => {
+                  setModalError(null);
+                  setActionType(e.target.value as any);
+                }}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-600"
               >
                 {canAccessTahap2 && (
                   <option value="verifikasi-delegasi">
-                    Tahap 2: Verifikasi Kelengkapan & Penugasan PIC Teknisi (Pimpinan / Admin)
+                    Tahap 2: Verifikasi Kelengkapan, Urgensi &amp; Penugasan PIC (Mulai SLA RT)
+                  </option>
+                )}
+                {canAccessTahap2 && (
+                  <option value="need-info">
+                    Kembalikan ke Pelapor: Butuh Info Tambahan (Need More Info · Auto-Close 3x24j)
                   </option>
                 )}
                 <option value="jadwalkan-inspeksi">
-                  Tahap 3: Pemeriksaan & Penjadwalan oleh Teknisi
+                  Tahap 3: Pemeriksaan &amp; Penjadwalan oleh Teknisi
                 </option>
                 <option value="perbaikan">
                   Tahap 4: Mulai Tindakan Perbaikan
                 </option>
                 <option value="suku-cadang">
-                  Tahap 4.a: Butuh Suku Cadang &rarr; Pending Procurement
+                  Tahap 4.a: Butuh Suku Cadang → Pending Procurement (Jeda SLA)
+                </option>
+                <option value="vendor-eksternal">
+                  Tahap 4.b: Vendor Eksternal / Gangguan ISP → Pending Vendor (Jeda SLA)
                 </option>
                 <option value="rusak-total">
-                  Tahap 4.b: Rusak Total (Beyond Economic Repair) &rarr; Afkir
+                  Tahap 4.c: Rusak Total (Beyond Economic Repair) → Afkir
                 </option>
                 <option value="lanjut-perbaikan">
-                  Tahap 5: Lanjutkan Perbaikan
+                  Tahap 5: Lanjutkan Perbaikan (Aktifkan Kembali SLA)
+                </option>
+                <option value="eskalasi-problem-rfc">
+                  Eskalasi Problem / RFC: Tutup Insiden via Workaround &amp; Buat Tiket Problem/RFC
                 </option>
                 <option value="selesai">
-                  Tahap 6: Penyelesaian & Pembaruan Status
+                  Tahap 6: Penyelesaian &amp; Pembaruan Status (Resolved)
                 </option>
                 <option value="delegasikan">
                   Internal: Alihkan Tiket ke Teknisi Lain
@@ -1231,15 +1429,32 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               </select>
             </div>
 
-            {/* Sub-form Tahap 2: Verifikasi & Delegasi oleh Admin */}
+            {/* Sub-form Tahap 2: Verifikasi, Penetapan Urgensi & Delegasi PIC (Mulai SLA RT) */}
             {actionType === 'verifikasi-delegasi' && (
               <div className="bg-purple-50/70 border border-purple-200 rounded-xl p-4 space-y-3.5">
                 <div className="flex items-center gap-2 text-xs font-bold text-purple-900">
                   <UserCheck className="w-4 h-4 text-purple-700" />
-                  <span>Tahap 2: Verifikasi Kelengkapan & Penugasan PIC Teknisi</span>
+                  <span>Tahap 2: Verifikasi Kelengkapan, Jenis Urgensi &amp; Penugasan PIC (Mulai SLA RT)</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Tetapkan Jenis Urgensi SLA: <span className="text-red-600">*</span>
+                    </label>
+                    <select
+                      data-testid="tahap2-urgency-select"
+                      value={modalUrgency}
+                      onChange={e => setModalUrgency(e.target.value as TicketUrgency)}
+                      className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg font-bold text-slate-900"
+                    >
+                      <option value="Kritis">Kritis (RT {slaConfig.Kritis.rtTargetHours} jam)</option>
+                      <option value="Tinggi">Tinggi (RT {slaConfig.Tinggi.rtTargetHours} jam)</option>
+                      <option value="Sedang">Sedang (RT {slaConfig.Sedang.rtTargetHours} jam)</option>
+                      <option value="Rendah">Rendah (RT {slaConfig.Rendah.rtTargetHours} jam)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">
                       Kategori Masalah: <span className="text-red-600">*</span>
@@ -1249,7 +1464,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                       onChange={e => setKategoriMasalahModal(e.target.value as 'Hardware' | 'Software')}
                       className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg font-bold text-slate-900"
                     >
-                      <option value="Hardware">Hardware (Perangkat Keras & Fisik)</option>
+                      <option value="Hardware">Hardware (Perangkat Keras &amp; Fisik)</option>
                       <option value="Software">Software (Sistem, Jaringan, Web, Database)</option>
                     </select>
                   </div>
@@ -1268,9 +1483,9 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                     </select>
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div>
                     <label className="block font-bold text-slate-700 mb-1">
-                      Tugaskan ke PIC Teknisi (Hanya Peran): <span className="text-red-600">*</span>
+                      Tugaskan ke PIC Teknisi: <span className="text-red-600">*</span>
                     </label>
                     <select
                       value={reassignedPic}
@@ -1285,8 +1500,21 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 </div>
 
                 <div className="p-2.5 bg-white/80 rounded-lg border border-purple-200 text-[11px] text-purple-900 leading-relaxed">
-                  Status tiket akan berubah menjadi <strong>Assigned / Didelegasikan</strong> dan masuk ke daftar kerja PIC yang dipilih.
+                  Perhitungan SLA Penyelesaian (RT) akan <strong>resmi dimulai sekarang</strong> berdasarkan tingkat urgensi <strong>{modalUrgency}</strong> dan tiket masuk daftar kerja PIC terpilih.
                 </div>
+              </div>
+            )}
+
+            {/* Sub-form Need More Info (3e) */}
+            {actionType === 'need-info' && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-2.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-950">
+                  <HelpCircle className="w-4 h-4 text-amber-700" />
+                  <span>Kembalikan Tiket ke Pelapor (Need More Info · Auto-Close 3x24 Jam)</span>
+                </div>
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  Gunakan status ini jika bukti atau kronologi dari pelapor kurang lengkap. <strong>SLA Penyelesaian tidak akan berjalan</strong> sampai pelapor membalas. Jika tidak ada balasan dalam <strong>3x24 jam (72 jam)</strong>, sistem otomatis menutup tiket (Closed – Auto).
+                </p>
               </div>
             )}
 
@@ -1403,7 +1631,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 </div>
 
                 <p className="text-[11px] text-amber-900 leading-relaxed">
-                  Jika perbaikan membutuhkan penggantian komponen, sistem akan memicu status <strong>Menunggu Pembelian (Pending Procurement)</strong>.
+                  Saat memilih Tahap 4.a, status menjadi <strong>Pending – Menunggu Suku Cadang</strong> dan perhitungan <strong>SLA terjeda (Pause)</strong> otomatis hingga teknisi melanjutkan ke Tahap 5.
                 </p>
 
                 {/* Input Komponen */}
@@ -1462,28 +1690,148 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               </div>
             )}
 
+            {/* Sub-form Tahap 4.b: Vendor Eksternal (3c) */}
+            {actionType === 'vendor-eksternal' && (
+              <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-cyan-950">
+                  <Globe className="w-4 h-4 text-cyan-700" />
+                  <span>Tahap 4.b: Menunggu Vendor Eksternal / ISP (SLA Terjeda)</span>
+                </div>
+                <p className="text-[11px] text-cyan-900 leading-relaxed">
+                  Gunakan tahapan ini jika gangguan berasal dari pihak di luar kendali kampus (misal: gangguan jaringan ISP atau klaim garansi resmi vendor). <strong>Timer SLA terjeda</strong> hingga pihak eksternal selesai.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Nama Vendor / ISP Eksternal:
+                    </label>
+                    <input
+                      type="text"
+                      value={vendorEksternalNama}
+                      onChange={e => setVendorEksternalNama(e.target.value)}
+                      placeholder="Contoh: PT Telkom Astinet / Biznet / Service Center ASUS"
+                      className="w-full px-3 py-2 bg-white border border-cyan-300 rounded-lg text-slate-900 font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Nomor Tiket / Referensi Vendor:
+                    </label>
+                    <input
+                      type="text"
+                      value={vendorEksternalTiket}
+                      onChange={e => setVendorEksternalTiket(e.target.value)}
+                      placeholder="Contoh: INC-ISP-20261113"
+                      className="w-full px-3 py-2 bg-white border border-cyan-300 rounded-lg font-mono text-slate-900"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Sub-form Eskalasi Insiden -> Problem / Request for Change (3d) */}
+            {actionType === 'eskalasi-problem-rfc' && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
+                  <GitBranch className="w-4 h-4 text-indigo-700" />
+                  <span>Tutup Insiden via Workaround &amp; Buat Tiket Problem / RFC</span>
+                </div>
+                <p className="text-[11px] text-indigo-900 leading-relaxed">
+                  Jika perbaikan memerlukan bongkar arsitektur atau coding ulang aplikasi, berikan <strong>Workaround</strong> (solusi sementara) untuk menutup Insiden harian ini (SLA harian aman), lalu terbitkan tiket jangka panjang bertipe <strong>Problem</strong> atau <strong>RFC</strong>.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Jenis Tiket Baru: <span className="text-red-600">*</span>
+                    </label>
+                    <select
+                      data-testid="escalate-target-type"
+                      value={targetProblemType}
+                      onChange={e => {
+                        const next = e.target.value as 'Problem' | 'RFC';
+                        setTargetProblemType(next);
+                        setProblemTargetHoursInput(
+                          next === 'RFC'
+                            ? (slaConfig.RFC || DEFAULT_SLA_CONFIG.RFC!).rtTargetHours
+                            : (slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours
+                        );
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg font-bold text-slate-900"
+                    >
+                      <option value="Problem">Problem Ticket (Akar Masalah Sistem)</option>
+                      <option value="RFC">Request for Change / RFC (Perubahan Sistem)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Target SLA Panjang (Jam):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={24}
+                        value={problemTargetHoursInput}
+                        onChange={e => setProblemTargetHoursInput(Math.max(24, Number(e.target.value) || 336))}
+                        className="w-28 px-3 py-2 bg-white border border-indigo-300 rounded-lg font-mono font-bold text-slate-900"
+                      />
+                      <span className="text-[11px] text-indigo-800 font-semibold">
+                        ≈ {Math.round((problemTargetHoursInput / 24) * 10) / 10} hari
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Workaround / Solusi Sementara untuk Pengguna: <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    data-testid="workaround-input"
+                    value={workaroundInput}
+                    onChange={e => setWorkaroundInput(e.target.value)}
+                    placeholder="Contoh: Gunakan portal cadangan atau export CSV manual sementara modul SIAKAD direfaktor..."
+                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Judul Tiket {targetProblemType}:
+                  </label>
+                  <input
+                    type="text"
+                    value={problemJudulInput}
+                    onChange={e => setProblemJudulInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-semibold text-slate-900"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Sub-form Tahap 5: Lanjutkan Perbaikan */}
             {actionType === 'lanjut-perbaikan' && (
               <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-900">
                   <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                  <span>Tahap 5: Komponen Tiba &mdash; Lanjutkan Tindakan Perbaikan</span>
+                  <span>Tahap 5: Kendala Suku Cadang / Vendor Selesai &mdash; Lanjutkan Perbaikan</span>
                 </div>
                 <p className="text-[11px] text-emerald-800 leading-relaxed">
-                  Suku cadang yang diajukan telah tiba. Teknisi akan melanjutkan proses pemasangan komponen dan perakitan. Status tiket akan kembali menjadi <strong>In Progress / Sedang Diproses</strong>.
+                  Status tiket kembali menjadi <strong>In Progress</strong> dan <strong>jam SLA kembali aktif berjalan</strong> (durasi masa jeda dikeluarkan otomatis dari hitungan RT).
                 </p>
               </div>
             )}
 
-            {/* Sub-form Tahap 4.b: Rusak Total (Beyond Economic Repair) */}
+            {/* Sub-form Tahap 4.c: Rusak Total (Beyond Economic Repair) */}
             {actionType === 'rusak-total' && (
               <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-rose-900">
                   <AlertOctagon className="w-4 h-4 text-rose-700" />
-                  <span>Tahap 4.b: Rusak Total (Beyond Economic Repair) &rarr; Afkir</span>
+                  <span>Tahap 4.c: Rusak Total (Beyond Economic Repair) &rarr; Afkir</span>
                 </div>
                 <p className="text-[11px] text-rose-800 leading-relaxed">
-                  Teknisi mendiagnosis barang tidak dapat diselamatkan secara teknis atau biaya perbaikan melampaui nilai ekonomis aset. Proses perbaikan dihentikan, barang masuk gudang afkir/penghapusan. Status Aset otomatis menjadi <strong>Rusak Total / Afkir</strong> dan Tiket menjadi <strong>Closed / Selesai</strong>.
+                  Teknisi mendiagnosis barang tidak dapat diselamatkan secara teknis atau biaya perbaikan melampaui nilai ekonomis aset. Proses perbaikan dihentikan, barang masuk gudang afkir/penghapusan. Status Aset otomatis menjadi <strong>Tidak Layak / Afkir</strong> dan Tiket menjadi <strong>Closed</strong>.
                 </p>
               </div>
             )}
@@ -1658,6 +2006,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
             </div>
 
             <form onSubmit={handleCreateInternalSubmit} className="space-y-3.5 text-xs">
+              {internalError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 font-semibold">
+                  {internalError}
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
                   Barcode Aset (Opsional)
@@ -1857,7 +2210,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
                     <tr>
-                      <th className="px-4 py-2.5">Tingkat Urgensi</th>
+                      <th className="px-4 py-2.5">Jenis / Urgensi Tiket</th>
                       <th className="px-4 py-2.5">Target FRT (Menit)</th>
                       <th className="px-4 py-2.5">Target RT (Jam)</th>
                     </tr>
@@ -1865,7 +2218,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                   <tbody className="divide-y divide-slate-100">
                     {(['Kritis', 'Tinggi', 'Sedang', 'Rendah'] as TicketUrgency[]).map(level => (
                       <tr key={level}>
-                        <td className="px-4 py-2.5 font-bold text-slate-900">{level}</td>
+                        <td className="px-4 py-2.5 font-bold text-slate-900">{level} (Insiden)</td>
                         <td className="px-4 py-2.5">
                           <input
                             type="number"
@@ -1906,6 +2259,57 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                         </td>
                       </tr>
                     ))}
+                    {(['Problem', 'RFC'] as const).map(longKey => {
+                      const ruleVal = slaDraft[longKey] || DEFAULT_SLA_CONFIG[longKey]!;
+                      return (
+                        <tr key={longKey} className="bg-indigo-50/40">
+                          <td className="px-4 py-2.5 font-bold text-indigo-950">
+                            {longKey === 'Problem' ? 'Problem Ticket' : 'Change Request (RFC)'}
+                            <span className="block text-[10px] font-normal text-indigo-700">
+                              Jangka Panjang ({Math.round(ruleVal.rtTargetHours / 24)} hari)
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="number"
+                              min={1}
+                              required
+                              data-testid={`sla-frt-${longKey}`}
+                              value={ruleVal.frtTargetMinutes}
+                              onChange={e =>
+                                setSlaDraft(prev => ({
+                                  ...prev,
+                                  [longKey]: {
+                                    ...ruleVal,
+                                    frtTargetMinutes: Math.max(1, Number(e.target.value) || 1)
+                                  }
+                                }))
+                              }
+                              className="w-28 px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg font-mono font-bold text-slate-900"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="number"
+                              min={1}
+                              required
+                              data-testid={`sla-rt-${longKey}`}
+                              value={ruleVal.rtTargetHours}
+                              onChange={e =>
+                                setSlaDraft(prev => ({
+                                  ...prev,
+                                  [longKey]: {
+                                    ...ruleVal,
+                                    rtTargetHours: Math.max(1, Number(e.target.value) || 1)
+                                  }
+                                }))
+                              }
+                              className="w-28 px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg font-mono font-bold text-slate-900"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

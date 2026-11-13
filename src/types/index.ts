@@ -16,9 +16,11 @@ export type AssetStatus =
 // 4.2 Status Tiket Helpdesk (Mandatory Enum)
 export type DamageStatus =
   | 'Open/Unassigned'
+  | 'Need More Info'
   | 'Assigned'
   | 'In Progress'
   | 'Pending – Menunggu Suku Cadang'
+  | 'Pending – Menunggu Vendor Eksternal'
   | 'Resolved'
   | 'Closed – Auto'
   | 'Closed – Manual'
@@ -32,6 +34,8 @@ export type DamageStatus =
   | 'Pending Procurement'
   | 'Closed'
   | 'Selesai';
+
+export type TicketType = 'Incident' | 'Problem' | 'RFC';
 
 // 4.3 Status Peminjaman (Mandatory Enum)
 export type LoanStatus =
@@ -336,19 +340,48 @@ export interface DamageTicket {
   slaTargetHours: number; // BR-006: target jam penyelesaian (Resolution Time / RT)
   slaDeadline: string; // batas waktu SLA
   slaStatus?: 'On Track' | 'Mendekati Batas' | 'Overdue';
-  // Pengukuran SLA lengkap (FRT & RT)
+  // Pengukuran SLA lengkap (FRT & RT + Stage 2 Start + Pause/Resume)
+  ticketType?: TicketType;
   createdAtIso?: string;
   firstResponseAtIso?: string;
   firstResponseBy?: string;
+  slaStartedAtIso?: string; // 3a: RT SLA mulai saat Tahap 2 (Assigned & Urgensi ditetapkan)
+  slaPausedAtIso?: string; // 3b/3c/3e: timestamp pause aktif
+  slaPausedTotalMs?: number; // akumulasi durasi terjeda (ms)
+  slaPauseReason?: string;
+  slaPauseHistory?: {
+    reason: string;
+    pausedAtIso: string;
+    resumedAtIso?: string;
+    durationMs?: number;
+  }[];
   resolvedAtIso?: string;
   frtTargetMinutes?: number;
   rtTargetHours?: number;
+  // 3c: Vendor Eksternal
+  vendorEksternalNama?: string;
+  vendorEksternalTiket?: string;
+  // 3e: Need More Info & 3x24 jam Auto-Close
+  needMoreInfoAtIso?: string;
+  needMoreInfoDeadlineIso?: string;
+  needMoreInfoNote?: string;
+  needMoreInfoReply?: string;
+  needMoreInfoRepliedAtIso?: string;
+  closedBySystem?: boolean;
+  // 3f: Reopened (1x24 jam setelah Resolved)
+  reopenedAtIso?: string;
+  reopenCount?: number;
+  reopenReason?: string;
+  // 3d: Workaround & Problem / RFC Escalation
+  workaround?: string;
+  linkedProblemTicketId?: string;
+  linkedParentTicketId?: string;
   catatanAdmin?: string;
   metodePerbaikan?: 'Di Lokasi' | 'Dibawa ke PUSDATIN';
   jenisAset?: 'Fisik' | 'Non-Fisik';
   jadwalPemeriksaan?: string;
   skenarioPerbaikan?: 'Non-Fisik (Remote/Server)' | 'Fisik (On-site)' | 'Fisik (Bawa ke PUSDATIN)';
-  cabangPerbaikan?: 'Normal' | 'Butuh Suku Cadang' | 'Rusak Total';
+  cabangPerbaikan?: 'Normal' | 'Butuh Suku Cadang' | 'Rusak Total' | 'Vendor Eksternal';
   kondisiAkhirAset?: AssetStatus;
   resolusiAkhir?: string;
   kategoriPerbaikan?: RepairCategory;
@@ -365,7 +398,7 @@ export interface DamageTicket {
   delegasiDari?: string;
   catatanDelegasi?: string;
   tanggalDelegasi?: string;
-  resolvedAt?: string; // Untuk countdown 2 hari kerja (BR-008)
+  resolvedAt?: string; // Untuk countdown masa konfirmasi & auto-close
   closedMode?: 'Auto' | 'Manual';
   eskalasiPusdatin?: boolean;
   riwayatStatus?: {
@@ -562,14 +595,27 @@ export interface SlaUrgencyRule {
   rtTargetHours: number;
 }
 
-export type SlaConfig = Record<TicketUrgency, SlaUrgencyRule>;
+export type SlaConfig = Record<TicketUrgency, SlaUrgencyRule> & {
+  Problem?: SlaUrgencyRule;
+  RFC?: SlaUrgencyRule;
+};
 
-export type SlaComplianceState = 'Memenuhi SLA' | 'Dalam Batas' | 'Mendekati Batas' | 'Melewati SLA';
+export type SlaComplianceState =
+  | 'Memenuhi SLA'
+  | 'Dalam Batas'
+  | 'Mendekati Batas'
+  | 'Melewati SLA'
+  | 'Menunggu Tahap 2'
+  | 'Terjeda (Paused)';
 
 export interface SlaEvaluation {
   frtTargetMinutes: number;
   rtTargetHours: number;
   hasFirstResponse: boolean;
+  isRtStarted: boolean;
+  isPaused: boolean;
+  pauseReason?: string;
+  pausedTotalMinutes: number;
   isResolved: boolean;
   frtElapsedMinutes: number;
   rtElapsedHours: number;

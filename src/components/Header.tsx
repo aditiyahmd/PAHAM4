@@ -39,15 +39,15 @@ export const Header: React.FC<HeaderProps> = ({
       <div
         className={`${
           pageMode === 'landing' ? 'max-w-7xl mx-auto' : 'w-full'
-        } px-4 sm:px-6 h-16 flex items-center justify-between gap-4`}
+        } px-3 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4`}
       >
-        {/* Left: Universal Sidebar Toggle (all viewports in portals) & Brand */}
-        <div className="flex items-center gap-3 min-w-0">
+        {/* Left: Universal Sidebar Toggle & Brand (flex-1 + min-w-0 + overflow-hidden prevents mobile overlap) */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
           {pageMode !== 'landing' && (
             <button
               type="button"
               onClick={onToggleSidebar}
-              className="p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 border border-slate-200/80 focus:outline-none cursor-pointer transition-colors shrink-0"
+              className="p-1.5 sm:p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 border border-slate-200/80 focus:outline-none cursor-pointer transition-colors shrink-0"
               aria-label="Toggle navigation menu"
               title={isDesktopSidebarCollapsed ? 'Tampilkan Menu Samping' : 'Perkecil / Tutup Menu Samping'}
             >
@@ -56,24 +56,27 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <div
-            className="flex items-center gap-3 cursor-pointer group min-w-0"
+            className="flex items-center gap-2 sm:gap-3 cursor-pointer group min-w-0 overflow-hidden"
             onClick={() => onNavigatePage('landing')}
             title="Kembali ke Halaman Utama"
           >
-            <div className="h-10 w-10 rounded-xl bg-white border border-slate-200 shadow-2xs p-1 flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-white border border-slate-200 shadow-2xs p-1 flex items-center justify-center shrink-0 overflow-hidden">
               <img
                 src="/assets/aistudio/WhatsApp_Image_2026-11-13_at_10.12.42_2b1f1e05.jpeg"
                 alt="Logo UMC PUSDATIN"
                 className="h-full w-full object-contain rounded-md transition-transform group-hover:scale-105"
               />
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-base font-black text-slate-950 tracking-tight leading-tight">
+            <div className="min-w-0 overflow-hidden">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-sm sm:text-base font-black text-slate-950 tracking-tight leading-tight shrink-0">
                   PAHAM
                 </span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-red-100 text-red-700 border border-red-200 shrink-0">
+                <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-red-100 text-red-700 border border-red-200 shrink-0">
                   PUSDATIN UMC
+                </span>
+                <span className="sm:hidden inline-block px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-red-100 text-red-700 border border-red-200 shrink-0">
+                  UMC
                 </span>
               </div>
               <span className="text-[11px] text-slate-500 font-medium hidden sm:block truncate">
@@ -85,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Center Navigation (Only on Landing Page) */}
         {pageMode === 'landing' && (
-          <nav className="hidden lg:flex items-center gap-6 text-xs font-semibold text-slate-600">
+          <nav className="hidden lg:flex items-center gap-6 text-xs font-semibold text-slate-600 shrink-0">
             <a href="#tentang-sistem" className="hover:text-red-700 transition-colors">
               Tentang Sistem
             </a>
@@ -102,12 +105,12 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Right: Notification Logs and Auth Status */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {pageMode !== 'landing' && (
             <button
               type="button"
               onClick={onOpenEmailLogs}
-              className="p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors relative cursor-pointer"
+              className="p-1.5 sm:p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors relative cursor-pointer shrink-0"
               title="Lihat Log Notifikasi WhatsApp & Email"
             >
               <Bell className="w-4 h-4" />
@@ -117,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Login / Logout SSO Google */}
           {isLoggedIn ? (
-            <div className="flex items-center gap-2.5 pl-2 border-l border-slate-200">
+            <div className="flex items-center gap-2 sm:gap-2.5 pl-1.5 sm:pl-2 border-l border-slate-200 shrink-0">
               {activeUser && (
                 <div className="hidden md:flex flex-col items-end leading-tight">
                   <span className="text-xs font-bold text-slate-900 max-w-[180px] truncate">
@@ -132,10 +135,10 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={onLogout}
                 data-testid="logout-button"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="Keluar dari sesi akun saat ini"
               >
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
                 <span>Logout</span>
               </button>
             </div>
@@ -144,10 +147,11 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={onOpenLogin}
               data-testid="login-button"
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-xs transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Login SSO Google</span>
+              <LogIn className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Login SSO Google</span>
+              <span className="sm:hidden">Login</span>
             </button>
           )}
         </div>

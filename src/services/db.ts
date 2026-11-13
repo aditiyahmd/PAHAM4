@@ -26,14 +26,20 @@ import {
   ActorCode,
   ApiRegistration,
   SlaConfig,
-  DocumentSignatories
+  DocumentSignatories,
+  TicketType
 } from '../types';
 import { AccessControlService, SEED_USERS } from './rbac';
 import {
   DEFAULT_SLA_CONFIG,
+  NEED_MORE_INFO_AUTO_CLOSE_HOURS,
+  REOPEN_WINDOW_HOURS,
   parseFlexibleDate,
   computeSlaEvaluation,
-  computeAggregateSlaStats
+  computeAggregateSlaStats,
+  getRuleForTicket,
+  isNeedMoreInfoExpired,
+  canReopenResolvedTicket
 } from './slaService';
 
 export interface SparePartWithTicket {
@@ -131,9 +137,11 @@ export const normalizeLoanStatus = (st: string): LoanStatus => {
 // Helper to normalize damage status to Section 4.2
 export const normalizeDamageStatus = (st: string): DamageStatus => {
   if (st === 'Baru' || st === 'Open') return 'Open/Unassigned';
+  if (st === 'Need More Info') return 'Need More Info';
   if (st === 'Diterima') return 'Assigned';
   if (st === 'Perbaikan') return 'In Progress';
   if (st === 'Menunggu Suku Cadang' || st === 'Pending Procurement') return 'Pending – Menunggu Suku Cadang';
+  if (st === 'Pending – Menunggu Vendor Eksternal') return 'Pending – Menunggu Vendor Eksternal';
   if (st === 'Selesai') return 'Resolved';
   if (st === 'Closed') return 'Closed – Manual';
   return st as DamageStatus;
@@ -2046,36 +2054,71 @@ export class AppDatabase {
   }
 
   // --- 8.2 TABEL 2: HELPDESK & TIKET KERUSAKAN (MODUL B) ---
-  public static getDamageTickets(): DamageTicket[] {
+  public static getDamageTickets(customNowMs?: number): DamageTicket[] {
     const raw = this.load<DamageTicket[]>(STORAGE_KEYS.DAMAGES, INITIAL_DAMAGES);
     const slaConfig = this.getSlaConfig();
-    const now = new Date();
+    const nowMs = customNowMs ?? Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const nowDisplay = new Date(nowMs).toLocaleString('id-ID');
+    let hasAutoCloseMutations = false;
 
-    return raw.map(t => {
+    const evaluated = raw.map(t => {
       const normalizedStatus = normalizeDamageStatus(t.status);
       let updatedStatus = normalizedStatus;
+      let autoCloseExtras: Partial<DamageTicket> = {};
 
-      // BR-008: Mekanisme 2 hari kerja penutupan otomatis (Closed – Auto)
-      if (normalizedStatus === 'Resolved' && (t.resolvedAtIso || t.resolvedAt)) {
+      // 3e: Auto-Close 3x24 jam (72 jam) jika pelapor tidak melengkapi info pada status Need More Info
+      if (normalizedStatus === 'Need More Info' && isNeedMoreInfoExpired(t, nowMs)) {
+        updatedStatus = 'Closed – Auto';
+        hasAutoCloseMutations = true;
+        autoCloseExtras = {
+          closedMode: 'Auto',
+          closedBySystem: true,
+          resolvedAt: nowIso,
+          resolvedAtIso: nowIso,
+          waktuSelesai: nowDisplay,
+          slaPausedAtIso: undefined,
+          slaPauseReason: undefined,
+          resolusiAkhir:
+            t.resolusiAkhir ||
+            'Tiket ditutup otomatis oleh sistem karena pelapor tidak melengkapi informasi tambahan dalam batas 3x24 jam (72 jam).',
+          riwayatStatus: [
+            ...(t.riwayatStatus || []),
+            {
+              status: 'Closed – Auto',
+              timestamp: nowDisplay,
+              catatan: `Auto-Close Sistem (3x24 Jam): Tidak ada balasan kelengkapan info dari pelapor sejak ${t.needMoreInfoAtIso || 'permintaan info'}.`,
+              petugas: 'Sistem PAHAM (Auto-Close)'
+            }
+          ]
+        };
+      }
+
+      // BR-008: Mekanisme 2 hari kerja penutupan otomatis (Closed – Auto) untuk tiket Resolved
+      if (updatedStatus === 'Resolved' && (t.resolvedAtIso || t.resolvedAt)) {
         const resolvedDate = parseFlexibleDate(t.resolvedAtIso || t.resolvedAt);
         const twoWorkDaysMs = 48 * 60 * 60 * 1000;
-        if (resolvedDate && now.getTime() - resolvedDate.getTime() > twoWorkDaysMs) {
+        if (resolvedDate && nowMs - resolvedDate.getTime() > twoWorkDaysMs) {
           updatedStatus = 'Closed – Auto';
+          hasAutoCloseMutations = true;
+          autoCloseExtras = {
+            closedMode: 'Auto',
+            closedBySystem: true
+          };
         }
       }
 
-      const evaluation = computeSlaEvaluation(
-        {
-          ...t,
-          status: updatedStatus
-        },
-        slaConfig,
-        now.getTime()
-      );
+      const candidateTicket: DamageTicket = {
+        ...t,
+        ...autoCloseExtras,
+        ticketType: t.ticketType || 'Incident',
+        status: updatedStatus
+      };
+
+      const evaluation = computeSlaEvaluation(candidateTicket, slaConfig, nowMs);
 
       return {
-        ...t,
-        status: updatedStatus,
+        ...candidateTicket,
         frtTargetMinutes: t.frtTargetMinutes ?? evaluation.frtTargetMinutes,
         rtTargetHours: t.rtTargetHours ?? evaluation.rtTargetHours,
         slaTargetHours: t.slaTargetHours || evaluation.rtTargetHours,
@@ -2083,50 +2126,72 @@ export class AppDatabase {
         eskalasiPusdatin: evaluation.overallSlaStatus === 'Overdue' ? true : t.eskalasiPusdatin
       };
     });
+
+    if (hasAutoCloseMutations) {
+      this.save(STORAGE_KEYS.DAMAGES, evaluated);
+    }
+
+    return evaluated;
   }
 
   // B.1 Pembuatan Tiket oleh User via SSO Google (BR-006)
-  public static addDamageTicket(ticket: Omit<DamageTicket, 'id' | 'status' | 'tanggalLapor' | 'slaDeadline' | 'slaTargetHours'>): DamageTicket {
-    const tickets = this.getDamageTickets();
+  public static addDamageTicket(
+    ticket: Omit<DamageTicket, 'id' | 'status' | 'tanggalLapor' | 'slaDeadline' | 'slaTargetHours'> & {
+      customNowMs?: number;
+    }
+  ): DamageTicket {
+    const { customNowMs, ...ticketPayload } = ticket;
+    const tickets = this.getDamageTickets(customNowMs);
     const active = this.getActiveUser();
-    const now = new Date();
+    const nowMs = customNowMs ?? Date.now();
+    const now = new Date(nowMs);
     const nowIso = now.toISOString();
     const nowDisplay = now.toLocaleString('id-ID');
     const dateCode = nowIso.split('T')[0].replace(/-/g, '');
     const rand = Math.floor(100 + Math.random() * 900);
-    const id = `TKT-${dateCode}-${rand}`;
+    const ticketType: TicketType = ticketPayload.ticketType || 'Incident';
+    const prefix = ticketType === 'Problem' ? 'PRB' : ticketType === 'RFC' ? 'RFC' : 'TKT';
+    const id = `${prefix}-${dateCode}-${rand}`;
 
     const slaConfig = this.getSlaConfig();
-    const urg: TicketUrgency = (ticket.prioritas || ticket.urgensi || 'Sedang') as TicketUrgency;
-    const rule = slaConfig[urg] || DEFAULT_SLA_CONFIG.Sedang;
-    const slaHours = rule.rtTargetHours;
-    const frtTargetMinutes = rule.frtTargetMinutes;
+    const urg: TicketUrgency = (ticketPayload.prioritas || ticketPayload.urgensi || 'Sedang') as TicketUrgency;
+    const rule = getRuleForTicket({ ticketType, urgensi: urg, prioritas: urg }, slaConfig);
+    const slaHours = ticketPayload.rtTargetHours ?? rule.rtTargetHours;
+    const frtTargetMinutes = ticketPayload.frtTargetMinutes ?? rule.frtTargetMinutes;
 
-    const deadlineDate = new Date(now.getTime() + slaHours * 60 * 60 * 1000);
-    const deadlineIso = deadlineDate.toISOString();
+    // 3a: RT SLA belum dimulai sebelum Admin memproses Tahap 2 & memilih urgensi
+    const slaDeadline = ticketPayload.slaStartedAtIso
+      ? new Date(
+          (parseFlexibleDate(ticketPayload.slaStartedAtIso)?.getTime() ?? nowMs) + slaHours * 3600000
+        ).toISOString()
+      : 'Menunggu Tahap 2';
 
     // BR-007: Distribusi otomatis awal berdasarkan kategori/PIC
-    const picMatch = this.determinePic(`${ticket.kategoriMasalah} ${ticket.namaBarang} ${ticket.deskripsi}`);
+    const picMatch = this.determinePic(
+      `${ticketPayload.kategoriMasalah} ${ticketPayload.namaBarang} ${ticketPayload.deskripsi}`
+    );
 
     const newTicket: DamageTicket = {
-      ...ticket,
+      ...ticketPayload,
       id,
+      ticketType,
       status: 'Open/Unassigned',
       tanggalLapor: nowDisplay,
       createdAtIso: nowIso,
       frtTargetMinutes,
       rtTargetHours: slaHours,
       slaTargetHours: slaHours,
-      slaDeadline: deadlineIso,
+      slaDeadline,
+      slaPausedTotalMs: 0,
       slaStatus: 'On Track',
-      picTeknisi: ticket.picTeknisi || picMatch.role,
-      namaPicTeknisi: ticket.namaPicTeknisi || picMatch.name,
-      urgensi: ticket.urgensi || ticket.prioritas || 'Sedang',
+      picTeknisi: ticketPayload.picTeknisi || picMatch.role,
+      namaPicTeknisi: ticketPayload.namaPicTeknisi || picMatch.name,
+      urgensi: urg,
       riwayatStatus: [
         {
           status: 'Open/Unassigned',
           timestamp: nowDisplay,
-          catatan: `Laporan kerusakan diterbitkan via SSO Google UMC. Target FRT: ${frtTargetMinutes} Menit | RT: ${slaHours} Jam.`,
+          catatan: `Laporan ${ticketType} diterbitkan (${id}). FRT target: ${frtTargetMinutes} Menit. RT SLA (${slaHours} Jam) akan mulai dihitung saat Admin memproses Tahap 2 & menetapkan urgensi.`,
           petugas: active.nama
         }
       ]
@@ -2151,7 +2216,7 @@ export class AppDatabase {
       kanal: 'WhatsApp',
       jenisNotifikasi: 'Tiket Dibuat',
       statusKirim: 'sent',
-      pesanPreview: `Tiket ${id} berhasil dibuat. Target SLA FRT ${frtTargetMinutes} menit / RT ${slaHours} jam. Tim Helpdesk PUSDATIN segera menindaklanjuti.`
+      pesanPreview: `Tiket ${id} (${ticketType}) berhasil dibuat. Target FRT ${frtTargetMinutes} menit / RT ${slaHours} jam (mulai aktif pada Tahap 2).`
     });
 
     this.addAuditTrail({
@@ -2159,7 +2224,7 @@ export class AppDatabase {
       entityId: id,
       statusLama: 'None',
       statusBaru: 'Open/Unassigned',
-      catatan: `Pembuatan tiket helpdesk oleh ${newTicket.pelapor} (${newTicket.kategoriMasalah}). FRT: ${frtTargetMinutes} mnt, RT: ${slaHours} jam.`,
+      catatan: `Pembuatan tiket ${ticketType} oleh ${newTicket.pelapor} (${newTicket.kategoriMasalah}). FRT: ${frtTargetMinutes} mnt, RT: ${slaHours} jam.`,
       idPengguna: active.id,
       namaPengguna: active.nama,
       rolePengguna: active.roleName
@@ -2203,30 +2268,39 @@ export class AppDatabase {
     const tickets = this.getDamageTickets();
     const idx = tickets.findIndex(t => t.id === id);
     if (idx === -1) return false;
-    const rule = this.getSlaConfig()[urgensi] || DEFAULT_SLA_CONFIG.Sedang;
-    const baseCreated = parseFlexibleDate(tickets[idx].createdAtIso || tickets[idx].tanggalLapor) || new Date();
-    const newDeadlineIso = new Date(baseCreated.getTime() + rule.rtTargetHours * 3600000).toISOString();
+    const t = tickets[idx];
+    const rule = getRuleForTicket({ ticketType: t.ticketType || 'Incident', urgensi, prioritas: urgensi }, this.getSlaConfig());
+    const rtHours = t.ticketType === 'Problem' || t.ticketType === 'RFC' ? rule.rtTargetHours : rule.rtTargetHours;
+    const startMs = parseFlexibleDate(t.slaStartedAtIso || t.tanggalDitugaskan)?.getTime();
+    const newDeadlineIso = startMs
+      ? new Date(startMs + rtHours * 3600000 + (t.slaPausedTotalMs || 0)).toISOString()
+      : t.slaDeadline || 'Menunggu Tahap 2';
+
     tickets[idx] = {
-      ...tickets[idx],
+      ...t,
       prioritas: urgensi,
-      urgensi: urgensi,
+      urgensi,
       frtTargetMinutes: rule.frtTargetMinutes,
-      rtTargetHours: rule.rtTargetHours,
-      slaTargetHours: rule.rtTargetHours,
+      rtTargetHours: rtHours,
+      slaTargetHours: rtHours,
       slaDeadline: newDeadlineIso
     };
     this.save(STORAGE_KEYS.DAMAGES, tickets);
     return true;
   }
 
-  // B.2, B.3, B.4, B.5: Proses Tiket Kerusakan oleh Admin & Teknisi
+  // B.2, B.3, B.4, B.5: Proses Tiket Kerusakan oleh Admin & Teknisi (Termasuk SLA ITIL 3a-3f)
   public static processDamageTicket(
     id: string,
     action:
       | 'distribusi-pic'
+      | 'need-info'
+      | 'reply-need-info'
       | 'jadwalkan-perbaikan'
       | 'butuh-suku-cadang'
+      | 'vendor-eksternal'
       | 'lanjut-perbaikan'
+      | 'eskalasi-problem-rfc'
       | 'selesai-perbaikan'
       | 're-open'
       | 'tutup-manual'
@@ -2259,8 +2333,15 @@ export class AppDatabase {
       skenarioPerbaikan?: string;
       targetTechnicianId?: string;
       urgensiBaru?: TicketUrgency;
+      vendorEksternalNama?: string;
+      vendorEksternalTiket?: string;
+      workaround?: string;
+      targetTicketType?: 'Problem' | 'RFC';
+      problemJudul?: string;
+      problemTargetHours?: number;
+      customNowMs?: number;
     }
-  ): { success: boolean; message: string; ticket?: DamageTicket } {
+  ): { success: boolean; message: string; ticket?: DamageTicket; createdProblemTicket?: DamageTicket } {
     let effAction: string = action;
     if (action === 'jadwalkan-inspeksi') effAction = 'jadwalkan-perbaikan';
     else if (action === 'perbaikan' || action === 'lanjut-perbaikan') effAction = 'lanjut-perbaikan';
@@ -2270,47 +2351,202 @@ export class AppDatabase {
     else if (action === 'ubah-pic' || action === 'delegasikan' || action === 'verifikasi-delegasi') effAction = 'distribusi-pic';
 
     const active = this.getActiveUser();
-    AccessControlService.enforce(
-      active,
-      effAction === 'distribusi-pic' ? 'distribusi_tiket' : 'tindakan_perbaikan',
-      ['manage', 'execute', 'verify', 'propose'],
-      `Memproses tiket kerusakan (${effAction})`
-    );
+    const isReporterAction =
+      effAction === 'reply-need-info' ||
+      effAction === 're-open' ||
+      effAction === 'tutup-manual';
+    if (isReporterAction && active.role === 'ACT-10') {
+      AccessControlService.enforce(
+        active,
+        'buat_tiket',
+        ['propose', 'manage'],
+        `Konfirmasi / lengkapi tiket oleh pelapor (${effAction})`
+      );
+    } else {
+      AccessControlService.enforce(
+        active,
+        effAction === 'distribusi-pic' ? 'distribusi_tiket' : 'tindakan_perbaikan',
+        ['manage', 'execute', 'verify', 'propose'],
+        `Memproses tiket kerusakan (${effAction})`
+      );
+    }
 
-    const tickets = this.getDamageTickets();
+    const nowMs = options.customNowMs ?? Date.now();
+    const tickets = this.getDamageTickets(nowMs);
     const index = tickets.findIndex(t => t.id === id);
     if (index === -1) return { success: false, message: 'Tiket kerusakan tidak ditemukan!' };
 
     const ticket = tickets[index];
     const statusLama = ticket.status;
-    const now = new Date();
+    const now = new Date(nowMs);
     const nowIso = now.toISOString();
     const nowStr = now.toLocaleString('id-ID');
     const operator = options.petugasName || active.nama;
     const asset = ticket.barcode ? this.getAssetByBarcodeOrUnique(ticket.barcode) : undefined;
+    const slaConfig = this.getSlaConfig();
 
-    // Auto-stamp First Response Time (FRT) upon first technical action if not yet recorded
+    // Helper untuk menghentikan pause aktif dan mengakumulasi durasi pause + menggeser slaDeadline
+    const settleActivePause = (t: DamageTicket): Partial<DamageTicket> => {
+      if (!t.slaPausedAtIso) return {};
+      const pausedAt = parseFlexibleDate(t.slaPausedAtIso);
+      const deltaMs = pausedAt ? Math.max(0, nowMs - pausedAt.getTime()) : 0;
+      const newTotalPauseMs = (t.slaPausedTotalMs || 0) + deltaMs;
+      const updatedHistory = (t.slaPauseHistory || []).map((h, i, arr) =>
+        i === arr.length - 1 && !h.resumedAtIso
+          ? { ...h, resumedAtIso: nowIso, durationMs: deltaMs }
+          : h
+      );
+      const prevDeadline = parseFlexibleDate(t.slaDeadline);
+      const shiftedDeadline = prevDeadline
+        ? new Date(prevDeadline.getTime() + deltaMs).toISOString()
+        : t.slaDeadline;
+
+      return {
+        slaPausedAtIso: undefined,
+        slaPauseReason: undefined,
+        slaPausedTotalMs: newTotalPauseMs,
+        slaPauseHistory: updatedHistory,
+        slaDeadline: shiftedDeadline
+      };
+    };
+
+    // Auto-stamp First Response Time (FRT) upon first admin/technical action
     const firstResponseStamp =
-      effAction !== 're-open' && !ticket.firstResponseAtIso
+      effAction !== 're-open' && effAction !== 'reply-need-info' && !ticket.firstResponseAtIso
         ? {
             firstResponseAtIso: nowIso,
             firstResponseBy: operator
           }
         : {};
 
-    // Lanjut Perbaikan
-    if (effAction === 'lanjut-perbaikan') {
+    // 3e: Admin mengembalikan tiket ke pengguna (Need More Info) -> SLA RT tidak berjalan / terjeda
+    if (effAction === 'need-info') {
+      const note =
+        (options.catatan || options.catatanAdmin || '').trim() ||
+        'Mohon lengkapi bukti pendukung / tangkapan layar kendala agar dapat diproses ke Tahap 2.';
+      const deadlineIso = new Date(nowMs + NEED_MORE_INFO_AUTO_CLOSE_HOURS * 3600000).toISOString();
+      const pausePayload =
+        ticket.slaStartedAtIso && !ticket.slaPausedAtIso
+          ? {
+              slaPausedAtIso: nowIso,
+              slaPauseReason: 'Menunggu Informasi Tambahan dari Pelapor (Need More Info)',
+              slaPauseHistory: [
+                ...(ticket.slaPauseHistory || []),
+                {
+                  reason: 'Need More Info (Pelapor)',
+                  pausedAtIso: nowIso
+                }
+              ]
+            }
+          : {};
+
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
+        ...pausePayload,
+        status: 'Need More Info',
+        needMoreInfoAtIso: nowIso,
+        needMoreInfoDeadlineIso: deadlineIso,
+        needMoreInfoNote: note,
+        catatanAdmin: note,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Need More Info',
+            timestamp: nowStr,
+            catatan: `Tiket dikembalikan ke pelapor (Need More Info): ${note}. Batas Auto-Close: 3x24 jam.`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Need More Info',
+        catatan: `Dikembalikan ke pelapor (Need More Info): ${note}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Tiket ${ticket.id} dikembalikan ke pelapor (Need More Info). SLA Penyelesaian tidak berjalan & Auto-Close aktif dalam 3x24 jam.`,
+        ticket: tickets[index]
+      };
+    }
+
+    // 3e: Pelapor membalas permintaan informasi tambahan (Need More Info -> Open/Unassigned atau In Progress)
+    if (effAction === 'reply-need-info') {
+      if (ticket.status !== 'Need More Info') {
+        return { success: false, message: 'Tiket tidak berada pada status Need More Info.' };
+      }
+      const replyText = (options.catatan || '').trim() || 'Informasi tambahan dan bukti telah dilengkapi oleh pelapor.';
+      const resumed = ticket.slaStartedAtIso ? settleActivePause(ticket) : {};
+      const nextStatus: DamageStatus = ticket.slaStartedAtIso ? 'In Progress' : 'Open/Unassigned';
+
+      tickets[index] = {
+        ...ticket,
+        ...resumed,
+        status: nextStatus,
+        needMoreInfoReply: replyText,
+        needMoreInfoRepliedAtIso: nowIso,
+        catatanAdmin: `Balasan pelapor (${nowStr}): ${replyText}`,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: nextStatus,
+            timestamp: nowStr,
+            catatan: `Pelapor melengkapi data (Need More Info dibalas): ${replyText}`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: nextStatus,
+        catatan: `Pelapor melengkapi informasi tambahan: ${replyText}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Informasi tambahan untuk tiket ${ticket.id} tersimpan! Status kembali ke ${nextStatus}.`,
+        ticket: tickets[index]
+      };
+    }
+
+    // Tahap 5: Lanjut Perbaikan (resume dari Tahap 4.a Suku Cadang atau 4.b Vendor Eksternal)
+    if (effAction === 'lanjut-perbaikan') {
+      const resumed = settleActivePause(ticket);
+      const startIso = ticket.slaStartedAtIso || nowIso;
+      const pauseNote =
+        resumed.slaPausedTotalMs && ticket.slaPauseReason
+          ? ` (SLA dilanjutkan; durasi jeda ${ticket.slaPauseReason} telah dikeluarkan dari perhitungan RT).`
+          : '';
+
+      tickets[index] = {
+        ...ticket,
+        ...firstResponseStamp,
+        ...resumed,
+        slaStartedAtIso: startIso,
         status: 'In Progress',
-        catatanAdmin: options.catatan || options.catatanAdmin || 'Perbaikan dilanjutkan oleh teknisi.',
+        catatanAdmin: options.catatan || options.catatanAdmin || 'Perbaikan dilanjutkan oleh teknisi (Tahap 5).',
         riwayatStatus: [
           ...(ticket.riwayatStatus || []),
           {
             status: 'In Progress',
             timestamp: nowStr,
-            catatan: `Perbaikan dilanjutkan oleh ${operator}.`,
+            catatan: `Tahap 5: Perbaikan dilanjutkan oleh ${operator}.${pauseNote}`,
             petugas: operator
           }
         ]
@@ -2321,15 +2557,15 @@ export class AppDatabase {
         entityId: ticket.id,
         statusLama,
         statusBaru: 'In Progress',
-        catatan: `Perbaikan dilanjutkan oleh ${operator}`,
+        catatan: `Perbaikan dilanjutkan oleh ${operator}${pauseNote}`,
         idPengguna: active.id,
         namaPengguna: active.nama,
         rolePengguna: active.roleName
       });
-      return { success: true, message: `Perbaikan tiket ${ticket.id} dilanjutkan!`, ticket: tickets[index] };
+      return { success: true, message: `Perbaikan tiket ${ticket.id} dilanjutkan (SLA aktif kembali)!`, ticket: tickets[index] };
     }
 
-    // B.2: Distribusi & Delegasi Tiket oleh Admin / Teknisi (BR-007)
+    // B.2 (Tahap 2): Verifikasi Kelengkapan, Urgensi & Distribusi PIC -> Memulai Hitungan SLA RT (3a)
     if (effAction === 'distribusi-pic') {
       const matchedById = options.targetTechnicianId
         ? this.getUsers().find(u => u.id === options.targetTechnicianId)
@@ -2342,21 +2578,48 @@ export class AppDatabase {
       ) as TechnicianRole;
       const matched = matchedById || this.getUsers().find(u => u.roleName === targetRole);
       const techName = options.namaPicBaru || matched?.nama || targetRole;
+
+      const selectedUrgency: TicketUrgency = (options.urgensiBaru || ticket.urgensi || ticket.prioritas || 'Sedang') as TicketUrgency;
+      const rule = getRuleForTicket(
+        { ticketType: ticket.ticketType || 'Incident', urgensi: selectedUrgency, prioritas: selectedUrgency },
+        slaConfig
+      );
+      const rtTargetHours = ticket.rtTargetHours && (ticket.ticketType === 'Problem' || ticket.ticketType === 'RFC')
+        ? ticket.rtTargetHours
+        : rule.rtTargetHours;
+
+      // 3a: Jam mulai SLA RT ditetapkan tepat saat Admin memproses Tahap 2
+      const slaStartedAtIso = ticket.slaStartedAtIso || nowIso;
+      const slaStartMs = parseFlexibleDate(slaStartedAtIso)?.getTime() ?? nowMs;
+      const resumed = ticket.slaPausedAtIso ? settleActivePause(ticket) : {};
+      const accumulatedPause = resumed.slaPausedTotalMs ?? ticket.slaPausedTotalMs ?? 0;
+      const deadlineIso = new Date(slaStartMs + rtTargetHours * 3600000 + accumulatedPause).toISOString();
+
       const noteText =
         options.catatan ||
         options.catatanAdmin ||
         (action === 'delegasikan'
           ? `Tiket didelegasikan ke ${targetRole} (${techName}) oleh ${operator}.`
-          : `Tiket didistribusikan ke PIC ${targetRole} (${techName}).`);
+          : `Tahap 2 disetujui oleh ${operator}. Urgensi: ${selectedUrgency} (SLA RT ${rtTargetHours} jam dimulai). PIC: ${targetRole}.`);
 
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
+        ...resumed,
         status: 'Assigned',
+        prioritas: selectedUrgency,
+        urgensi: selectedUrgency,
+        frtTargetMinutes: rule.frtTargetMinutes,
+        rtTargetHours,
+        slaTargetHours: rtTargetHours,
+        slaStartedAtIso,
+        slaDeadline: deadlineIso,
         picTeknisi: targetRole,
         namaPicTeknisi: techName,
         assignedTechnicianId: matched?.id,
-        tanggalDitugaskan: nowStr,
+        tanggalDitugaskan: ticket.tanggalDitugaskan || nowIso,
+        kategoriMasalah: options.kategoriMasalah || ticket.kategoriMasalah,
+        jenisAset: (options.jenisAset as any) || ticket.jenisAset,
         ...(action === 'delegasikan'
           ? {
               delegasiKeTechnicianId: matched?.id,
@@ -2375,7 +2638,7 @@ export class AppDatabase {
             catatan:
               action === 'delegasikan'
                 ? `Delegasi tiket ke ${targetRole} (${techName}) oleh ${operator}.`
-                : `Distribusi tiket ke PIC: ${targetRole} (${techName}) oleh ${operator}.`,
+                : `Tahap 2: Urgensi ditetapkan "${selectedUrgency}" & didistribusikan ke ${targetRole} (${techName}). Hitungan SLA RT (${rtTargetHours} jam) dimulai.`,
             petugas: operator
           }
         ]
@@ -2388,7 +2651,7 @@ export class AppDatabase {
         kanal: 'WhatsApp',
         jenisNotifikasi: 'Status Tiket Diperbarui',
         statusKirim: 'sent',
-        pesanPreview: `Tiket ${ticket.id} telah didistribusikan ke teknisi ${techName} (${targetRole}).`
+        pesanPreview: `Tiket ${ticket.id} telah masuk Tahap 2 (Urgensi: ${selectedUrgency}, Target RT: ${rtTargetHours} jam) & ditugaskan ke ${techName}.`
       });
 
       this.addAuditTrail({
@@ -2399,7 +2662,7 @@ export class AppDatabase {
         catatan:
           action === 'delegasikan'
             ? `Delegasi tiket ke ${targetRole} (${techName}) oleh ${operator}`
-            : `Distribusi tiket ke PIC ${targetRole} (${techName}) oleh ${operator}`,
+            : `Tahap 2: Urgensi ${selectedUrgency}, PIC ${targetRole} (${techName}) — SLA RT dimulai.`,
         idPengguna: active.id,
         namaPengguna: active.nama,
         rolePengguna: active.roleName
@@ -2410,17 +2673,21 @@ export class AppDatabase {
         message:
           action === 'delegasikan'
             ? `Tiket ${ticket.id} berhasil didelegasikan ke ${targetRole} (${techName})!`
-            : `Tiket ${ticket.id} didistribusikan ke ${techName} (${targetRole})!`,
+            : `Tahap 2 selesai! Urgensi ${selectedUrgency} & SLA RT (${rtTargetHours} jam) dimulai.`,
         ticket: tickets[index]
       };
     }
 
     // B.3: Penjadwalan & Tindakan Perbaikan (In Progress)
     if (effAction === 'jadwalkan-perbaikan') {
+      const resumed = settleActivePause(ticket);
       const schedule = options.jadwalPemeriksaan || `${nowStr} (Pemeriksaan Segera)`;
+      const startIso = ticket.slaStartedAtIso || nowIso;
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
+        ...resumed,
+        slaStartedAtIso: startIso,
         status: 'In Progress',
         jadwalPemeriksaan: schedule,
         catatanAdmin: options.catatan || `Teknisi telah menjadwalkan pemeriksaan dan memulai perbaikan (${schedule}).`,
@@ -2463,7 +2730,7 @@ export class AppDatabase {
       };
     }
 
-    // B.4: Penanganan Suku Cadang (Pending – Menunggu Suku Cadang)
+    // B.4 (3b): Tahap 4.a Penanganan Suku Cadang (Pending – Menunggu Suku Cadang) -> JEDA (PAUSE) SLA RT
     if (effAction === 'butuh-suku-cadang') {
       const parts = options.komponenList || (options.namaSukuCadang ? [options.namaSukuCadang] : ['Suku Cadang Pengganti']);
       const partItems: SparePartItem[] = parts.map((p, idx) => ({
@@ -2475,22 +2742,37 @@ export class AppDatabase {
         tanggalKebutuhan: nowStr
       }));
 
+      const resumedPrev = ticket.slaPausedAtIso ? settleActivePause(ticket) : {};
+      const pauseReason = 'Menunggu Suku Cadang (Tahap 4.a)';
+      const newHistory = [
+        ...(resumedPrev.slaPauseHistory || ticket.slaPauseHistory || []),
+        {
+          reason: pauseReason,
+          pausedAtIso: nowIso
+        }
+      ];
+
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
+        ...resumedPrev,
+        slaStartedAtIso: ticket.slaStartedAtIso || ticket.tanggalDitugaskan || ticket.createdAtIso || nowIso,
+        slaPausedAtIso: nowIso,
+        slaPauseReason: pauseReason,
+        slaPauseHistory: newHistory,
         status: 'Pending – Menunggu Suku Cadang',
         cabangPerbaikan: 'Butuh Suku Cadang',
         kategoriPerbaikan: options.kategoriPerbaikan || 'Suku Cadang (Perlu Anggaran)',
         namaSukuCadang: parts.join(', '),
         sukuCadangList: partItems,
         sumberAnggaran: options.sumberAnggaran || 'Stok Internal PUSDATIN',
-        catatanAdmin: options.catatan || `Menunggu pengadaan suku cadang: ${parts.join(', ')}`,
+        catatanAdmin: options.catatan || `Tahap 4.a (SLA Terjeda): Menunggu pengadaan suku cadang: ${parts.join(', ')}`,
         riwayatStatus: [
           ...(ticket.riwayatStatus || []),
           {
             status: 'Pending – Menunggu Suku Cadang',
             timestamp: nowStr,
-            catatan: `Pemeriksaan teknisi: Kebutuhan suku cadang ${parts.join(', ')} (Status Pengadaan: Diminta).`,
+            catatan: `Tahap 4.a: Kebutuhan suku cadang ${parts.join(', ')} (Status: Diminta). Jam SLA terjeda (Paused) sampai Tahap 5.`,
             petugas: operator
           }
         ]
@@ -2503,7 +2785,7 @@ export class AppDatabase {
         kanal: 'WhatsApp',
         jenisNotifikasi: 'Status Tiket Diperbarui',
         statusKirim: 'sent',
-        pesanPreview: `Tiket ${ticket.id} membutuhkan suku cadang: ${parts.join(', ')}. Proses pengadaan sedang diproses.`
+        pesanPreview: `Tiket ${ticket.id} membutuhkan suku cadang: ${parts.join(', ')}. Timer SLA terjeda selama proses pengadaan.`
       });
 
       this.addAuditTrail({
@@ -2511,7 +2793,7 @@ export class AppDatabase {
         entityId: ticket.id,
         statusLama,
         statusBaru: 'Pending – Menunggu Suku Cadang',
-        catatan: `Kebutuhan ${parts.length} suku cadang dicatat oleh teknisi. Status tiket beralih ke Pending.`,
+        catatan: `Tahap 4.a: ${parts.length} suku cadang dicatat. Timer SLA dijeda (Paused).`,
         idPengguna: active.id,
         namaPengguna: active.nama,
         rolePengguna: active.roleName
@@ -2519,19 +2801,202 @@ export class AppDatabase {
 
       return {
         success: true,
-        message: `Tiket ${ticket.id} kini berstatus Pending – Menunggu Suku Cadang!`,
+        message: `Tiket ${ticket.id} masuk Tahap 4.a (Pending Suku Cadang) & SLA terjeda hingga Tahap 5!`,
         ticket: tickets[index]
+      };
+    }
+
+    // 3c: Tahap Vendor Eksternal (Pending – Menunggu Vendor Eksternal) -> JEDA (PAUSE) SLA RT
+    if (effAction === 'vendor-eksternal') {
+      const vendorNama = (options.vendorEksternalNama || '').trim() || 'ISP / Vendor Eksternal';
+      const vendorTiket = (options.vendorEksternalTiket || '').trim() || '-';
+      const resumedPrev = ticket.slaPausedAtIso ? settleActivePause(ticket) : {};
+      const pauseReason = `Menunggu Vendor Eksternal (${vendorNama})`;
+      const newHistory = [
+        ...(resumedPrev.slaPauseHistory || ticket.slaPauseHistory || []),
+        {
+          reason: pauseReason,
+          pausedAtIso: nowIso
+        }
+      ];
+
+      tickets[index] = {
+        ...ticket,
+        ...firstResponseStamp,
+        ...resumedPrev,
+        slaStartedAtIso: ticket.slaStartedAtIso || ticket.tanggalDitugaskan || ticket.createdAtIso || nowIso,
+        slaPausedAtIso: nowIso,
+        slaPauseReason: pauseReason,
+        slaPauseHistory: newHistory,
+        status: 'Pending – Menunggu Vendor Eksternal',
+        cabangPerbaikan: 'Vendor Eksternal',
+        vendorEksternalNama: vendorNama,
+        vendorEksternalTiket: vendorTiket,
+        catatanAdmin:
+          options.catatan ||
+          options.catatanAdmin ||
+          `Kendala berada di luar kendali internal kampus. Menunggu penanganan vendor eksternal: ${vendorNama} (Ref: ${vendorTiket}).`,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Pending – Menunggu Vendor Eksternal',
+            timestamp: nowStr,
+            catatan: `Eskalasi Vendor Eksternal: ${vendorNama} (No. Tiket Vendor: ${vendorTiket}). SLA terjeda (Paused) di luar kendali kampus.`,
+            petugas: operator
+          }
+        ]
+      };
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Pending – Menunggu Vendor Eksternal',
+        catatan: `Dialihkan ke Vendor Eksternal: ${vendorNama} (${vendorTiket}). Timer SLA dijeda.`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Tiket ${ticket.id} dialihkan ke Vendor Eksternal (${vendorNama}) & SLA terjeda!`,
+        ticket: tickets[index]
+      };
+    }
+
+    // 3d: Eskalasi Insiden -> Problem / Request for Change (RFC) dengan Workaround
+    if (effAction === 'eskalasi-problem-rfc') {
+      const targetType: 'Problem' | 'RFC' = options.targetTicketType || 'Problem';
+      const workaroundText = (options.workaround || options.resolusiAkhir || '').trim();
+      if (!workaroundText) {
+        return {
+          success: false,
+          message: 'Harap isi solusi sementara (Workaround) sebelum menutup Insiden dan menerbitkan tiket Problem/RFC.'
+        };
+      }
+
+      const resumed = settleActivePause(ticket);
+      const problemRule = getRuleForTicket(
+        {
+          ticketType: targetType,
+          prioritas: ticket.prioritas || 'Sedang',
+          urgensi: ticket.urgensi || ticket.prioritas || 'Sedang'
+        },
+        slaConfig
+      );
+      const customRtHours = options.problemTargetHours && options.problemTargetHours > 0
+        ? options.problemTargetHours
+        : problemRule.rtTargetHours;
+
+      const prefix = targetType === 'RFC' ? 'RFC' : 'PRB';
+      const dateCode = nowIso.split('T')[0].replace(/-/g, '');
+      const rand = Math.floor(100 + Math.random() * 900);
+      const newProblemId = `${prefix}-${dateCode}-${rand}`;
+      const problemDeadlineIso = new Date(nowMs + customRtHours * 3600000).toISOString();
+
+      const newProblemTicket: DamageTicket = {
+        id: newProblemId,
+        ticketType: targetType,
+        kodeUnikAset: ticket.kodeUnikAset,
+        barcode: ticket.barcode,
+        namaBarang: options.problemJudul?.trim() || `[${targetType}] ${ticket.namaBarang}`,
+        pelapor: ticket.pelapor,
+        kontakPelapor: ticket.kontakPelapor,
+        emailPelapor: ticket.emailPelapor,
+        kategoriMasalah: ticket.kategoriMasalah || 'Software',
+        prioritas: ticket.urgensi || ticket.prioritas || 'Sedang',
+        urgensi: ticket.urgensi || ticket.prioritas || 'Sedang',
+        lokasi: ticket.lokasi,
+        lokasiAwal: ticket.lokasiAwal,
+        deskripsi:
+          options.catatan?.trim() ||
+          `Eskalasi akar masalah dari Insiden ${ticket.id}. Membutuhkan perbaikan arsitektur / coding ulang sistem. Workaround awal: ${workaroundText}`,
+        tanggalLapor: nowStr,
+        createdAtIso: nowIso,
+        firstResponseAtIso: nowIso,
+        firstResponseBy: operator,
+        slaStartedAtIso: nowIso,
+        frtTargetMinutes: problemRule.frtTargetMinutes,
+        rtTargetHours: customRtHours,
+        slaTargetHours: customRtHours,
+        slaDeadline: problemDeadlineIso,
+        slaPausedTotalMs: 0,
+        slaStatus: 'On Track',
+        status: 'Assigned',
+        jenisAset: ticket.jenisAset || 'Non-Fisik',
+        picTeknisi: options.picTeknisiBaru || ticket.picTeknisi || 'Lead Full Stack Developer',
+        namaPicTeknisi: options.namaPicBaru || ticket.namaPicTeknisi || operator,
+        tanggalDitugaskan: nowIso,
+        linkedParentTicketId: ticket.id,
+        workaround: workaroundText,
+        catatanAdmin: `Tiket ${targetType} diterbitkan dari Insiden ${ticket.id} dengan target penyelesaian jangka panjang (${customRtHours} jam / ${Math.round(customRtHours / 24)} hari).`,
+        riwayatStatus: [
+          {
+            status: 'Assigned',
+            timestamp: nowStr,
+            catatan: `Tiket ${targetType} dibuat otomatis dari eskalasi Insiden ${ticket.id}. Target SLA: ${customRtHours} jam.`,
+            petugas: operator
+          }
+        ]
+      };
+
+      const closingNote = `Workaround diterapkan agar layanan tetap berjalan: ${workaroundText}. Akar masalah dieskalasi ke tiket ${targetType} (${newProblemId}).`;
+      tickets[index] = {
+        ...ticket,
+        ...firstResponseStamp,
+        ...resumed,
+        status: 'Resolved',
+        workaround: workaroundText,
+        linkedProblemTicketId: newProblemId,
+        waktuSelesai: nowStr,
+        resolvedAt: nowIso,
+        resolvedAtIso: nowIso,
+        resolusiAkhir: closingNote,
+        catatanAdmin: closingNote,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: 'Resolved',
+            timestamp: nowStr,
+            catatan: `Insiden ditutup (Resolved) via Workaround & dieskalasi menjadi ${targetType} ${newProblemId}.`,
+            petugas: operator
+          }
+        ]
+      };
+
+      this.save(STORAGE_KEYS.DAMAGES, [newProblemTicket, ...tickets]);
+
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: 'Resolved',
+        catatan: `Insiden diselesaikan dengan Workaround & dibuatkan tiket ${targetType} ${newProblemId}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Insiden ${ticket.id} ditutup dengan Workaround (SLA harian aman) & tiket ${targetType} baru (${newProblemId}) berhasil dibuat!`,
+        ticket: tickets[index],
+        createdProblemTicket: newProblemTicket
       };
     }
 
     // B.5: Penyelesaian Perbaikan (Resolved)
     if (effAction === 'selesai-perbaikan') {
+      const resumed = settleActivePause(ticket);
       const resolusi = options.resolusiAkhir || options.catatan || 'Perbaikan telah selesai dan perangkat telah berfungsi normal.';
       const statusFinalAset: AssetStatus = options.statusAsetBaru || 'Tersedia';
 
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
+        ...resumed,
         status: 'Resolved',
         waktuSelesai: nowStr,
         resolvedAt: nowIso,
@@ -2543,7 +3008,7 @@ export class AppDatabase {
           {
             status: 'Resolved',
             timestamp: nowStr,
-            catatan: `Perbaikan diselesaikan oleh ${operator}. Resolusi: ${resolusi}. Menunggu konfirmasi user (2 hari kerja).`,
+            catatan: `Perbaikan diselesaikan oleh ${operator}. Resolusi: ${resolusi}. Pelapor dapat melakukan Re-open dalam 1x24 jam jika kendala berulang.`,
             petugas: operator
           }
         ]
@@ -2567,7 +3032,7 @@ export class AppDatabase {
         kanal: 'WhatsApp',
         jenisNotifikasi: 'Status Tiket Diperbarui',
         statusKirim: 'sent',
-        pesanPreview: `Tiket ${ticket.id} telah SELESAI (Resolved). Resolusi: ${resolusi}. Harap konfirmasi dalam 2 hari kerja jika kendala tuntas.`
+        pesanPreview: `Tiket ${ticket.id} telah SELESAI (Resolved). Resolusi: ${resolusi}. Jika masih error, silakan Re-open maksimal 1x24 jam.`
       });
 
       this.addAuditTrail({
@@ -2575,7 +3040,7 @@ export class AppDatabase {
         entityId: ticket.id,
         statusLama,
         statusBaru: 'Resolved',
-        catatan: `Perbaikan selesai oleh ${operator}. Status beralih ke Resolved dengan grace period 2 hari kerja.`,
+        catatan: `Perbaikan selesai oleh ${operator}. Status beralih ke Resolved (Re-open 1x24 jam aktif).`,
         idPengguna: active.id,
         namaPengguna: active.nama,
         rolePengguna: active.roleName
@@ -2583,24 +3048,42 @@ export class AppDatabase {
 
       return {
         success: true,
-        message: `Tiket ${ticket.id} berstatus RESOLVED! Masa konfirmasi 2 hari kerja diaktifkan.`,
+        message: `Tiket ${ticket.id} berstatus RESOLVED! Pelapor dapat konfirmasi selesai atau Re-open dalam 1x24 jam.`,
         ticket: tickets[index]
       };
     }
 
-    // B.5: User Re-open Tiket
+    // 3f: User Re-open Tiket (Wajib dalam jendela 1x24 jam saat status Resolved sebelum Closed)
     if (effAction === 're-open') {
+      if (ticket.status !== 'Resolved') {
+        return {
+          success: false,
+          message: `Tiket dengan status "${ticket.status}" tidak dapat dibuka kembali (hanya berlaku pada tiket Resolved sebelum Closed).`
+        };
+      }
+      if (!canReopenResolvedTicket(ticket, nowMs)) {
+        return {
+          success: false,
+          message: `Batas waktu pembukaan kembali tiket (${REOPEN_WINDOW_HOURS} jam / 1x24 jam setelah Resolved) telah terlewati.`
+        };
+      }
+      const reason = (options.catatan || '').trim() || 'Masih error, belum bisa digunakan!';
       tickets[index] = {
         ...ticket,
         status: 'Re-opened',
+        slaStartedAtIso: ticket.slaStartedAtIso || ticket.createdAtIso || nowIso,
         resolvedAtIso: undefined,
-        catatanAdmin: options.catatan || 'Pengguna melaporkan kendala belum terselesaikan sepenuhnya.',
+        resolvedAt: undefined,
+        reopenedAtIso: nowIso,
+        reopenReason: reason,
+        reopenCount: (ticket.reopenCount || 0) + 1,
+        catatanAdmin: `Re-opened oleh pelapor: ${reason}`,
         riwayatStatus: [
           ...(ticket.riwayatStatus || []),
           {
             status: 'Re-opened',
             timestamp: nowStr,
-            catatan: `Tiket dibuka kembali oleh pengguna (Re-opened): ${options.catatan || 'Kendala masih berulang.'}`,
+            catatan: `Tiket dibuka kembali oleh pengguna (Re-opened dalam 1x24 jam): "${reason}"`,
             petugas: operator
           }
         ]
@@ -2612,7 +3095,7 @@ export class AppDatabase {
         entityId: ticket.id,
         statusLama,
         statusBaru: 'Re-opened',
-        catatan: `Tiket di-reopen oleh pengguna: ${options.catatan || 'Masalah belum tuntas'}`,
+        catatan: `Tiket di-reopen oleh pengguna: ${reason}`,
         idPengguna: active.id,
         namaPengguna: active.nama,
         rolePengguna: active.roleName
@@ -2623,9 +3106,11 @@ export class AppDatabase {
 
     // B.5: Tutup Manual oleh User / Admin (Closed – Manual)
     if (effAction === 'tutup-manual') {
+      const resumed = settleActivePause(ticket);
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
+        ...resumed,
         status: 'Closed – Manual',
         closedMode: 'Manual',
         waktuSelesai: ticket.waktuSelesai || nowStr,
@@ -2659,9 +3144,11 @@ export class AppDatabase {
 
     // Perangkat Tidak Layak / Afkir (Beyond Economic Repair)
     if (effAction === 'tidak-layak') {
+      const resumed = settleActivePause(ticket);
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
+        ...resumed,
         status: 'Closed – Manual',
         kondisiAkhirAset: 'Tidak Layak',
         waktuSelesai: nowStr,
@@ -3432,7 +3919,7 @@ export class AppDatabase {
     });
   }
 
-  // --- SLA CONFIG (FRT & RT PER URGENSI) ---
+  // --- SLA CONFIG (FRT & RT PER URGENSI + PROBLEM / RFC) ---
   public static getSlaConfig(): SlaConfig {
     const saved = this.load<Partial<SlaConfig> | null>(STORAGE_KEYS.SLA_CONFIG, null);
     if (!saved) return DEFAULT_SLA_CONFIG;
@@ -3440,7 +3927,9 @@ export class AppDatabase {
       Kritis: saved.Kritis || DEFAULT_SLA_CONFIG.Kritis,
       Tinggi: saved.Tinggi || DEFAULT_SLA_CONFIG.Tinggi,
       Sedang: saved.Sedang || DEFAULT_SLA_CONFIG.Sedang,
-      Rendah: saved.Rendah || DEFAULT_SLA_CONFIG.Rendah
+      Rendah: saved.Rendah || DEFAULT_SLA_CONFIG.Rendah,
+      Problem: saved.Problem || DEFAULT_SLA_CONFIG.Problem,
+      RFC: saved.RFC || DEFAULT_SLA_CONFIG.RFC
     };
   }
 
@@ -3465,10 +3954,18 @@ export class AppDatabase {
       Rendah: {
         frtTargetMinutes: Math.max(1, Number(config.Rendah.frtTargetMinutes) || 120),
         rtTargetHours: Math.max(1, Number(config.Rendah.rtTargetHours) || 48)
+      },
+      Problem: {
+        frtTargetMinutes: Math.max(1, Number(config.Problem?.frtTargetMinutes) || DEFAULT_SLA_CONFIG.Problem!.frtTargetMinutes),
+        rtTargetHours: Math.max(1, Number(config.Problem?.rtTargetHours) || DEFAULT_SLA_CONFIG.Problem!.rtTargetHours)
+      },
+      RFC: {
+        frtTargetMinutes: Math.max(1, Number(config.RFC?.frtTargetMinutes) || DEFAULT_SLA_CONFIG.RFC!.frtTargetMinutes),
+        rtTargetHours: Math.max(1, Number(config.RFC?.rtTargetHours) || DEFAULT_SLA_CONFIG.RFC!.rtTargetHours)
       }
     };
     this.save(STORAGE_KEYS.SLA_CONFIG, sanitized);
-    return { success: true, message: 'Kebijakan target SLA (FRT & RT) berhasil diperbarui!' };
+    return { success: true, message: 'Kebijakan target SLA (FRT & RT termasuk Problem & RFC) berhasil diperbarui!' };
   }
 
   // --- MASTER PENANDATANGAN DOKUMEN & KEPALA PUSDATIN CONFIG ---

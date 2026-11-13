@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import jsPDF from 'jspdf';
-import JsBarcode from 'jsbarcode';
+import { drawBarcodeStickerOnPdf } from '../BarcodeView';
 import { AppDatabase } from '../../services/db';
 import { Asset, AssetStatus } from '../../types';
 import { BarcodeView } from '../BarcodeView';
@@ -230,45 +230,13 @@ export const AssetInventory: React.FC<AssetInventoryProps> = ({ onDataChanged })
         doc.addPage([58, 30], 'landscape');
       }
 
-      const canvas = document.createElement('canvas');
-      JsBarcode(canvas, item.barcode.trim(), {
-        format: 'CODE128',
-        width: 2,
-        height: 52,
-        displayValue: true,
-        fontSize: 13,
-        font: 'monospace',
-        textMargin: 3,
-        margin: 6,
-        background: '#ffffff',
-        lineColor: '#000000'
+      drawBarcodeStickerOnPdf(doc, {
+        value: item.barcode.trim(),
+        name: item.nama,
+        kategori: item.kategori,
+        lokasi: item.lokasi,
+        format: 'CODE128'
       });
-
-      doc.setDrawColor(15, 23, 42);
-      doc.setLineWidth(0.3);
-      doc.rect(1.5, 1.5, 55, 27);
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('PUSDATIN UMC · ASET RESMI', 29, 4.8, { align: 'center' });
-
-      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 5, 6, 48, 15.5);
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6);
-      doc.setTextColor(30, 41, 59);
-      const shortName = item.nama.length > 40 ? `${item.nama.slice(0, 38)}...` : item.nama;
-      doc.text(shortName, 29, 24.5, { align: 'center' });
-
-      const meta = [item.kategori, item.lokasi].filter(Boolean).join(' · ');
-      if (meta) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(5);
-        doc.setTextColor(100, 116, 139);
-        const shortMeta = meta.length > 48 ? `${meta.slice(0, 46)}...` : meta;
-        doc.text(shortMeta, 29, 27.2, { align: 'center' });
-      }
     });
 
     doc.save(`Batch_Stiker_Barcode_${new Date().toISOString().split('T')[0]}.pdf`);

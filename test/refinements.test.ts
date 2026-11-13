@@ -295,4 +295,288 @@ describe('PAHAM Refinements Suite - SLA, SSO Domain & Registered Users, One-Step
     );
     assert.strictEqual(sigSnippet.includes('0.855') || sigSnippet.includes('0.725'), false, 'Signature text must NOT use red color');
   });
+
+  it('ITIL SLA 3a: RT clock stays Menunggu Tahap 2 on new ticket until Admin processes Stage 2 with Urgensi', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    AppDatabase.setSlaConfig(DEFAULT_SLA_CONFIG);
+
+    const t0 = new Date('2026-11-16T08:00:00.000Z').getTime();
+    const tPlus1h = t0 + 1 * 3600000;
+    const tPlus3h = t0 + 3 * 3600000;
+
+    const ticket = AppDatabase.addDamageTicket({
+      kodeUnikAset: 'AST-SLA-3A',
+      barcode: '88001122',
+      namaBarang: 'Router Core Lab',
+      pelapor: 'Dosen Jaringan',
+      kontakPelapor: '0812000111',
+      lokasi: 'Lab Jaringan',
+      kategoriMasalah: 'Jaringan & Internet',
+      prioritas: 'Sedang',
+      deskripsi: 'Router lambat di jam sibuk',
+      customNowMs: t0
+    });
+
+    assert.strictEqual(ticket.slaDeadline, 'Menunggu Tahap 2');
+    const evalBeforeStage2 = computeSlaEvaluation(ticket, DEFAULT_SLA_CONFIG, tPlus1h);
+    assert.strictEqual(evalBeforeStage2.isRtStarted, false);
+    assert.strictEqual(evalBeforeStage2.rtStatus, 'Menunggu Tahap 2');
+    assert.strictEqual(evalBeforeStage2.rtElapsedHours, 0);
+
+    // Admin memproses Tahap 2 pada t0 + 1 jam dan menetapkan urgensi Kritis (target RT 4 jam)
+    const stage2Res = AppDatabase.processDamageTicket(ticket.id, 'verifikasi-delegasi', {
+      urgensiBaru: 'Kritis',
+      targetTechnicianId: 'USR-ACT-04',
+      catatan: 'Tahap 2 diverifikasi dengan urgensi Kritis',
+      customNowMs: tPlus1h
+    });
+    assert.strictEqual(stage2Res.success, true);
+    assert.ok(stage2Res.ticket?.slaStartedAtIso);
+    assert.strictEqual(stage2Res.ticket?.urgensi, 'Kritis');
+    assert.strictEqual(stage2Res.ticket?.rtTargetHours, 4);
+
+    // Evaluasi pada t0 + 3 jam -> RT berjalan = 2 jam (bukan 3 jam dari createdAtIso)
+    const evalAfterStage2 = computeSlaEvaluation(stage2Res.ticket!, DEFAULT_SLA_CONFIG, tPlus3h);
+    assert.strictEqual(evalAfterStage2.isRtStarted, true);
+    assert.strictEqual(Math.round(evalAfterStage2.rtElapsedHours * 10) / 10, 2);
+    assert.strictEqual(evalAfterStage2.rtStatus, 'Dalam Batas');
+  });
+
+  it('ITIL SLA 3b & 3c: Stage 4.a Spare Parts and Stage 4.b Vendor Eksternal pause RT SLA and resume cleanly at Stage 5', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const t0 = new Date('2026-11-17T08:00:00.000Z').getTime();
+    const tAssign = t0 + 15 * 60000; // +15m
+    const tPauseParts = tAssign + 1 * 3600000; // +1h kerja
+    const tResumeParts = tPauseParts + 10 * 3600000; // 10h terjeda suku cadang
+    const tPauseVendor = tResumeParts + 1 * 3600000; // +1h kerja
+    const tResumeVendor = tPauseVendor + 6 * 3600000; // 6h terjeda vendor eksternal
+    const tResolve = tResumeVendor + 1 * 3600000; // +1h kerja (total kerja = 3h <= 4h)
+
+    const ticket = AppDatabase.addDamageTicket({
+      kodeUnikAset: 'AST-SLA-PAUSE',
+      barcode: '88003344',
+      namaBarang: 'Switch Distribusi',
+      pelapor: 'Staff NOC',
+      kontakPelapor: '0812000222',
+      lokasi: 'Gedung Rektorat',
+      kategoriMasalah: 'Jaringan & Internet',
+      prioritas: 'Kritis',
+      deskripsi: 'Port SFP & link ISP bermasalah',
+      customNowMs: t0
+    });
+
+    AppDatabase.processDamageTicket(ticket.id, 'verifikasi-delegasi', {
+      urgensiBaru: 'Kritis',
+      targetTechnicianId: 'USR-ACT-04',
+      customNowMs: tAssign
+    });
+
+    // 3b: Tahap 4.a (Menunggu Suku Cadang)
+    const pausedParts = AppDatabase.processDamageTicket(ticket.id, 'butuh-suku-cadang', {
+      namaSukuCadang: 'Transceiver SFP+ 10G',
+      customNowMs: tPauseParts
+    });
+    assert.strictEqual(pausedParts.success, true);
+    assert.strictEqual(pausedParts.ticket?.status, 'Pending – Menunggu Suku Cadang');
+    const evalWhilePaused = computeSlaEvaluation(pausedParts.ticket!, DEFAULT_SLA_CONFIG, tPauseParts + 5 * 3600000);
+    assert.strictEqual(evalWhilePaused.isPaused, true);
+    assert.strictEqual(evalWhilePaused.rtStatus, 'Terjeda (Paused)');
+
+    // Tahap 5: Resume
+    const resumed1 = AppDatabase.processDamageTicket(ticket.id, 'lanjut-perbaikan', {
+      catatan: 'SFP+ terpasang, lanjut cek uplink ISP',
+      customNowMs: tResumeParts
+    });
+    assert.strictEqual(resumed1.success, true);
+    assert.strictEqual(resumed1.ticket?.status, 'In Progress');
+
+    // 3c: Tahap 4.b Vendor Eksternal
+    const pausedVendor = AppDatabase.processDamageTicket(ticket.id, 'vendor-eksternal', {
+      vendorEksternalNama: 'PT Telkom Indonesia (Astinet)',
+      vendorEksternalTiket: 'ISP-INC-99881',
+      customNowMs: tPauseVendor
+    });
+    assert.strictEqual(pausedVendor.success, true);
+    assert.strictEqual(pausedVendor.ticket?.status, 'Pending – Menunggu Vendor Eksternal');
+    assert.strictEqual(pausedVendor.ticket?.vendorEksternalNama, 'PT Telkom Indonesia (Astinet)');
+    assert.strictEqual(pausedVendor.ticket?.vendorEksternalTiket, 'ISP-INC-99881');
+    const evalVendorPaused = computeSlaEvaluation(pausedVendor.ticket!, DEFAULT_SLA_CONFIG, tPauseVendor + 3 * 3600000);
+    assert.strictEqual(evalVendorPaused.rtStatus, 'Terjeda (Paused)');
+
+    // Tahap 5: Resume lalu selesai
+    AppDatabase.processDamageTicket(ticket.id, 'lanjut-perbaikan', {
+      catatan: 'ISP pulih',
+      customNowMs: tResumeVendor
+    });
+    const resolved = AppDatabase.processDamageTicket(ticket.id, 'selesai-perbaikan', {
+      resolusiAkhir: 'Link normal dan stabil',
+      customNowMs: tResolve
+    });
+    assert.strictEqual(resolved.success, true);
+
+    const finalEval = computeSlaEvaluation(resolved.ticket!, DEFAULT_SLA_CONFIG, tResolve);
+    assert.strictEqual(finalEval.pausedTotalMinutes, (10 + 6) * 60);
+    assert.strictEqual(Math.round(finalEval.rtElapsedHours * 10) / 10, 3);
+    assert.strictEqual(finalEval.rtStatus, 'Memenuhi SLA');
+  });
+
+  it('ITIL SLA 3d: Escalating Incident via Workaround closes Incident cleanly and creates Problem/RFC ticket with multi-week SLA', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const t0 = new Date('2026-11-18T08:00:00.000Z').getTime();
+
+    const incident = AppDatabase.addDamageTicket({
+      kodeUnikAset: 'AST-SIAKAD-01',
+      barcode: '88005566',
+      namaBarang: 'Modul KRS SIAKAD',
+      pelapor: 'Biro Akademik',
+      kontakPelapor: '0812000333',
+      lokasi: 'Cloud Server UMC',
+      kategoriMasalah: 'Software',
+      prioritas: 'Kritis',
+      deskripsi: 'Deadlock query saat input KRS massal, perlu refactor modul database',
+      customNowMs: t0
+    });
+
+    AppDatabase.processDamageTicket(incident.id, 'verifikasi-delegasi', {
+      urgensiBaru: 'Kritis',
+      targetTechnicianId: 'USR-ACT-06',
+      customNowMs: t0 + 10 * 60000
+    });
+
+    const escRes = AppDatabase.processDamageTicket(incident.id, 'eskalasi-problem-rfc', {
+      targetTicketType: 'Problem',
+      workaround: 'Aktivasi antrean batch KRS per fakultas agar mahasiswa tetap bisa isi KRS.',
+      problemJudul: '[Problem] Refactor Concurrency Modul KRS SIAKAD',
+      problemTargetHours: 336, // 14 hari
+      customNowMs: t0 + 60 * 60000
+    });
+
+    assert.strictEqual(escRes.success, true);
+    assert.strictEqual(escRes.ticket?.status, 'Resolved');
+    assert.ok(escRes.ticket?.workaround?.includes('antrean batch'));
+    assert.ok(escRes.createdProblemTicket);
+    assert.ok(escRes.createdProblemTicket?.id.startsWith('PRB-'));
+    assert.strictEqual(escRes.createdProblemTicket?.ticketType, 'Problem');
+    assert.strictEqual(escRes.createdProblemTicket?.linkedParentTicketId, incident.id);
+    assert.strictEqual(escRes.createdProblemTicket?.rtTargetHours, 336);
+    assert.strictEqual(escRes.ticket?.linkedProblemTicketId, escRes.createdProblemTicket?.id);
+  });
+
+  it('ITIL SLA 3e: Need More Info halts RT SLA, resumes on user reply, and auto-closes as Closed – Auto after 3x24 hours', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const t0 = new Date('2026-11-19T09:00:00.000Z').getTime();
+
+    // Kasus 1: Pelapor membalas sebelum 72 jam
+    const t1 = AppDatabase.addDamageTicket({
+      kodeUnikAset: 'AST-INFO-1',
+      barcode: '88007711',
+      namaBarang: 'Aplikasi Presensi',
+      pelapor: 'Karyawan Uji',
+      kontakPelapor: '0812000444',
+      lokasi: 'Kampus 1',
+      kategoriMasalah: 'Software',
+      prioritas: 'Sedang',
+      deskripsi: 'Error tidak jelas tanpa screenshot',
+      customNowMs: t0
+    });
+
+    const needInfoRes = AppDatabase.processDamageTicket(t1.id, 'need-info', {
+      catatan: 'Mohon lampirkan screenshot error code & waktu kejadian',
+      customNowMs: t0 + 20 * 60000
+    });
+    assert.strictEqual(needInfoRes.success, true);
+    assert.strictEqual(needInfoRes.ticket?.status, 'Need More Info');
+
+    // SLA RT belum berjalan selama status Need More Info
+    const evalWaiting = computeSlaEvaluation(needInfoRes.ticket!, DEFAULT_SLA_CONFIG, t0 + 30 * 3600000);
+    assert.strictEqual(evalWaiting.isRtStarted, false);
+    assert.strictEqual(evalWaiting.rtElapsedHours, 0);
+
+    // Pelapor (ACT-10 Civitas) membalas pada +24 jam -> kembali siap diproses
+    AppDatabase.setActiveUser('USR-ACT-10C');
+    const replied = AppDatabase.processDamageTicket(t1.id, 'reply-need-info', {
+      catatan: 'Berikut screenshot error HTTP 502 pukul 08:45',
+      customNowMs: t0 + 24 * 3600000
+    });
+    assert.strictEqual(replied.success, true);
+    assert.strictEqual(replied.ticket?.status, 'Open/Unassigned');
+    AppDatabase.setActiveUser('USR-ACT-03');
+
+    // Kasus 2: Pelapor tidak membalas melewati 3x24 jam (72 jam) -> Auto-Close sistem
+    const t2 = AppDatabase.addDamageTicket({
+      kodeUnikAset: 'AST-INFO-2',
+      barcode: '88007722',
+      namaBarang: 'Printer Akademik',
+      pelapor: 'Pelapor Pasif',
+      kontakPelapor: '0812000555',
+      lokasi: 'BAAK',
+      kategoriMasalah: 'Hardware',
+      prioritas: 'Rendah',
+      deskripsi: 'Hasil cetak buram',
+      customNowMs: t0
+    });
+
+    AppDatabase.processDamageTicket(t2.id, 'need-info', {
+      catatan: 'Sebutkan nomor ruangan & barcode printer',
+      customNowMs: t0 + 30 * 60000
+    });
+
+    // Cek sebelum 72 jam: masih Need More Info
+    const before72h = AppDatabase.getDamageTickets(t0 + 70 * 3600000).find(x => x.id === t2.id);
+    assert.strictEqual(before72h?.status, 'Need More Info');
+
+    // Cek setelah 72+ jam: otomatis Closed – Auto oleh sistem
+    const after73h = AppDatabase.getDamageTickets(t0 + 73 * 3600000).find(x => x.id === t2.id);
+    assert.strictEqual(after73h?.status, 'Closed – Auto');
+    assert.strictEqual(after73h?.closedBySystem, true);
+  });
+
+  it('ITIL SLA 3f: Pelapor can Re-open Resolved ticket within 1x24 hours and is blocked after 24 hours', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const t0 = new Date('2026-11-20T08:00:00.000Z').getTime();
+    const tResolved = t0 + 2 * 3600000;
+
+    const ticket = AppDatabase.addDamageTicket({
+      kodeUnikAset: 'AST-REOPEN-1',
+      barcode: '88009900',
+      namaBarang: 'Proyektor Aula',
+      pelapor: 'Dosen Pengajar',
+      kontakPelapor: '0812000666',
+      lokasi: 'Aula Utama',
+      kategoriMasalah: 'Hardware',
+      prioritas: 'Tinggi',
+      deskripsi: 'Tampilan HDMI berkedip',
+      customNowMs: t0
+    });
+
+    AppDatabase.processDamageTicket(ticket.id, 'verifikasi-delegasi', {
+      urgensiBaru: 'Tinggi',
+      customNowMs: t0 + 15 * 60000
+    });
+
+    const resolvedRes = AppDatabase.processDamageTicket(ticket.id, 'selesai-perbaikan', {
+      resolusiAkhir: 'Kabel HDMI diganti baru',
+      customNowMs: tResolved
+    });
+    assert.strictEqual(resolvedRes.ticket?.status, 'Resolved');
+
+    // Pelapor (ACT-10 Civitas) melewati 24 jam (misal +25 jam dari tResolved) -> ditolak untuk Re-open
+    AppDatabase.setActiveUser('USR-ACT-10C');
+    const lateReopen = AppDatabase.processDamageTicket(ticket.id, 're-open', {
+      catatan: 'Masih error setelah 25 jam',
+      customNowMs: tResolved + 25 * 3600000
+    });
+    assert.strictEqual(lateReopen.success, false);
+    assert.ok(lateReopen.message.includes('1x24 jam'));
+
+    // Dalam jendela 1x24 jam (+12 jam dari tResolved) -> berhasil Re-opened
+    const timelyReopen = AppDatabase.processDamageTicket(ticket.id, 're-open', {
+      catatan: 'Masih error, belum bisa digunakan!',
+      customNowMs: tResolved + 12 * 3600000
+    });
+    assert.strictEqual(timelyReopen.success, true);
+    assert.strictEqual(timelyReopen.ticket?.status, 'Re-opened');
+    assert.strictEqual(timelyReopen.ticket?.reopenCount, 1);
+    assert.strictEqual(timelyReopen.ticket?.reopenReason, 'Masih error, belum bisa digunakan!');
+  });
 });

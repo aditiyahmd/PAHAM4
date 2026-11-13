@@ -3,7 +3,7 @@ import JsBarcode from 'jsbarcode';
 import jsPDF from 'jspdf';
 import { Download, Printer, Copy, Check } from 'lucide-react';
 
-interface BarcodeCardParams {
+export interface BarcodeCardParams {
   value: string;
   name?: string;
   kategori?: string;
@@ -24,126 +24,142 @@ export function renderBarcodeCardCanvas({
     actualFormat = 'CODE128';
   }
 
-  // Generate raw barcode bars (without built-in text so we can draw crisp centered monospace digits like reference sticker)
+  // High-contrast, extra-thick thermal-ready barcode bars (no gray aliasing)
   const barsCanvas = document.createElement('canvas');
   JsBarcode(barsCanvas, cleanValue, {
     format: actualFormat,
-    width: 3,
-    height: 112,
+    width: 5,
+    height: 150,
     displayValue: false,
     margin: 4,
     background: '#ffffff',
     lineColor: '#000000'
   });
 
-  const cardWidth = 720;
-  const cardHeight = 380;
+  const cardWidth = 960;
+  const cardHeight = 490;
   const canvas = document.createElement('canvas');
   canvas.width = cardWidth;
   canvas.height = cardHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) return canvas;
 
-  // White card background
+  ctx.imageSmoothingEnabled = false;
+
+  // Solid pure white background
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, cardWidth, cardHeight);
 
-  // Outer dark rectangular border matching reference sticker
-  ctx.strokeStyle = '#0f172a';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(10, 10, cardWidth - 20, cardHeight - 20);
+  // Thick solid pure-black border
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(14, 14, cardWidth - 28, cardHeight - 28);
 
   // Header: PUSDATIN UMC · ASET RESMI
-  ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 24px Arial, Helvetica, sans-serif';
+  ctx.fillStyle = '#000000';
+  ctx.font = 'bold 30px Arial, Helvetica, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('PUSDATIN UMC · ASET RESMI', cardWidth / 2, 46);
+  ctx.fillText('PUSDATIN UMC · ASET RESMI', cardWidth / 2, 58);
 
-  // Barcode bars centered horizontally
-  const maxBarWidth = cardWidth - 88;
-  const targetWidth = Math.min(maxBarWidth, Math.max(460, barsCanvas.width));
-  const barX = (cardWidth - targetWidth) / 2;
-  const barY = 74;
-  const barH = 148;
+  // Barcode bars centered horizontally without blurred scaling
+  const maxBarWidth = cardWidth - 108;
+  const targetWidth = Math.min(maxBarWidth, Math.max(640, barsCanvas.width));
+  const barX = Math.round((cardWidth - targetWidth) / 2);
+  const barY = 92;
+  const barH = 188;
   ctx.drawImage(barsCanvas, barX, barY, targetWidth, barH);
 
-  // Monospace barcode digits beneath bars
-  ctx.fillStyle = '#1e293b';
-  ctx.font = 'bold 26px "JetBrains Mono", "Courier New", monospace';
-  ctx.fillText(cleanValue, cardWidth / 2, 248);
+  // Bold solid black monospace digits
+  ctx.fillStyle = '#000000';
+  ctx.font = 'bold 34px "Courier New", Courier, monospace';
+  ctx.fillText(cleanValue, cardWidth / 2, 314);
 
-  // Asset Name
+  // Bold Asset Name
   const displayName = (name || 'Aset TI UMC').trim();
   const truncatedName = displayName.length > 46 ? `${displayName.slice(0, 44)}...` : displayName;
-  ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 22px Arial, Helvetica, sans-serif';
-  ctx.fillText(truncatedName, cardWidth / 2, 298);
+  ctx.fillStyle = '#000000';
+  ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
+  ctx.fillText(truncatedName, cardWidth / 2, 376);
 
-  // Metadata: Kategori · Lokasi
+  // High-contrast dark metadata (prints solidly on thermal printers)
   const metaText = [kategori, lokasi].filter(Boolean).join(' · ');
   if (metaText) {
     const truncatedMeta = metaText.length > 58 ? `${metaText.slice(0, 56)}...` : metaText;
-    ctx.fillStyle = '#64748b';
-    ctx.font = '18px Arial, Helvetica, sans-serif';
-    ctx.fillText(truncatedMeta, cardWidth / 2, 336);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 22px Arial, Helvetica, sans-serif';
+    ctx.fillText(truncatedMeta, cardWidth / 2, 426);
   }
 
   return canvas;
 }
 
-export function printBarcodeStickerPdf(params: BarcodeCardParams): void {
+/**
+ * Draws a crisp, pure-black high-contrast thermal barcode sticker (58mm x 30mm) onto an existing jsPDF page.
+ */
+export function drawBarcodeStickerOnPdf(doc: jsPDF, params: BarcodeCardParams): void {
   const cleanValue = (params.value || 'AST-000').trim();
   let actualFormat: 'CODE128' | 'EAN8' = params.format || 'CODE128';
   if (actualFormat === 'EAN8' && !/^\d{7,8}$/.test(cleanValue)) {
     actualFormat = 'CODE128';
   }
 
-  const canvas = document.createElement('canvas');
-  JsBarcode(canvas, cleanValue, {
+  // Generate bars ONLY at ultra-crisp 5px module width so bitmap bars stay thick & bold on thermal paper
+  const barsCanvas = document.createElement('canvas');
+  JsBarcode(barsCanvas, cleanValue, {
     format: actualFormat,
-    width: 2,
-    height: 52,
-    displayValue: true,
-    fontSize: 13,
-    font: 'monospace',
-    textMargin: 3,
-    margin: 6,
+    width: 5,
+    height: 150,
+    displayValue: false,
+    margin: 2,
     background: '#ffffff',
     lineColor: '#000000'
   });
 
-  const barcodePng = canvas.toDataURL('image/png');
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [58, 30] });
+  const barcodePng = barsCanvas.toDataURL('image/png');
 
-  doc.setDrawColor(15, 23, 42);
-  doc.setLineWidth(0.35);
+  // Solid black rectangular border
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.5);
   doc.rect(1.5, 1.5, 55, 27);
 
+  // Pure black bold vector header
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text('PUSDATIN UMC · ASET RESMI', 29, 4.8, { align: 'center' });
+  doc.setFontSize(7.2);
+  doc.setTextColor(0, 0, 0);
+  doc.text('PUSDATIN UMC · ASET RESMI', 29, 5.0, { align: 'center' });
 
-  doc.addImage(barcodePng, 'PNG', 5, 6, 48, 15.5);
+  // Thick solid black barcode bars
+  doc.addImage(barcodePng, 'PNG', 5.5, 6.2, 47, 11.2, undefined, 'FAST');
+
+  // Crisp pure-black vector monospace code below bars (never cropped or faint)
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(0, 0, 0);
+  doc.text(cleanValue, 29, 20.6, { align: 'center' });
 
   if (params.name) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.setTextColor(15, 23, 42);
-    const shortName = params.name.length > 40 ? `${params.name.slice(0, 38)}...` : params.name;
-    doc.text(shortName, 29, 24.4, { align: 'center' });
+    doc.setFontSize(6.5);
+    doc.setTextColor(0, 0, 0);
+    const shortName = params.name.length > 38 ? `${params.name.slice(0, 36)}...` : params.name;
+    doc.text(shortName, 29, 24.0, { align: 'center' });
   }
 
   if (params.kategori || params.lokasi) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5);
-    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.0);
+    doc.setTextColor(0, 0, 0);
     const meta = [params.kategori, params.lokasi].filter(Boolean).join(' · ');
-    const shortMeta = meta.length > 48 ? `${meta.slice(0, 46)}...` : meta;
-    doc.text(shortMeta, 29, 27.1, { align: 'center' });
+    const shortMeta = meta.length > 46 ? `${meta.slice(0, 44)}...` : meta;
+    doc.text(shortMeta, 29, 26.8, { align: 'center' });
   }
+}
 
+export function printBarcodeStickerPdf(params: BarcodeCardParams): void {
+  const cleanValue = (params.value || 'AST-000').trim();
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [58, 30] });
+  drawBarcodeStickerOnPdf(doc, params);
   const safeCode = cleanValue.replace(/[^a-zA-Z0-9_-]/g, '_');
   doc.save(`Stiker_Barcode_${safeCode}.pdf`);
 }
@@ -169,8 +185,8 @@ export const BarcodeView: React.FC<BarcodeViewProps> = ({
   kategori,
   lokasi,
   format = 'CODE128',
-  width = 1.8,
-  height = 52,
+  width = 2.4,
+  height = 60,
   showActions = true,
   className = ''
 }) => {
@@ -238,12 +254,12 @@ export const BarcodeView: React.FC<BarcodeViewProps> = ({
   return (
     <div className={`bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-sm transition-all flex flex-col ${className}`}>
       <div className="p-4 flex-1 flex flex-col items-center justify-center">
-        {/* Bordered Label Preview matching Stiker Barcode Resmi */}
+        {/* High-contrast Bordered Label Preview matching Thermal Stiker Barcode Resmi */}
         <div
           data-testid="barcode-sticker-card"
-          className="w-full max-w-[330px] border-2 border-slate-900 bg-white px-4 py-3 text-center space-y-1.5"
+          className="w-full max-w-[330px] border-2 border-black bg-white px-4 py-3 text-center space-y-1.5"
         >
-          <div className="text-[11px] font-extrabold tracking-wide text-slate-950 uppercase">
+          <div className="text-[11px] font-black tracking-wide text-black uppercase">
             PUSDATIN UMC · ASET RESMI
           </div>
 
@@ -252,13 +268,13 @@ export const BarcodeView: React.FC<BarcodeViewProps> = ({
           </div>
 
           <div className="flex items-center justify-center gap-1.5">
-            <span className="font-mono text-xs font-bold text-slate-900 tracking-widest">
+            <span className="font-mono text-sm font-black text-black tracking-widest">
               {value}
             </span>
             <button
               type="button"
               onClick={copyCode}
-              className="text-slate-400 hover:text-slate-700 p-0.5 rounded transition-colors cursor-pointer"
+              className="text-slate-500 hover:text-black p-0.5 rounded transition-colors cursor-pointer"
               title="Salin kode barcode"
             >
               {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
@@ -266,13 +282,13 @@ export const BarcodeView: React.FC<BarcodeViewProps> = ({
           </div>
 
           {name && (
-            <div className="font-bold text-xs text-slate-900 leading-snug line-clamp-2 pt-0.5">
+            <div className="font-extrabold text-xs text-black leading-snug line-clamp-2 pt-0.5">
               {name}
             </div>
           )}
 
           {metaLine && (
-            <div className="text-[10px] text-slate-500 line-clamp-1">
+            <div className="text-[10px] font-semibold text-slate-800 line-clamp-1">
               {metaLine}
             </div>
           )}

@@ -29,8 +29,8 @@ export const UnifiedAssetCode: React.FC<UnifiedAssetCodeProps> = ({
       try {
         JsBarcode(barcodeSvgRef.current, cleanCode, {
           format: 'CODE128',
-          width: 1.8,
-          height: 52,
+          width: 2.4,
+          height: 60,
           displayValue: false,
           margin: 4,
           background: '#ffffff',
@@ -75,9 +75,9 @@ export const UnifiedAssetCode: React.FC<UnifiedAssetCodeProps> = ({
       {/* Full Bordered Barcode Card Preview */}
       <div
         data-testid="unified-barcode-card"
-        className="w-full border-2 border-slate-900 bg-white px-4 py-3 text-center space-y-1.5"
+        className="w-full border-2 border-black bg-white px-4 py-3 text-center space-y-1.5"
       >
-        <div className="text-[11px] font-extrabold tracking-wide text-slate-950 uppercase">
+        <div className="text-[11px] font-black tracking-wide text-black uppercase">
           PUSDATIN UMC · ASET RESMI
         </div>
 
@@ -85,16 +85,16 @@ export const UnifiedAssetCode: React.FC<UnifiedAssetCodeProps> = ({
           <svg ref={barcodeSvgRef} className="max-w-full h-auto" />
         </div>
 
-        <div className="font-mono text-xs font-bold text-slate-900 tracking-widest">
+        <div className="font-mono text-sm font-black text-black tracking-widest">
           {cleanCode}
         </div>
 
-        <div className="font-bold text-xs text-slate-900 leading-snug line-clamp-2 pt-0.5">
+        <div className="font-extrabold text-xs text-black leading-snug line-clamp-2 pt-0.5">
           {namaAset}
         </div>
 
         {metaLine && (
-          <div className="text-[10px] text-slate-500 line-clamp-1">
+          <div className="text-[10px] font-semibold text-slate-800 line-clamp-1">
             {metaLine}
           </div>
         )}

@@ -1,27 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { AppDatabase } from '../../services/db';
 import { PdfReportService } from '../../services/pdfReportService';
-import { computeSlaEvaluation } from '../../services/slaService';
+import {
+  computeSlaEvaluation,
+  canReopenResolvedTicket,
+  REOPEN_WINDOW_HOURS
+} from '../../services/slaService';
 import {
   Search,
   CheckCircle2,
   Clock,
   AlertTriangle,
-  FileText,
-  ArrowRight,
   Printer,
   Package,
   Wrench,
-  User,
-  Building,
-  Calendar,
-  Layers,
-  MapPin,
   Check,
   RotateCcw,
-  ShieldCheck,
   Cpu,
-  Gauge
+  Gauge,
+  MessageSquare,
+  GitBranch,
+  Send,
+  Info
 } from 'lucide-react';
 import { LoanTicket, DamageTicket } from '../../types';
 
@@ -34,6 +34,11 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
   const [matchedLoans, setMatchedLoans] = useState<LoanTicket[]>([]);
   const [matchedDamages, setMatchedDamages] = useState<DamageTicket[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [needMoreInfoReplyMap, setNeedMoreInfoReplyMap] = useState<Record<string, string>>({});
+  const [reopenReasonMap, setReopenReasonMap] = useState<Record<string, string>>({});
+  const [trackerFeedback, setTrackerFeedback] = useState<
+    Record<string, { type: 'success' | 'error'; message: string }>
+  >({});
 
   const handleSearch = (keywordToSearch?: string) => {
     const q = (keywordToSearch ?? query).trim().toLowerCase();
@@ -106,7 +111,7 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
-              placeholder="Masukkan ID Tiket (PJM-... / TKT-...) atau Barcode Aset..."
+              placeholder="Masukkan ID Tiket (PJM-... / TKT-... / PRB-... / RFC-...) atau Barcode Aset..."
               className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-600"
             />
           </div>
@@ -334,14 +339,25 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
               })}
 
               {/* Matched Damage Reports with PIC and Spare Part status */}
-              {matchedDamages.map(dmg => (
+              {matchedDamages.map(dmg => {
+                const ticketType = dmg.ticketType || 'Incident';
+                const canReopen = canReopenResolvedTicket(dmg);
+                const feedback = trackerFeedback[dmg.id];
+
+                return (
                 <div key={dmg.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
                   <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono font-bold text-base text-amber-700">{dmg.id}</span>
-                        <span className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold border border-amber-200">
-                          Tiket Kerusakan
+                        <span className={`text-xs px-2 py-0.5 rounded font-semibold border ${
+                          ticketType === 'Problem'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : ticketType === 'RFC'
+                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          {ticketType === 'Problem' ? 'Problem Ticket' : ticketType === 'RFC' ? 'Change Request (RFC)' : 'Tiket Insiden'}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
@@ -353,7 +369,9 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                       <span className={`px-3 py-1 text-xs font-bold rounded-full ${
                         dmg.status === 'Resolved' || dmg.status === 'Closed – Auto' || dmg.status === 'Closed – Manual' ? 'bg-emerald-100 text-emerald-800' :
                         dmg.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                        dmg.status === 'Need More Info' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
                         dmg.status === 'Pending – Menunggu Suku Cadang' ? 'bg-amber-100 text-amber-800' :
+                        dmg.status === 'Pending – Menunggu Vendor Eksternal' ? 'bg-indigo-100 text-indigo-800' :
                         dmg.status === 'Assigned' ? 'bg-purple-100 text-purple-800' :
                         dmg.status === 'Re-opened' ? 'bg-rose-100 text-rose-800' :
                         'bg-slate-100 text-slate-800'
@@ -375,10 +393,15 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                     </div>
                     {(() => {
                       const getStepNumber = (st: string) => {
-                        if (st === 'Open/Unassigned' || st === 'Open' || st === 'Baru' || st === 'Re-opened') return 1;
+                        if (st === 'Open/Unassigned' || st === 'Open' || st === 'Baru' || st === 'Need More Info' || st === 'Re-opened') return 1;
                         if (st === 'Assigned' || st === 'Diterima') return 2;
                         if (st === 'In Progress' || st === 'Perbaikan') return 3;
-                        if (st === 'Pending – Menunggu Suku Cadang' || st === 'Pending Procurement' || st === 'Menunggu Suku Cadang') return 4;
+                        if (
+                          st === 'Pending – Menunggu Suku Cadang' ||
+                          st === 'Pending – Menunggu Vendor Eksternal' ||
+                          st === 'Pending Procurement' ||
+                          st === 'Menunggu Suku Cadang'
+                        ) return 4;
                         if (st === 'Resolved' || st === 'Closed – Auto' || st === 'Closed – Manual' || st === 'Closed' || st === 'Selesai' || st === 'Rusak Total') return 5;
                         return 1;
                       };
@@ -447,11 +470,27 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                   {/* Komitmen Layanan (SLA FRT & RT) */}
                   {(() => {
                     const slaEval = computeSlaEvaluation(dmg, AppDatabase.getSlaConfig());
+                    const getSlaBadgeClass = (state: string) => {
+                      if (state === 'Melewati SLA') return 'bg-rose-100 text-rose-800';
+                      if (state === 'Mendekati Batas') return 'bg-amber-100 text-amber-800';
+                      if (state === 'Terjeda (Paused)') return 'bg-cyan-100 text-cyan-800';
+                      if (state === 'Menunggu Tahap 2') return 'bg-slate-100 text-slate-700';
+                      return 'bg-emerald-100 text-emerald-800';
+                    };
                     return (
                       <div className="bg-indigo-50/50 border-b border-indigo-100 px-6 py-3 text-xs">
-                        <div className="flex items-center gap-1.5 font-bold text-indigo-950 mb-2">
-                          <Gauge className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>Komitmen & Realisasi SLA Layanan (Urgensi: {dmg.urgensi || dmg.prioritas || 'Sedang'})</span>
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-1.5 font-bold text-indigo-950">
+                            <Gauge className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>
+                              Komitmen & Realisasi SLA ({ticketType} · Urgensi: {dmg.urgensi || dmg.prioritas || 'Sedang'})
+                            </span>
+                          </div>
+                          {slaEval.pausedTotalMinutes > 0 && (
+                            <span className="text-[11px] font-semibold text-cyan-800 bg-cyan-50 border border-cyan-200 px-2 py-0.5 rounded">
+                              Durasi Jeda Dikecualikan: {slaEval.pausedTotalMinutes} mnt
+                            </span>
+                          )}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                           <div className="p-2.5 rounded-lg bg-white border border-indigo-100 flex items-center justify-between gap-2">
@@ -459,15 +498,7 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                               <span className="text-[10px] font-bold uppercase text-slate-500 block">First Response Time (FRT)</span>
                               <span className="font-mono font-semibold text-slate-900">{slaEval.frtLabel}</span>
                             </div>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                                slaEval.frtStatus === 'Melewati SLA'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : slaEval.frtStatus === 'Mendekati Batas'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-emerald-100 text-emerald-800'
-                              }`}
-                            >
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${getSlaBadgeClass(slaEval.frtStatus)}`}>
                               {slaEval.frtStatus}
                             </span>
                           </div>
@@ -476,15 +507,7 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                               <span className="text-[10px] font-bold uppercase text-slate-500 block">Resolution Time (RT)</span>
                               <span className="font-mono font-semibold text-slate-900">{slaEval.rtLabel}</span>
                             </div>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                                slaEval.rtStatus === 'Melewati SLA'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : slaEval.rtStatus === 'Mendekati Batas'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-emerald-100 text-emerald-800'
-                              }`}
-                            >
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${getSlaBadgeClass(slaEval.rtStatus)}`}>
                               {slaEval.rtStatus}
                             </span>
                           </div>
@@ -492,6 +515,65 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                       </div>
                     );
                   })()}
+
+                  {/* 3c: Vendor Eksternal Banner */}
+                  {(dmg.status === 'Pending – Menunggu Vendor Eksternal' || dmg.vendorEksternalNama) && (
+                    <div className="bg-indigo-50/70 border-b border-indigo-200/70 px-6 py-3 text-xs text-indigo-950">
+                      <div className="flex items-start gap-2">
+                        <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">
+                            Penanganan Pihak / Vendor Eksternal: {dmg.vendorEksternalNama || 'Vendor / ISP Eksternal'}
+                          </p>
+                          <p className="text-indigo-800 mt-0.5">
+                            No. Referensi Vendor: <span className="font-mono font-semibold">{dmg.vendorEksternalTiket || '-'}</span>
+                            {dmg.status === 'Pending – Menunggu Vendor Eksternal' && ' · Jam SLA Penyelesaian terjeda selama menunggu tindak lanjut vendor eksternal.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3d: Linked Problem / RFC & Workaround Banner */}
+                  {(dmg.linkedProblemTicketId || dmg.linkedParentTicketId || dmg.workaround) && (
+                    <div className="bg-purple-50/70 border-b border-purple-200/70 px-6 py-3 text-xs text-purple-950 space-y-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-bold flex items-center gap-1.5">
+                          <GitBranch className="w-3.5 h-3.5 text-purple-700" />
+                          <span>Tautan Eskalasi ITIL (Workaround &amp; Problem/RFC)</span>
+                        </span>
+                        {dmg.linkedProblemTicketId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuery(dmg.linkedProblemTicketId!);
+                              handleSearch(dmg.linkedProblemTicketId!);
+                            }}
+                            className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-purple-700 text-white hover:bg-purple-800 cursor-pointer"
+                          >
+                            Lihat Tiket Lanjutan: {dmg.linkedProblemTicketId}
+                          </button>
+                        )}
+                        {dmg.linkedParentTicketId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuery(dmg.linkedParentTicketId!);
+                              handleSearch(dmg.linkedParentTicketId!);
+                            }}
+                            className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-white border border-purple-300 text-purple-800 hover:bg-purple-100 cursor-pointer"
+                          >
+                            Insiden Asal: {dmg.linkedParentTicketId}
+                          </button>
+                        )}
+                      </div>
+                      {dmg.workaround && (
+                        <p className="text-purple-900">
+                          <strong>Workaround (Solusi Sementara):</strong> {dmg.workaround}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Spare parts banner if applicable */}
                   {dmg.sukuCadangList && dmg.sukuCadangList.length > 0 && (
@@ -532,18 +614,117 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                       </div>
                     )}
 
-                    {/* BR-008: Mekanisme Konfirmasi 2 Hari Kerja & Re-open */}
+                    {/* Inline Action Feedback Banner */}
+                    {feedback && (
+                      <div
+                        className={`p-3 rounded-lg border text-xs font-medium ${
+                          feedback.type === 'success'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                            : 'bg-rose-50 border-rose-300 text-rose-900'
+                        }`}
+                      >
+                        {feedback.message}
+                      </div>
+                    )}
+
+                    {/* 3e: Need More Info Interactive Reply Box + Auto-Close 3x24 Jam */}
+                    {dmg.status === 'Need More Info' && (
+                      <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-3">
+                        <div className="flex items-start gap-2">
+                          <MessageSquare className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                          <div className="space-y-1 flex-1">
+                            <span className="font-bold text-amber-950 text-sm block">
+                              Butuh Informasi Tambahan dari Pelapor (Need More Info)
+                            </span>
+                            <p className="text-amber-900 leading-relaxed">
+                              <strong>Permintaan Admin:</strong>{' '}
+                              {dmg.needMoreInfoNote || 'Mohon lengkapi detail kendala / bukti tambahan agar tiket dapat diproses.'}
+                            </p>
+                            <p className="text-[11px] text-amber-800">
+                              Jam SLA Penyelesaian tidak berjalan hingga Anda membalas. Batas waktu Auto-Close 3x24 jam:{' '}
+                              <span className="font-mono font-bold">
+                                {dmg.needMoreInfoDeadlineIso
+                                  ? new Date(dmg.needMoreInfoDeadlineIso).toLocaleString('id-ID')
+                                  : '72 jam sejak permintaan info'}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={needMoreInfoReplyMap[dmg.id] || ''}
+                          onChange={e =>
+                            setNeedMoreInfoReplyMap(prev => ({ ...prev, [dmg.id]: e.target.value }))
+                          }
+                          placeholder="Tulis informasi tambahan, kronologi lengkap, atau tautan bukti pendukung di sini..."
+                          className="w-full p-2.5 bg-white border border-amber-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const replyText = (needMoreInfoReplyMap[dmg.id] || '').trim();
+                              if (!replyText) {
+                                setTrackerFeedback(prev => ({
+                                  ...prev,
+                                  [dmg.id]: {
+                                    type: 'error',
+                                    message: 'Harap isi informasi tambahan terlebih dahulu sebelum mengirim balasan.'
+                                  }
+                                }));
+                                return;
+                              }
+                              const res = AppDatabase.processDamageTicket(dmg.id, 'reply-need-info', {
+                                catatan: replyText
+                              });
+                              setTrackerFeedback(prev => ({
+                                ...prev,
+                                [dmg.id]: {
+                                  type: res.success ? 'success' : 'error',
+                                  message: res.message
+                                }
+                              }));
+                              if (res.success) {
+                                setNeedMoreInfoReplyMap(prev => ({ ...prev, [dmg.id]: '' }));
+                                handleSearch();
+                              }
+                            }}
+                            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>Kirim Kelengkapan Info &amp; Lanjutkan Tiket</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* BR-008 & 3f: Konfirmasi Penyelesaian & Re-open dalam 1x24 Jam */}
                     {dmg.status === 'Resolved' && (
-                      <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl space-y-2">
+                      <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl space-y-3">
                         <div className="flex items-center gap-2">
                           <CheckCircle2 className="w-4 h-4 text-emerald-700" />
                           <span className="font-bold text-emerald-900 text-sm">
-                            Konfirmasi Penyelesaian dari Pelapor (BR-008)
+                            Konfirmasi Penyelesaian dari Pelapor (Jendela Re-open {REOPEN_WINDOW_HOURS} Jam)
                           </span>
                         </div>
-                        <p className="text-slate-600 text-xs">
-                          Teknisi telah menyelesaikan perbaikan tiket ini. Anda memiliki masa konfirmasi <strong>2 hari kerja</strong>. Jika perangkat sudah berfungsi normal, Anda dapat menutup tiket ini sekarang, atau membuka kembali tiket jika kendala masih berulang.
+                        <p className="text-slate-700 text-xs">
+                          Teknisi telah menyelesaikan perbaikan tiket ini. Jika sudah berfungsi normal, tutup tiket sekarang. Jika kendala masih muncul, Anda dapat membuka kembali (<strong>Re-opened</strong>) maksimal <strong>1x24 jam</strong> setelah status Resolved.
                         </p>
+                        {canReopen ? (
+                          <input
+                            type="text"
+                            value={reopenReasonMap[dmg.id] ?? ''}
+                            onChange={e =>
+                              setReopenReasonMap(prev => ({ ...prev, [dmg.id]: e.target.value }))
+                            }
+                            placeholder="Masih error, belum bisa digunakan! (isi alasan jika ingin Re-open)"
+                            className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                          />
+                        ) : (
+                          <div className="p-2.5 bg-white/80 border border-emerald-200 rounded-lg text-[11px] text-slate-600">
+                            Jendela pembukaan kembali (1x24 jam setelah Resolved) telah terlewati. Silakan konfirmasi selesai atau buat tiket baru jika ada kendala lanjutan.
+                          </div>
+                        )}
                         <div className="flex flex-wrap gap-2 pt-1">
                           <button
                             type="button"
@@ -551,28 +732,50 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                               const res = AppDatabase.processDamageTicket(dmg.id, 'tutup-manual', {
                                 catatan: 'Pelapor mengonfirmasi masalah selesai via Portal Civitas.'
                               });
-                              alert(res.message);
+                              setTrackerFeedback(prev => ({
+                                ...prev,
+                                [dmg.id]: {
+                                  type: res.success ? 'success' : 'error',
+                                  message: res.message
+                                }
+                              }));
                               handleSearch();
                             }}
                             className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            Konfirmasi Selesai (Closed – Manual)
+                            <span>Konfirmasi Selesai (Closed – Manual)</span>
                           </button>
                           <button
                             type="button"
+                            disabled={!canReopen}
                             onClick={() => {
-                              const reason = prompt('Sebutkan kendala yang masih terjadi:') || 'Kendala masih berulang';
+                              const reason =
+                                (reopenReasonMap[dmg.id] || '').trim() ||
+                                'Masih error, belum bisa digunakan!';
                               const res = AppDatabase.processDamageTicket(dmg.id, 're-open', {
                                 catatan: reason
                               });
-                              alert(res.message);
-                              handleSearch();
+                              setTrackerFeedback(prev => ({
+                                ...prev,
+                                [dmg.id]: {
+                                  type: res.success ? 'success' : 'error',
+                                  message: res.message
+                                }
+                              }));
+                              if (res.success) {
+                                setReopenReasonMap(prev => ({ ...prev, [dmg.id]: '' }));
+                                handleSearch();
+                              }
                             }}
-                            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs ${
+                              canReopen
+                                ? 'bg-amber-600 hover:bg-amber-700 text-white cursor-pointer'
+                                : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                            }`}
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
-                            Kendala Masih Ada (Re-opened)
+                            <span>Kendala Masih Ada (Re-opened · Batas 1x24 Jam)</span>
                           </button>
                         </div>
                       </div>
@@ -597,7 +800,8 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </>
           )}
         </div>
