@@ -138,11 +138,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             <span>Lanjutkan dengan SSO Google</span>
           </button>
 
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
-            <p className="font-bold text-slate-700">Ketentuan Akses Akun:</p>
-            <p>• Semua email resmi <strong>@umc.ac.id</strong> (Dosen/Staf/Admin) &amp; <strong>@student.umc.ac.id</strong> (Mahasiswa) dapat langsung login.</p>
-            <p>• Email publik (@gmail.com, @yahoo.com, dll.) di luar domain resmi UMC otomatis ditolak.</p>
-          </div>
         </form>
 
         <div className="pt-2 border-t border-slate-100 text-[10px] text-slate-400 text-center">

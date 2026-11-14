@@ -3,9 +3,18 @@ import { AppDatabase } from '../../services/db';
 import { PdfReportService } from '../../services/pdfReportService';
 import {
   computeSlaEvaluation,
+  computeLoanSlaEvaluation,
+  computeProposalSlaEvaluation,
   canReopenResolvedTicket,
   REOPEN_WINDOW_HOURS
 } from '../../services/slaService';
+import {
+  isDamageEligibleForSurvey,
+  isLoanEligibleForSurvey,
+  isProposalEligibleForSurvey,
+  getEmojiForScore
+} from '../../services/surveyService';
+import { CsatSurveyModal } from './CsatSurveyModal';
 import {
   Search,
   CheckCircle2,
@@ -21,9 +30,12 @@ import {
   MessageSquare,
   GitBranch,
   Send,
-  Info
+  Info,
+  Star,
+  Sparkles,
+  Code2
 } from 'lucide-react';
-import { LoanTicket, DamageTicket } from '../../types';
+import { LoanTicket, DamageTicket, SystemProposal, SurveyModuleType } from '../../types';
 
 interface TicketTrackerProps {
   initialSearchId?: string;
@@ -33,12 +45,26 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
   const [query, setQuery] = useState(initialSearchId);
   const [matchedLoans, setMatchedLoans] = useState<LoanTicket[]>([]);
   const [matchedDamages, setMatchedDamages] = useState<DamageTicket[]>([]);
+  const [matchedProposals, setMatchedProposals] = useState<SystemProposal[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [needMoreInfoReplyMap, setNeedMoreInfoReplyMap] = useState<Record<string, string>>({});
   const [reopenReasonMap, setReopenReasonMap] = useState<Record<string, string>>({});
   const [trackerFeedback, setTrackerFeedback] = useState<
     Record<string, { type: 'success' | 'error'; message: string }>
   >({});
+  const [surveyVersion, setSurveyVersion] = useState(0);
+  const [surveySuccessBanner, setSurveySuccessBanner] = useState<string | null>(null);
+  const [activeSurveyTarget, setActiveSurveyTarget] = useState<{
+    moduleType: SurveyModuleType;
+    entityId: string;
+    entityTitle: string;
+    technicianOrPic?: string;
+    defaultRespondentName?: string;
+    defaultRespondentUnit?: string;
+  } | null>(null);
+
+  const serviceSlaConfig = AppDatabase.getServiceSlaConfig();
+  const activeUser = AppDatabase.getActiveUser();
 
   const handleSearch = (keywordToSearch?: string) => {
     const q = (keywordToSearch ?? query).trim().toLowerCase();
@@ -46,6 +72,7 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
 
     const allLoans = AppDatabase.getLoans();
     const allDamages = AppDatabase.getDamageTickets();
+    const allProposals = AppDatabase.getSystemProposals();
 
     const loans = allLoans.filter(l =>
       l.id.toLowerCase().includes(q) ||
@@ -63,8 +90,16 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
       (d.kontakPelapor && d.kontakPelapor.includes(q))
     );
 
+    const proposals = allProposals.filter(p =>
+      p.id.toLowerCase().includes(q) ||
+      p.namaSistem.toLowerCase().includes(q) ||
+      p.pemohon.toLowerCase().includes(q) ||
+      p.unitKerja.toLowerCase().includes(q)
+    );
+
     setMatchedLoans(loans);
     setMatchedDamages(damages);
+    setMatchedProposals(proposals);
     setHasSearched(true);
   };
 
@@ -130,36 +165,196 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
           <button
             type="button"
             onClick={() => { setQuery('PJM-20261102-1042'); handleSearch('PJM-20261102-1042'); }}
-            className="font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors"
+            className="font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
           >
             PJM-20261102-1042
           </button>
           <button
             type="button"
-            onClick={() => { setQuery('PJM-20261105-0814'); handleSearch('PJM-20261105-0814'); }}
-            className="font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors"
+            onClick={() => { setQuery('TKT-20261105-088'); handleSearch('TKT-20261105-088'); }}
+            className="font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
           >
-            PJM-20261105-0814
+            TKT-20261105-088
+          </button>
+          <button
+            type="button"
+            onClick={() => { setQuery('SYS-2026-003'); handleSearch('SYS-2026-003'); }}
+            className="font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
+          >
+            SYS-2026-003
           </button>
           <button
             type="button"
             onClick={() => { setQuery('TKT-20261106-101'); handleSearch('TKT-20261106-101'); }}
-            className="font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors"
+            className="font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
           >
             TKT-20261106-101
           </button>
         </div>
       </div>
 
+      {surveySuccessBanner && (
+        <div
+          data-testid="survey-success-banner"
+          className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2.5 shadow-2xs"
+        >
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{surveySuccessBanner}</span>
+        </div>
+      )}
+
+      {/* Layanan Selesai / Go-Live yang Siap Survei Kepuasan (CSAT) */}
+      {!hasSearched && (() => {
+        const eligibleIncidents = AppDatabase.getDamageTickets().filter(isDamageEligibleForSurvey).slice(0, 2);
+        const eligibleLoans = AppDatabase.getLoans().filter(isLoanEligibleForSurvey).slice(0, 2);
+        const eligibleProposals = AppDatabase.getSystemProposals().filter(isProposalEligibleForSurvey).slice(0, 2);
+        const hasAny = eligibleIncidents.length + eligibleLoans.length + eligibleProposals.length > 0;
+        if (!hasAny) return null;
+
+        return (
+          <div className="bg-white rounded-xl border border-indigo-200 p-5 shadow-xs space-y-4" data-testid="ready-for-survey-section">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>Layanan Selesai &amp; Pasca-Implementasi — Siap Survei Kepuasan (CSAT ITIL)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Klik layanan di bawah ini untuk melihat progres SLA atau langsung mengisi survei kepuasan pengguna (skala 1–5).
+                </p>
+              </div>
+              <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
+                Continual Improvement
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              {eligibleIncidents.map(inc => {
+                const existing = AppDatabase.getSurveyByEntity('Incident', inc.id);
+                return (
+                  <div key={inc.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between gap-2.5">
+                    <div>
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">Laporan Kerusakan · {inc.status}</span>
+                      <p className="font-bold text-slate-900 mt-1.5 line-clamp-1">{inc.namaBarang}</p>
+                      <p className="font-mono text-[11px] text-slate-500">{inc.id} · {inc.pelapor}</p>
+                    </div>
+                    {existing ? (
+                      <div className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Sudah Disurvei ({existing.averageScore}/5 {getEmojiForScore(existing.averageScore)})</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid={`open-survey-${inc.id}`}
+                        onClick={() =>
+                          setActiveSurveyTarget({
+                            moduleType: 'Incident',
+                            entityId: inc.id,
+                            entityTitle: inc.namaBarang,
+                            technicianOrPic: inc.picTeknisi,
+                            defaultRespondentName: inc.pelapor
+                          })
+                        }
+                        className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
+                        <span>Isi Survei Kerusakan</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {eligibleLoans.map(ln => {
+                const existing = AppDatabase.getSurveyByEntity('Loan', ln.id);
+                return (
+                  <div key={ln.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between gap-2.5">
+                    <div>
+                      <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">Peminjaman Aset · {ln.status}</span>
+                      <p className="font-bold text-slate-900 mt-1.5 line-clamp-1">{ln.barangPinjaman}</p>
+                      <p className="font-mono text-[11px] text-slate-500">{ln.id} · {ln.peminjam}</p>
+                    </div>
+                    {existing ? (
+                      <div className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Sudah Disurvei ({existing.averageScore}/5 {getEmojiForScore(existing.averageScore)})</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid={`open-survey-${ln.id}`}
+                        onClick={() =>
+                          setActiveSurveyTarget({
+                            moduleType: 'Loan',
+                            entityId: ln.id,
+                            entityTitle: ln.barangPinjaman,
+                            technicianOrPic: ln.petugas,
+                            defaultRespondentName: ln.peminjam,
+                            defaultRespondentUnit: ln.unit
+                          })
+                        }
+                        className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
+                        <span>Isi Survei Peminjaman</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {eligibleProposals.map(prop => {
+                const existing = AppDatabase.getSurveyByEntity('SystemProposal', prop.id);
+                return (
+                  <div key={prop.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between gap-2.5">
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">Pasca-Implementasi · Go-Live</span>
+                      <p className="font-bold text-slate-900 mt-1.5 line-clamp-1">{prop.namaSistem}</p>
+                      <p className="font-mono text-[11px] text-slate-500">{prop.id} · {prop.unitKerja}</p>
+                    </div>
+                    {existing ? (
+                      <div className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Sudah Disurvei ({existing.averageScore}/5 {getEmojiForScore(existing.averageScore)})</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid={`open-survey-${prop.id}`}
+                        onClick={() =>
+                          setActiveSurveyTarget({
+                            moduleType: 'SystemProposal',
+                            entityId: prop.id,
+                            entityTitle: prop.namaSistem,
+                            technicianOrPic: 'Tim Pengembang PUSDATIN',
+                            defaultRespondentName: activeUser.nama,
+                            defaultRespondentUnit: prop.unitKerja
+                          })
+                        }
+                        className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
+                        <span>Evaluasi Pasca Go-Live</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Results View */}
       {hasSearched && (
         <div className="space-y-6">
-          {matchedLoans.length === 0 && matchedDamages.length === 0 ? (
+          {matchedLoans.length === 0 && matchedDamages.length === 0 && matchedProposals.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
               <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
               <h3 className="text-base font-bold text-slate-900">Data Tiket Tidak Ditemukan</h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                Pastikan nomor ID Tiket atau Barcode yang Anda masukkan sudah benar. Anda juga dapat mencari berdasarkan nama peminjam atau pelapor.
+                Pastikan nomor ID Tiket atau Barcode yang Anda masukkan sudah benar. Anda juga dapat mencari berdasarkan nama peminjam, pelapor, atau pengusul sistem.
               </p>
             </div>
           ) : (
@@ -334,6 +529,71 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                         })()}
                       </div>
                     )}
+                    {/* SLA Service Request Indicator + CSAT Survey for Returned Loans */}
+                    {(() => {
+                      const loanSla = computeLoanSlaEvaluation(loan, serviceSlaConfig);
+                      const existingLoanSurvey = AppDatabase.getSurveyByEntity('Loan', loan.id);
+                      const canFillSurvey = isLoanEligibleForSurvey(loan);
+                      return (
+                        <div className="px-6 pb-6 space-y-3 text-xs">
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-700">
+                              Komitmen SLA Layanan (ITIL):
+                            </span>
+                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                              <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+                                Approval: <strong>{loanSla.approvalStatus}</strong> ({loanSla.approvalLabel})
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+                                Penyiapan Barang: <strong>{loanSla.fulfillmentStatus}</strong>
+                              </span>
+                            </div>
+                          </div>
+
+                          {canFillSurvey && (
+                            existingLoanSurvey ? (
+                              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-emerald-900 font-bold">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                  <span>Survei Kepuasan Peminjaman Telah Dikirim ({existingLoanSurvey.averageScore} / 5 {getEmojiForScore(existingLoanSurvey.averageScore)})</span>
+                                </div>
+                                <span className="text-[11px] text-emerald-700">Terima kasih atas partisipasi Anda!</span>
+                              </div>
+                            ) : (
+                              <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <span className="font-bold text-indigo-950 text-sm flex items-center gap-1.5">
+                                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                                    <span>Aset Telah Dikembalikan — Mohon Isi Survei Kepuasan (CSAT)</span>
+                                  </span>
+                                  <p className="text-indigo-800 text-[11px] mt-0.5">
+                                    Bantu PUSDATIN meningkatkan kualitas perangkat dan kecepatan serah-terima peminjaman.
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  data-testid={`open-survey-${loan.id}`}
+                                  onClick={() =>
+                                    setActiveSurveyTarget({
+                                      moduleType: 'Loan',
+                                      entityId: loan.id,
+                                      entityTitle: loan.barangPinjaman,
+                                      technicianOrPic: loan.petugas,
+                                      defaultRespondentName: loan.peminjam,
+                                      defaultRespondentUnit: loan.unit
+                                    })
+                                  }
+                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+                                >
+                                  <Star className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
+                                  <span>Isi Survei Kepuasan (1–5)</span>
+                                </button>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -781,6 +1041,49 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                       </div>
                     )}
 
+                    {/* 5a: CSAT Survey Prompt Otomatis saat Resolved / Closed */}
+                    {isDamageEligibleForSurvey(dmg) && (() => {
+                      const existingDmgSurvey = AppDatabase.getSurveyByEntity('Incident', dmg.id);
+                      return existingDmgSurvey ? (
+                        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-emerald-900 font-bold">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>Survei Kepuasan Perbaikan Telah Dikirim ({existingDmgSurvey.averageScore} / 5 {getEmojiForScore(existingDmgSurvey.averageScore)})</span>
+                          </div>
+                          <span className="text-[11px] text-emerald-700">Masukan Anda tercatat untuk evaluasi teknisi PUSDATIN.</span>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <span className="font-bold text-indigo-950 text-sm flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-indigo-600" />
+                              <span>Penanganan Tiket Selesai — Isi Survei Kepuasan Layanan ITIL</span>
+                            </span>
+                            <p className="text-indigo-800 text-[11px] mt-0.5">
+                              Nilai kecepatan respons, ketepatan solusi, dan komunikasi teknisi dalam 30 detik.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            data-testid={`open-survey-${dmg.id}`}
+                            onClick={() =>
+                              setActiveSurveyTarget({
+                                moduleType: 'Incident',
+                                entityId: dmg.id,
+                                entityTitle: dmg.namaBarang,
+                                technicianOrPic: dmg.picTeknisi,
+                                defaultRespondentName: dmg.pelapor
+                              })
+                            }
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+                          >
+                            <Star className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
+                            <span>Isi Survei Kepuasan (1–5)</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
+
                     {/* Timeline History */}
                     {dmg.riwayatStatus && dmg.riwayatStatus.length > 0 && (
                       <div className="pt-2">
@@ -802,9 +1105,138 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                 </div>
                 );
               })}
+
+              {/* Matched System Proposals (F-DEV / Pengajuan Sistem Baru & Evaluasi Pasca Go-Live) */}
+              {matchedProposals.map(prop => {
+                const propSla = computeProposalSlaEvaluation(prop, serviceSlaConfig);
+                const existingPropSurvey = AppDatabase.getSurveyByEntity('SystemProposal', prop.id);
+                const canSurveyProp = isProposalEligibleForSurvey(prop);
+
+                return (
+                  <div key={prop.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                    <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-base text-cyan-700">{prop.id}</span>
+                          <span className="text-xs px-2 py-0.5 rounded bg-cyan-50 text-cyan-800 font-semibold border border-cyan-200 inline-flex items-center gap-1">
+                            <Code2 className="w-3 h-3" />
+                            <span>Pengajuan Sistem Baru</span>
+                          </span>
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-900 mt-1">{prop.namaSistem}</h3>
+                        <p className="text-xs text-slate-500">
+                          Pengusul: <strong>{prop.pemohon}</strong> ({prop.unitKerja}) · Diajukan: {prop.tanggalPengajuan}
+                        </p>
+                      </div>
+
+                      <span className={`px-3 py-1 text-xs font-bold rounded-full ${
+                        canSurveyProp ? 'bg-emerald-100 text-emerald-800' : 'bg-cyan-100 text-cyan-800'
+                      }`}>
+                        {prop.status === 'Serah Terima' || prop.status === 'Selesai' ? 'Selesai / Go-Live' : prop.status}
+                      </span>
+                    </div>
+
+                    <div className="p-5 space-y-4 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                          <div>
+                            <span className="text-slate-500 block font-semibold">SLA Feasibility Study (Tahap 1)</span>
+                            <span className="font-mono font-bold text-slate-900">{propSla.feasibilityLabel}</span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded font-bold text-[11px] ${
+                            propSla.feasibilityStatus === 'Memenuhi SLA' ? 'bg-emerald-100 text-emerald-800' : 'bg-cyan-100 text-cyan-800'
+                          }`}>
+                            {propSla.feasibilityStatus}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                          <div>
+                            <span className="text-slate-500 block font-semibold">SLA Spesifikasi BRD (Tahap 2)</span>
+                            <span className="font-mono font-bold text-slate-900">{propSla.brdLabel}</span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded font-bold text-[11px] ${
+                            propSla.brdStatus === 'Memenuhi SLA' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'
+                          }`}>
+                            {propSla.brdStatus}
+                          </span>
+                        </div>
+                      </div>
+
+                      {canSurveyProp && (
+                        existingPropSurvey ? (
+                          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-emerald-900 font-bold">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              <span>Evaluasi Pasca-Implementasi Telah Dikirim ({existingPropSurvey.averageScore} / 5 {getEmojiForScore(existingPropSurvey.averageScore)})</span>
+                            </div>
+                            <span className="text-[11px] text-emerald-700">Masukan Anda menjadi dasar backlog rilis berikutnya.</span>
+                          </div>
+                        ) : (
+                          <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <span className="font-bold text-indigo-950 text-sm flex items-center gap-1.5">
+                                <Sparkles className="w-4 h-4 text-indigo-600" />
+                                <span>Survei Evaluasi Pasca-Implementasi Sistem Baru (1–3 Bulan Pasca Go-Live)</span>
+                              </span>
+                              <p className="text-indigo-800 text-[11px] mt-0.5">
+                                Berikan evaluasi UI/UX, stabilitas fitur, dukungan adaptasi tim IT, dan usulan fitur lanjutan.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              data-testid={`open-survey-${prop.id}`}
+                              onClick={() =>
+                                setActiveSurveyTarget({
+                                  moduleType: 'SystemProposal',
+                                  entityId: prop.id,
+                                  entityTitle: prop.namaSistem,
+                                  technicianOrPic: 'Tim Pengembang PUSDATIN',
+                                  defaultRespondentName: activeUser.nama,
+                                  defaultRespondentUnit: prop.unitKerja
+                                })
+                              }
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+                            >
+                              <Star className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
+                              <span>Isi Evaluasi Sistem (1–5)</span>
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </>
           )}
         </div>
+      )}
+
+      {/* Modal Survei Kepuasan Pengguna (ITIL Continual Improvement) */}
+      {activeSurveyTarget && (
+        <CsatSurveyModal
+          isOpen={Boolean(activeSurveyTarget)}
+          moduleType={activeSurveyTarget.moduleType}
+          entityId={activeSurveyTarget.entityId}
+          entityTitle={activeSurveyTarget.entityTitle}
+          technicianOrPic={activeSurveyTarget.technicianOrPic}
+          defaultRespondentName={activeSurveyTarget.defaultRespondentName}
+          defaultRespondentUnit={activeSurveyTarget.defaultRespondentUnit}
+          onClose={() => setActiveSurveyTarget(null)}
+          onSubmitted={survey => {
+            const msg = `Terima kasih! Penilaian survei kepuasan (${survey.averageScore}/5) untuk ${survey.entityId} telah berhasil disimpan.`;
+            setActiveSurveyTarget(null);
+            setSurveyVersion(v => v + 1);
+            setSurveySuccessBanner(msg);
+            setTrackerFeedback(prev => ({
+              ...prev,
+              [survey.entityId]: {
+                type: 'success',
+                message: msg
+              }
+            }));
+          }}
+        />
       )}
     </div>
   );

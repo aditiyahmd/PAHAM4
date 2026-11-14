@@ -296,6 +296,14 @@ export interface LoanTicket {
   rincianKondisiKembali?: string;
   linkedDamageTicketId?: string;
   emailTerkirim?: boolean;
+  // ITIL Service Request Management SLA (Approval Time & Fulfillment Time)
+  createdAtIso?: string;
+  approvedAtIso?: string;
+  approvedBy?: string;
+  fulfilledAtIso?: string;
+  fulfilledBy?: string;
+  approvalTargetMinutes?: number;
+  fulfillmentTargetHours?: number;
 }
 
 // 8.2 Tabel 13: Suku Cadang & Status Pengadaan
@@ -490,6 +498,13 @@ export interface SystemProposal {
     fileSize?: number;
     mimeType?: string;
   }[];
+  // ITIL Initial Analysis SLA (Feasibility Study Time & BRD Specification Time)
+  createdAtIso?: string;
+  verifiedAtIso?: string;
+  brdCompletedAtIso?: string;
+  liveAtIso?: string;
+  feasibilityTargetHours?: number;
+  brdTargetHours?: number;
 }
 
 // 8.2 Tabel 15: Notifikasi (WhatsApp / Email)
@@ -677,3 +692,95 @@ export interface PicPerformanceReport {
   resolutionRate: number;
   slaOnTimeRate: number;
 }
+
+// Rekap & Evaluasi SLA per Teknisi (Laporan Individu & Rekap Evaluasi)
+export interface TechnicianSlaBreakdown {
+  technicianId: string;
+  technicianName: string;
+  roleName: string;
+  actorCode: ActorCode;
+  totalTickets: number;
+  openCount: number;
+  inProgressCount: number;
+  pausedCount: number;
+  resolvedCount: number;
+  frtComplianceRate: number;
+  rtComplianceRate: number;
+  avgFrtMinutes: number;
+  avgRtHours: number;
+  frtOverdueCount: number;
+  rtOverdueCount: number;
+  waitingStage2Count: number;
+}
+
+// ITIL SLA Config untuk Peminjaman Aset & Pengajuan Sistem Baru
+export interface ServiceSlaConfig {
+  loan: {
+    approvalTargetMinutes: number; // Waktu Persetujuan (Approval Time)
+    fulfillmentTargetHours: number; // Waktu Penyiapan & Penyerahan (Fulfillment Time)
+  };
+  proposal: {
+    feasibilityTargetHours: number; // Waktu Tinjauan Kelayakan (Feasibility Study)
+    brdTargetHours: number; // Waktu Penentuan Spesifikasi Kebutuhan (BRD)
+  };
+}
+
+export interface LoanSlaEvaluation {
+  approvalTargetMinutes: number;
+  fulfillmentTargetHours: number;
+  isApproved: boolean;
+  isFulfilled: boolean;
+  isRejected: boolean;
+  approvalElapsedMinutes: number;
+  fulfillmentElapsedHours: number;
+  approvalStatus: 'Memenuhi SLA' | 'Dalam Batas' | 'Mendekati Batas' | 'Melewati SLA';
+  fulfillmentStatus: 'Memenuhi SLA' | 'Dalam Batas' | 'Mendekati Batas' | 'Melewati SLA' | 'N/A (Ditolak)';
+  overallStatus: 'On Track' | 'Mendekati Batas' | 'Overdue';
+  approvalLabel: string;
+  fulfillmentLabel: string;
+}
+
+export interface ProposalSlaEvaluation {
+  feasibilityTargetHours: number;
+  brdTargetHours: number;
+  isFeasibilityDone: boolean;
+  isBrdStarted: boolean;
+  isBrdDone: boolean;
+  feasibilityElapsedHours: number;
+  brdElapsedHours: number;
+  feasibilityStatus: 'Memenuhi SLA' | 'Dalam Batas' | 'Mendekati Batas' | 'Melewati SLA';
+  brdStatus: 'Memenuhi SLA' | 'Dalam Batas' | 'Mendekati Batas' | 'Melewati SLA' | 'Menunggu Tahap 1';
+  overallStatus: 'On Track' | 'Mendekati Batas' | 'Overdue';
+  feasibilityLabel: string;
+  brdLabel: string;
+}
+
+// ITIL Continual Improvement: User Satisfaction Survey (CSAT / UX)
+export type SurveyModuleType = 'Incident' | 'Loan' | 'SystemProposal';
+
+export interface SurveyQuestionDefinition {
+  key: 'q1' | 'q2' | 'q3';
+  label: string;
+  question: string;
+}
+
+export interface SurveyResponse {
+  id: string;
+  moduleType: SurveyModuleType;
+  entityId: string;
+  entityTitle: string;
+  respondentName: string;
+  respondentEmail: string;
+  respondentUnit: string;
+  technicianOrPic?: string;
+  ratings: {
+    q1: number; // 1..5 Likert
+    q2: number; // 1..5 Likert
+    q3: number; // 1..5 Likert
+  };
+  averageScore: number; // 1.0..5.0
+  feedbackText: string;
+  submittedAtIso: string;
+  monthKey: string; // YYYY-MM
+}
+

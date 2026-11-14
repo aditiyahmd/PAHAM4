@@ -13,7 +13,8 @@ export type ModulePermission =
   | 'pengajuan_sistem'
   | 'dashboard_pimpinan'
   | 'audit_trail'
-  | 'suku_cadang';
+  | 'suku_cadang'
+  | 'rekap_survei';
 
 export type AccessLevel = 'none' | 'view' | 'manage' | 'verify' | 'execute' | 'approve' | 'propose';
 
@@ -33,7 +34,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'none',
     dashboard_pimpinan: 'view', // Dashboard Pimpinan
     audit_trail: 'view',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'view'
   },
   // ACT-02: Pimpinan PUSDATIN (Semua Menu)
   'ACT-02': {
@@ -49,7 +51,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'approve',
     dashboard_pimpinan: 'view',
     audit_trail: 'view',
-    suku_cadang: 'manage'
+    suku_cadang: 'manage',
+    rekap_survei: 'view'
   },
   // ACT-03: IT Support & Helpdesk Specialist / Admin Sistem (Semua Menu)
   'ACT-03': {
@@ -65,7 +68,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'manage',
     dashboard_pimpinan: 'view',
     audit_trail: 'view',
-    suku_cadang: 'manage'
+    suku_cadang: 'manage',
+    rekap_survei: 'manage'
   },
   // ACT-04: Cloud & Infrastructure Engineer (Dashboard tiket delegasi & Helpdesk SLA)
   'ACT-04': {
@@ -81,7 +85,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'none',
     dashboard_pimpinan: 'none',
     audit_trail: 'view',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'none'
   },
   // ACT-05: System Analyst & Data Governance Specialist (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-05': {
@@ -97,7 +102,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'view',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'none'
   },
   // ACT-06: Lead Full Stack Developer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-06': {
@@ -113,7 +119,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'manage', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'view',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'none'
   },
   // ACT-07: Frontend Programmer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-07': {
@@ -129,7 +136,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'none',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'none'
   },
   // ACT-08: Backend Programmer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-08': {
@@ -145,7 +153,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'none',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'none'
   },
   // ACT-09: Cyber Security Officer (Dashboard, Helpdesk SLA, Pengajuan Sistem Baru)
   'ACT-09': {
@@ -161,7 +170,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'verify', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
     audit_trail: 'view',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'none'
   },
   // ACT-10: User (Dosen/Karyawan/Mahasiswa)
   'ACT-10': {
@@ -177,7 +187,8 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     pengajuan_sistem: 'propose', // Ajukan sistem baru (hanya jika Dosen/Karyawan)
     dashboard_pimpinan: 'none',
     audit_trail: 'none',
-    suku_cadang: 'none'
+    suku_cadang: 'none',
+    rekap_survei: 'propose'
   }
 };
 

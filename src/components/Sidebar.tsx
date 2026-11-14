@@ -14,7 +14,8 @@ import {
   LockKeyhole,
   BarChart3,
   Users,
-  X
+  X,
+  Star
 } from 'lucide-react';
 import { AppDatabase } from '../services/db';
 
@@ -91,6 +92,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'buku-inventaris-rekap',
       label: 'Buku Aset Inventaris',
       icon: Layers
+    },
+    {
+      id: 'rekap-survei',
+      label: 'Rekap Survei Kepuasan',
+      icon: Star,
+      badge: AppDatabase.getSurveys().length || undefined,
+      badgeColor: 'bg-amber-600'
     }
   ];
 
@@ -157,6 +165,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: Code2,
         badge: AppDatabase.getSystemProposals().filter(p => p.status === 'status_verifikasi').length || undefined,
         badgeColor: 'bg-cyan-600'
+      },
+      {
+        id: 'rekap-survei',
+        label: 'Rekap Survei Kepuasan',
+        icon: Star,
+        badge: AppDatabase.getSurveys().length || undefined,
+        badgeColor: 'bg-amber-600'
       },
       {
         id: 'audit-trail',

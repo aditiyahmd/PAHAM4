@@ -20,6 +20,7 @@ import { MasterDataManagement } from './components/AdminPortal/MasterDataManagem
 import { PicDashboard } from './components/AdminPortal/PicDashboard';
 import { SparePartsManagementView } from './components/AdminPortal/SparePartsManagementView';
 import { SystemProposalManagement } from './components/AdminPortal/SystemProposalManagement';
+import { SurveyRecapView } from './components/AdminPortal/SurveyRecapView';
 import { AuditTrailView } from './components/AdminPortal/AuditTrailView';
 import { AdminLoginModal } from './components/Modals/AdminLoginModal';
 import { EmailNotificationModal } from './components/Modals/EmailNotificationModal';
@@ -296,6 +297,10 @@ export default function App() {
                 {activeTab === 'buku-inventaris-rekap' && (
                   <BukuInventarisRekapView onDataChanged={refreshData} />
                 )}
+
+                {activeTab === 'rekap-survei' && (
+                  <SurveyRecapView />
+                )}
               </div>
             )}
 
@@ -355,6 +360,10 @@ export default function App() {
 
                 {activeTab === 'kelola-master' && (
                   <MasterDataManagement onDataChanged={refreshData} />
+                )}
+
+                {activeTab === 'rekap-survei' && (
+                  <SurveyRecapView />
                 )}
               </div>
             )}

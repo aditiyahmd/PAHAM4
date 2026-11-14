@@ -14,11 +14,15 @@ import {
 import {
   computeSlaEvaluation,
   computeAggregateSlaStats,
+  computeTechnicianSlaBreakdown,
+  filterTicketsForTechnician,
   formatMinutesLabel,
   formatHoursLabel,
   DEFAULT_SLA_CONFIG
 } from '../../services/slaService';
+import { PdfReportService } from '../../services/pdfReportService';
 import { BarcodeScannerModal } from '../Modals/BarcodeScannerModal';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
 import {
   AlertTriangle,
   Search,
@@ -62,7 +66,9 @@ import {
   SlidersHorizontal,
   Gauge,
   PauseCircle,
-  Globe
+  Globe,
+  Printer,
+  Award
 } from 'lucide-react';
 
 interface DamageTicketManagementProps {
@@ -153,15 +159,23 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const [internalMetode, setInternalMetode] = useState<'Di Lokasi' | 'Dibawa ke PUSDATIN'>('Dibawa ke PUSDATIN');
   const [internalError, setInternalError] = useState<string | null>(null);
 
-  // SLA Configuration (FRT & RT) states
+  // SLA Configuration (FRT & RT) & Technician SLA Print states
   const [slaConfig, setSlaConfig] = useState<SlaConfig>(() => AppDatabase.getSlaConfig());
   const [showSlaModal, setShowSlaModal] = useState(false);
   const [slaDraft, setSlaDraft] = useState<SlaConfig>(() => AppDatabase.getSlaConfig());
   const [slaFeedback, setSlaFeedback] = useState<string | null>(null);
+  const [showSlaPrintSelector, setShowSlaPrintSelector] = useState(false);
+  const [slaPrintMode, setSlaPrintMode] = useState<'recap' | 'individual'>('recap');
+  const [slaPrintTechId, setSlaPrintTechId] = useState<string>('');
+  const [slaPrintMonth, setSlaPrintMonth] = useState<string>('');
+  const [pendingSlaPrint, setPendingSlaPrint] = useState<{
+    mode: 'individual' | 'recap';
+    techId?: string;
+    periodMonth: string;
+  } | null>(null);
 
   const tickets = AppDatabase.getDamageTickets();
   const allAssets = AppDatabase.getAssets();
-  const slaSummary = computeAggregateSlaStats(tickets, slaConfig);
 
   const handleSelectAssetForInternal = (barcode: string) => {
     setInternalBarcode(barcode);
@@ -329,18 +343,104 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     return 0;
   });
 
-  // KPI Stage Counts
+  // Scope base tickets for KPI cards and SLA metrics dynamically by active restricted technician & selected PIC filter
+  let picScopedTickets = tickets;
+  if (isRestrictedPic && activeTech) {
+    picScopedTickets = filterTicketsForTechnician(picScopedTickets, activeTech);
+  }
+  if (picFilter !== 'Semua') {
+    picScopedTickets = picScopedTickets.filter(t => t.picTeknisi === picFilter);
+  }
+  const slaSummary = computeAggregateSlaStats(picScopedTickets, slaConfig);
+
+  // KPI Stage Counts (disesuaikan dengan tiket teknisi / PIC yang dipilih)
   const stageCounts = {
-    total: tickets.length,
-    open: tickets.filter(t => t.status === 'Open/Unassigned' || (t.status as string) === 'Open' || (t.status as string) === 'Baru' || t.status === 'Re-opened').length,
-    needInfo: tickets.filter(t => t.status === 'Need More Info').length,
-    assigned: tickets.filter(t => t.status === 'Assigned' || (t.status as string) === 'Diterima').length,
-    inProgress: tickets.filter(t => t.status === 'In Progress' || (t.status as string) === 'Perbaikan').length,
-    pendingProcurement: tickets.filter(t => t.status === 'Pending – Menunggu Suku Cadang' || t.status === 'Pending – Menunggu Vendor Eksternal').length,
-    closed: tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual').length,
-    incidents: tickets.filter(t => (t.ticketType || 'Incident') === 'Incident').length,
-    problems: tickets.filter(t => t.ticketType === 'Problem').length,
-    rfcs: tickets.filter(t => t.ticketType === 'RFC').length
+    total: picScopedTickets.length,
+    open: picScopedTickets.filter(t => t.status === 'Open/Unassigned' || (t.status as string) === 'Open' || (t.status as string) === 'Baru' || t.status === 'Re-opened').length,
+    needInfo: picScopedTickets.filter(t => t.status === 'Need More Info').length,
+    assigned: picScopedTickets.filter(t => t.status === 'Assigned' || (t.status as string) === 'Diterima').length,
+    inProgress: picScopedTickets.filter(t => t.status === 'In Progress' || (t.status as string) === 'Perbaikan').length,
+    pendingProcurement: picScopedTickets.filter(t => t.status === 'Pending – Menunggu Suku Cadang' || t.status === 'Pending – Menunggu Vendor Eksternal').length,
+    closed: picScopedTickets.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual').length,
+    incidents: picScopedTickets.filter(t => (t.ticketType || 'Incident') === 'Incident').length,
+    problems: picScopedTickets.filter(t => t.ticketType === 'Problem').length,
+    rfcs: picScopedTickets.filter(t => t.ticketType === 'RFC').length
+  };
+
+  const handleOpenSlaPrint = () => {
+    if (isRestrictedPic && activeTech) {
+      setPendingSlaPrint({
+        mode: 'individual',
+        techId: activeTech.id,
+        periodMonth: ''
+      });
+      return;
+    }
+    const defaultTech = pusdatinTechnicians.find(t => t.role !== 'ACT-02') || pusdatinTechnicians[0];
+    setSlaPrintMode('recap');
+    setSlaPrintTechId(defaultTech?.id || '');
+    setShowSlaPrintSelector(true);
+  };
+
+  const handleConfirmSlaPrintPdf = (sig: ConfirmedSignatoryValues) => {
+    if (!pendingSlaPrint) return;
+    const { mode, techId, periodMonth } = pendingSlaPrint;
+    const periodTickets = periodMonth
+      ? tickets.filter(t => (t.createdAtIso || t.tanggalLapor || '').startsWith(periodMonth))
+      : tickets;
+    const periodLabel = periodMonth || 'Semua Periode Aktif';
+    const allBreakdown = computeTechnicianSlaBreakdown(periodTickets, pusdatinTechnicians, slaConfig);
+
+    if (mode === 'individual') {
+      const targetTech =
+        pusdatinTechnicians.find(t => t.id === techId) ||
+        activeTech ||
+        pusdatinTechnicians[0];
+      const techSummary =
+        allBreakdown.find(b => b.technicianId === targetTech?.id) ||
+        allBreakdown[0];
+      const techTickets = targetTech
+        ? filterTicketsForTechnician(periodTickets, targetTech)
+        : [];
+      const doc = PdfReportService.generateTechnicianSlaPdf(
+        {
+          mode: 'individual',
+          periodLabel,
+          technician: techSummary,
+          tickets: techTickets,
+          slaConfig
+        },
+        {
+          kepalaPusdatin: sig.kepalaPusdatin,
+          nipKepala: sig.nipKepala,
+          petugas: targetTech?.nama || sig.petugas
+        }
+      );
+      const safeName = (targetTech?.nama || 'Teknisi').replace(/[^a-zA-Z0-9]+/g, '_');
+      doc.save(`Nilai_SLA_Teknisi_${safeName}_${periodMonth || 'Semua'}.pdf`);
+      setSlaFeedback(`Laporan Nilai SLA Individu (${targetTech?.nama}) berhasil diunduh dalam format PDF.`);
+    } else {
+      const overallSummary = computeAggregateSlaStats(periodTickets, slaConfig);
+      const doc = PdfReportService.generateTechnicianSlaPdf(
+        {
+          mode: 'recap',
+          periodLabel,
+          recapRows: allBreakdown,
+          overallSummary,
+          slaConfig
+        },
+        {
+          kepalaPusdatin: sig.kepalaPusdatin,
+          nipKepala: sig.nipKepala,
+          petugas: sig.petugas
+        }
+      );
+      doc.save(`Rekap_Evaluasi_SLA_Teknisi_${periodMonth || 'Semua'}.pdf`);
+      setSlaFeedback(`Rekap Evaluasi Nilai SLA Seluruh Teknisi berhasil diunduh dalam format PDF.`);
+    }
+
+    setPendingSlaPrint(null);
+    setTimeout(() => setSlaFeedback(null), 4500);
   };
 
   const openProcessModal = (t: DamageTicket, specificAction?: typeof actionType) => {
@@ -723,6 +823,17 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            data-testid="print-technician-sla-btn"
+            onClick={handleOpenSlaPrint}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl shadow-xs transition-colors cursor-pointer"
+            title={isRestrictedPic ? 'Cetak Laporan Nilai SLA Pribadi (PDF)' : 'Cetak Evaluasi Nilai SLA Individu atau Rekap Seluruh Teknisi'}
+          >
+            <Printer className="w-4 h-4 text-emerald-700" />
+            <span>{isRestrictedPic ? 'Cetak Nilai SLA Saya' : 'Cetak Nilai SLA Teknisi'}</span>
+          </button>
+
           {canEditUrgency && (
             <button
               type="button"
@@ -877,6 +988,32 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
           <span className="text-xl font-bold font-mono mt-0.5 block">{stageCounts.closed}</span>
         </button>
       </div>
+
+      {(isRestrictedPic || picFilter !== 'Semua') && (
+        <div
+          data-testid="sla-scope-banner"
+          className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 bg-indigo-50/80 border border-indigo-200 rounded-xl text-xs text-indigo-950"
+        >
+          <span className="font-semibold">
+            Cakupan Metrik &amp; SLA Aktif:{' '}
+            <strong>
+              {isRestrictedPic && activeTech
+                ? `${activeTech.nama} (${activeTech.roleName})`
+                : picFilter}
+            </strong>{' '}
+            ({picScopedTickets.length} tiket tercatat)
+          </span>
+          {!isRestrictedPic && picFilter !== 'Semua' && (
+            <button
+              type="button"
+              onClick={() => setPicFilter('Semua')}
+              className="text-[11px] font-bold text-indigo-700 hover:underline cursor-pointer"
+            >
+              Tampilkan Semua Teknisi
+            </button>
+          )}
+        </div>
+      )}
 
       {/* SLA FRT & RT Performance Monitoring Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="sla-kpi-strip">
@@ -2343,6 +2480,179 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
           </div>
         </div>
       )}
+
+      {/* Modal Pilihan Cetak Evaluasi Nilai SLA Teknisi (Admin & Pimpinan PUSDATIN) */}
+      {showSlaPrintSelector && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-emerald-600" />
+                  <span>Cetak Evaluasi Nilai SLA Teknisi PUSDATIN</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Cetak laporan performa SLA individu untuk masing-masing teknisi atau rekapan menyeluruh untuk evaluasi Admin &amp; Kepala PUSDATIN.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSlaPrintSelector(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="sm:col-span-2">
+                <label className="block font-bold text-slate-700 mb-1">Jenis Laporan Evaluasi SLA</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    data-testid="sla-print-mode-recap"
+                    onClick={() => setSlaPrintMode('recap')}
+                    className={`px-3 py-2 rounded-xl border font-bold text-left transition-all cursor-pointer ${
+                      slaPrintMode === 'recap'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Rekap Seluruh Teknisi
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="sla-print-mode-individual"
+                    onClick={() => setSlaPrintMode('individual')}
+                    className={`px-3 py-2 rounded-xl border font-bold text-left transition-all cursor-pointer ${
+                      slaPrintMode === 'individual'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Per Teknisi (Individu)
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Filter Bulan (Opsional)</label>
+                <input
+                  type="month"
+                  value={slaPrintMonth}
+                  onChange={e => setSlaPrintMonth(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900"
+                />
+              </div>
+            </div>
+
+            {slaPrintMode === 'individual' && (
+              <div className="text-xs">
+                <label className="block font-bold text-slate-700 mb-1">Pilih Teknisi / PIC PUSDATIN</label>
+                <select
+                  data-testid="sla-print-tech-select"
+                  value={slaPrintTechId}
+                  onChange={e => setSlaPrintTechId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900"
+                >
+                  {pusdatinTechnicians.map(tech => (
+                    <option key={tech.id} value={tech.id}>
+                      {tech.nama} — {tech.roleName} ({tech.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Live Preview Tabel Skor SLA Teknisi */}
+            <div className="border border-slate-200 rounded-xl overflow-x-auto max-h-60">
+              <table className="w-full text-left text-[11px]">
+                <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
+                  <tr>
+                    <th className="px-3 py-2">Teknisi</th>
+                    <th className="px-3 py-2 text-center">Tiket</th>
+                    <th className="px-3 py-2 text-center">Selesai</th>
+                    <th className="px-3 py-2 text-center">FRT %</th>
+                    <th className="px-3 py-2 text-center">RT %</th>
+                    <th className="px-3 py-2 text-center">Overdue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(() => {
+                    const periodTickets = slaPrintMonth
+                      ? tickets.filter(t => (t.createdAtIso || t.tanggalLapor || '').startsWith(slaPrintMonth))
+                      : tickets;
+                    const rows = computeTechnicianSlaBreakdown(periodTickets, pusdatinTechnicians, slaConfig);
+                    const filteredRows =
+                      slaPrintMode === 'individual'
+                        ? rows.filter(r => r.technicianId === slaPrintTechId)
+                        : rows;
+                    return filteredRows.map(r => (
+                      <tr key={r.technicianId} className="hover:bg-slate-50">
+                        <td className="px-3 py-2">
+                          <span className="font-bold text-slate-900 block">{r.technicianName}</span>
+                          <span className="text-[10px] text-slate-500">{r.roleName}</span>
+                        </td>
+                        <td className="px-3 py-2 text-center font-mono font-bold">{r.totalTickets}</td>
+                        <td className="px-3 py-2 text-center font-mono text-emerald-700 font-bold">{r.resolvedCount}</td>
+                        <td className="px-3 py-2 text-center font-mono font-bold text-indigo-700">{r.frtComplianceRate}%</td>
+                        <td className="px-3 py-2 text-center font-mono font-bold text-emerald-700">{r.rtComplianceRate}%</td>
+                        <td className="px-3 py-2 text-center font-mono text-rose-700 font-bold">
+                          {r.frtOverdueCount + r.rtOverdueCount}
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowSlaPrintSelector(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                data-testid="sla-print-proceed-signatory-btn"
+                onClick={() => {
+                  setPendingSlaPrint({
+                    mode: slaPrintMode,
+                    techId: slaPrintMode === 'individual' ? slaPrintTechId : undefined,
+                    periodMonth: slaPrintMonth
+                  });
+                  setShowSlaPrintSelector(false);
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Lanjut Konfirmasi Penandatangan &amp; Cetak PDF</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfigurasi Penandatangan Resmi untuk Cetak Nilai SLA */}
+      <SignatoryConfirmModal
+        isOpen={Boolean(pendingSlaPrint)}
+        documentTitle={
+          pendingSlaPrint?.mode === 'individual'
+            ? 'Laporan Nilai SLA & Kinerja Individu Teknisi'
+            : 'Rekapitulasi Evaluasi Nilai SLA Seluruh Teknisi PUSDATIN'
+        }
+        onClose={() => setPendingSlaPrint(null)}
+        onConfirm={handleConfirmSlaPrintPdf}
+        showPetugas={true}
+        defaultPetugas={
+          pendingSlaPrint?.mode === 'individual'
+            ? pusdatinTechnicians.find(t => t.id === pendingSlaPrint.techId)?.nama || activeTech?.nama
+            : currentUser?.nama
+        }
+      />
     </div>
   );
 };

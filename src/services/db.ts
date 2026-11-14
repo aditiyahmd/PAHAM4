@@ -27,11 +27,15 @@ import {
   ApiRegistration,
   SlaConfig,
   DocumentSignatories,
-  TicketType
+  TicketType,
+  ServiceSlaConfig,
+  SurveyModuleType,
+  SurveyResponse
 } from '../types';
 import { AccessControlService, SEED_USERS } from './rbac';
 import {
   DEFAULT_SLA_CONFIG,
+  DEFAULT_SERVICE_SLA_CONFIG,
   NEED_MORE_INFO_AUTO_CLOSE_HOURS,
   REOPEN_WINDOW_HOURS,
   parseFlexibleDate,
@@ -41,6 +45,7 @@ import {
   isNeedMoreInfoExpired,
   canReopenResolvedTicket
 } from './slaService';
+import { computeSurveyAverageScore } from './surveyService';
 
 export interface SparePartWithTicket {
   sparePartId: string;
@@ -81,6 +86,8 @@ const STORAGE_KEYS = {
   AUDIT_TRAIL: 'pusdatin_audit_trail_v4',
   API_REGISTRATIONS: 'pusdatin_api_registrations_v4',
   SLA_CONFIG: 'pusdatin_sla_config_v4',
+  SERVICE_SLA_CONFIG: 'pusdatin_service_sla_config_v4',
+  SURVEYS: 'pusdatin_csat_surveys_v4',
   SIGNATORIES: 'pusdatin_signatories_v4'
 };
 
@@ -434,6 +441,11 @@ const INITIAL_LOANS: LoanTicket[] = [
     jadwalPengambilan: '2026-11-04 pukul 09:00 WIB',
     lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
     nomorSuratPeminjaman: 'SP-PUSDATIN/2026/XI/1029',
+    createdAtIso: '2026-11-04T08:30:00.000Z',
+    approvedAtIso: '2026-11-04T08:50:00.000Z',
+    approvedBy: 'Aditiya Ahmad Fadila, S.Kom.',
+    fulfilledAtIso: '2026-11-04T09:10:00.000Z',
+    fulfilledBy: 'Aditiya Ahmad Fadila, S.Kom.',
     penandatangan: {
       peminjam: 'Hilyah Aulia, S.T.',
       petugas: 'Aditiya Ahmad Fadila, S.Kom.',
@@ -453,7 +465,36 @@ const INITIAL_LOANS: LoanTicket[] = [
     tglKembali: '2026-11-13',
     status: 'Diajukan', // Menunggu verifikasi Admin
     catatan: 'Seminar Nasional Kepemudaan UMC di Aula Ahmad Dahlan',
-    tglAju: '06/11/2026 14:00'
+    tglAju: '06/11/2026 14:00',
+    createdAtIso: '2026-11-06T14:00:00.000Z'
+  },
+  {
+    id: 'PJM-20261102-1042',
+    peminjam: 'Dr. Hendra Wijaya, M.Pd.',
+    nik: '0419087502',
+    unit: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
+    kontak: '081234567890',
+    email: 'hendra.dosen@umc.ac.id',
+    barangPinjaman: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
+    jumlah: 1,
+    tglPinjam: '2026-11-02',
+    tglKembali: '2026-11-03',
+    tglDikembalikan: '2026-11-03',
+    status: 'Dikembalikan',
+    barcode: '30192848',
+    kodeUnikAset: 'AST-UMC-2026-001',
+    namaBarangT: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
+    kondisi: 'Baik / Lengkap',
+    hasilPemeriksaanKembali: 'Baik / Lengkap',
+    petugas: 'Aditiya Ahmad Fadila, S.Kom.',
+    catatan: 'Penggunaan Workshop Kurikulum OBE FKIP (Sudah Dikembalikan)',
+    tglAju: '02/11/2026 08:00',
+    tglAmbil: '2026-11-02',
+    createdAtIso: '2026-11-02T08:00:00.000Z',
+    approvedAtIso: '2026-11-02T08:25:00.000Z',
+    approvedBy: 'Aditiya Ahmad Fadila, S.Kom.',
+    fulfilledAtIso: '2026-11-02T09:10:00.000Z',
+    fulfilledBy: 'Aditiya Ahmad Fadila, S.Kom.'
   }
 ];
 
@@ -589,6 +630,61 @@ const INITIAL_DAMAGES: DamageTicket[] = [
         petugas: 'Aditiya Ahmad Fadila, S.Kom.'
       }
     ]
+  },
+  {
+    id: 'TKT-20261105-088',
+    kodeUnikAset: 'AST-UMC-2026-007',
+    barcode: '62910482',
+    namaBarang: 'Switch Cisco Catalyst 2960-X 24 Port Gigabit',
+    pelapor: 'Dr. Hendra Wijaya, M.Pd.',
+    kontakPelapor: '081234567890',
+    emailPelapor: 'hendra.dosen@umc.ac.id',
+    lokasi: 'Gedung FKIP Lantai 2',
+    lokasiAwal: 'Gedung FKIP Lantai 2',
+    deskripsi: 'Koneksi LAN ruang dosen FKIP terputus pada port uplink switch distribusi.',
+    tanggalLapor: '2026-11-05 09:00',
+    createdAtIso: '2026-11-05T09:00:00.000Z',
+    firstResponseAtIso: '2026-11-05T09:12:00.000Z',
+    firstResponseBy: 'Aditiya Ahmad Fadila, S.Kom.',
+    slaStartedAtIso: '2026-11-05T09:12:00.000Z',
+    resolvedAtIso: '2026-11-05T11:30:00.000Z',
+    resolvedAt: '2026-11-05T11:30:00.000Z',
+    waktuSelesai: '2026-11-05 11:30',
+    status: 'Resolved',
+    prioritas: 'Tinggi',
+    urgensi: 'Tinggi',
+    kategoriMasalah: 'Jaringan / Server / Cloud',
+    frtTargetMinutes: 30,
+    rtTargetHours: 12,
+    slaTargetHours: 12,
+    slaDeadline: '2026-11-05T21:12:00.000Z',
+    slaStatus: 'On Track',
+    jenisAset: 'Fisik',
+    picTeknisi: 'Cloud & Infrastructure Engineer',
+    namaPicTeknisi: 'Ir. Faisal Hakim, M.T.',
+    assignedTechnicianId: 'USR-ACT-04',
+    resolusiAkhir: 'Kabel patch cord SFP dan konfigurasi VLAN port uplink telah diganti dan normal kembali.',
+    catatanAdmin: 'Konfigurasi uplink switch selesai diverifikasi, koneksi LAN FKIP normal.',
+    riwayatStatus: [
+      {
+        status: 'Open/Unassigned',
+        timestamp: '05/11/2026 09:00',
+        catatan: 'Laporan gangguan LAN ruang dosen FKIP masuk.',
+        petugas: 'Dr. Hendra Wijaya, M.Pd.'
+      },
+      {
+        status: 'Assigned',
+        timestamp: '05/11/2026 09:12',
+        catatan: 'Ditugaskan ke Ir. Faisal Hakim, M.T. (Cloud & Infrastructure Engineer).',
+        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
+      },
+      {
+        status: 'Resolved',
+        timestamp: '05/11/2026 11:30',
+        catatan: 'Selesai perbaikan: patch cord & VLAN uplink normal.',
+        petugas: 'Ir. Faisal Hakim, M.T.'
+      }
+    ]
   }
 ];
 
@@ -606,10 +702,13 @@ const INITIAL_SYSTEM_PROPOSALS: SystemProposal[] = [
     latarBelakang: 'Pelaksanaan program MBKM selama ini dicatat manual dengan Google Drive sehingga data sering tercecer dan verifikasi SKS memakan waktu lebih dari 3 minggu.',
     targetPengguna: 'Mahasiswa, Dosen Pembimbing Lapangan, Koordinator MBKM Fakultas, dan BAA UMC',
     tanggalPengajuan: '2026-11-02 09:30',
+    createdAtIso: '2026-11-02T09:30:00.000Z',
+    verifiedAtIso: '2026-11-03T06:00:00.000Z',
+    brdCompletedAtIso: '2026-11-04T14:00:00.000Z',
     status: 'status_pengembangan',
     verifikasiAdmin: {
       petugas: 'Aditiya Ahmad Fadila, S.Kom.',
-      tanggal: '2026-11-03 10:00',
+      tanggal: '2026-11-03 06:00',
       lengkap: true,
       catatan: 'Dokumen TOR dan skema alur pengusulan telah lengkap sesuai standar PUSDATIN.'
     },
@@ -696,6 +795,7 @@ const INITIAL_SYSTEM_PROPOSALS: SystemProposal[] = [
     latarBelakang: 'Mengurangi antrean presensi fingerprint di depan kelas dan mencegah titip presensi antar mahasiswa.',
     targetPengguna: 'Seluruh Mahasiswa dan Dosen Pengampu Mata Kuliah UMC',
     tanggalPengajuan: '2026-11-08 11:00',
+    createdAtIso: '2026-11-08T11:00:00.000Z',
     status: 'status_verifikasi',
     dokumenTeknis: [
       {
@@ -705,6 +805,116 @@ const INITIAL_SYSTEM_PROPOSALS: SystemProposal[] = [
         tanggalUpload: '2026-11-08 11:00'
       }
     ]
+  },
+  {
+    id: 'SYS-2026-003',
+    namaSistem: 'Portal Tracer Study & Jejak Karir Alumni Terpadu UMC',
+    pemohon: 'Dr. Hendra Wijaya, M.Pd.',
+    unitKerja: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
+    nidnNik: '0419087502',
+    kontakWhatsapp: '081234567890',
+    email: 'hendra.dosen@umc.ac.id',
+    deskripsiKebutuhan: 'Dashboard survei alumni terintegrasi PDDIKTI, ekspor borang akreditasi BAN-PT/LAM, dan portal lowongan kerja mitra industri.',
+    latarBelakang: 'Mempermudah rekapitulasi masa tunggu lulusan dan kesesuaian bidang kerja untuk kepentingan akreditasi program studi.',
+    targetPengguna: 'Alumni, Kaprodi, Dekan, dan Tim Akreditasi LPM UMC',
+    tanggalPengajuan: '2026-09-10 09:00',
+    createdAtIso: '2026-09-10T09:00:00.000Z',
+    verifiedAtIso: '2026-09-10T20:00:00.000Z',
+    brdCompletedAtIso: '2026-09-12T15:00:00.000Z',
+    liveAtIso: '2026-10-20T10:00:00.000Z',
+    status: 'Serah Terima',
+    verifikasiAdmin: {
+      petugas: 'Aditiya Ahmad Fadila, S.Kom.',
+      tanggal: '2026-09-10 20:00',
+      lengkap: true,
+      catatan: 'TOR Tracer Study memenuhi kelayakan prioritas akreditasi.'
+    },
+    analisisKebutuhan: {
+      analystName: 'Novi Andriani, M.Kom.',
+      tanggal: '2026-09-12 15:00',
+      arsitekturData: 'PostgreSQL + Export Excel BAN-PT',
+      lingkupFitur: 'Kuesioner Tracer Study, Rekap Prodi, Grafik Masa Tunggu.',
+      estimasiSprintWeeks: 4,
+      catatan: 'BRD disahkan untuk sprint pengembangan.'
+    },
+    pengembangan: {
+      leadDev: 'Bayu Pratama, S.Kom.',
+      progresPersen: 100,
+      logProgres: [
+        {
+          tanggal: '2026-10-20 10:00',
+          petugas: 'Bayu Pratama, S.Kom.',
+          deskripsi: 'UAT lulus 100% dan resmi Go-Live ke Service Desk PUSDATIN.',
+          progres: 100
+        }
+      ],
+      tanggalMulai: '2026-09-15',
+      tanggalSelesai: '2026-10-20',
+      serahTerimaServiceDesk: true
+    }
+  }
+];
+
+const INITIAL_SURVEYS: SurveyResponse[] = [
+  {
+    id: 'SRV-202611-001',
+    moduleType: 'Incident',
+    entityId: 'TKT-20261028-044',
+    entityTitle: 'Perbaikan Jaringan Wi-Fi Ruang Dosen FT',
+    respondentName: 'Ir. Slamet Riyadi, M.T.',
+    respondentEmail: 'slamet.ft@umc.ac.id',
+    respondentUnit: 'Fakultas Teknik',
+    technicianOrPic: 'Ir. Faisal Hakim, M.T.',
+    ratings: { q1: 5, q2: 5, q3: 5 },
+    averageScore: 5,
+    feedbackText: 'Penanganan sangat cepat dan koneksi ruang dosen langsung stabil kembali.',
+    submittedAtIso: '2026-11-02T10:15:00.000Z',
+    monthKey: '2026-11'
+  },
+  {
+    id: 'SRV-202611-002',
+    moduleType: 'Loan',
+    entityId: 'PJM-20261030-0512',
+    entityTitle: 'Peminjaman Proyektor Epson EB-E500 (Seminar Prodi)',
+    respondentName: 'Siti Rahmawati, S.AP.',
+    respondentEmail: 'siti.tendik@umc.ac.id',
+    respondentUnit: 'Biro Administrasi Akademik (BAA)',
+    technicianOrPic: 'Aditiya Ahmad Fadila, S.Kom.',
+    ratings: { q1: 5, q2: 4, q3: 5 },
+    averageScore: 4.67,
+    feedbackText: 'Unit proyektor bersih, kabel HDMI lengkap, dan approval sangat cepat.',
+    submittedAtIso: '2026-11-05T14:20:00.000Z',
+    monthKey: '2026-11'
+  },
+  {
+    id: 'SRV-202611-003',
+    moduleType: 'SystemProposal',
+    entityId: 'SYS-2026-000',
+    entityTitle: 'Sistem E-Arsip Surat Masuk & Disposisi BAA',
+    respondentName: 'Biro Administrasi Akademik (BAA)',
+    respondentEmail: 'baa@umc.ac.id',
+    respondentUnit: 'Biro Administrasi Akademik (BAA)',
+    technicianOrPic: 'Bayu Pratama, S.Kom.',
+    ratings: { q1: 4, q2: 5, q3: 4 },
+    averageScore: 4.33,
+    feedbackText: 'Tampilan mudah dipahami staf baru; harap ditambahkan fitur tanda tangan QR pada update berikutnya.',
+    submittedAtIso: '2026-11-08T09:40:00.000Z',
+    monthKey: '2026-11'
+  },
+  {
+    id: 'SRV-202610-001',
+    moduleType: 'Incident',
+    entityId: 'TKT-20261015-019',
+    entityTitle: 'Instalasi Ulang PC Laboratorium Komputer 1',
+    respondentName: 'Ahmad Fauzi',
+    respondentEmail: 'fauzi.lab@umc.ac.id',
+    respondentUnit: 'Laboratorium Komputer 1',
+    technicianOrPic: 'Aditiya Ahmad Fadila, S.Kom.',
+    ratings: { q1: 4, q2: 4, q3: 5 },
+    averageScore: 4.33,
+    feedbackText: 'Teknisi komunikatif dan membantu pengecekan seluruh PC sebelum praktikum dimulai.',
+    submittedAtIso: '2026-10-16T15:00:00.000Z',
+    monthKey: '2026-10'
   }
 ];
 
@@ -1639,18 +1849,28 @@ export class AppDatabase {
   }
 
   // C.1 Pengajuan Peminjaman oleh User
-  public static addLoan(loan: Omit<LoanTicket, 'id' | 'status' | 'tglAju'>): LoanTicket {
+  public static addLoan(
+    loan: Omit<LoanTicket, 'id' | 'status' | 'tglAju'> & { customNowMs?: number }
+  ): LoanTicket {
+    const { customNowMs, ...loanPayload } = loan;
     const loans = this.getLoans();
     const active = this.getActiveUser();
-    const dateCode = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const nowMs = customNowMs ?? Date.now();
+    const nowDate = new Date(nowMs);
+    const nowIso = nowDate.toISOString();
+    const dateCode = nowIso.split('T')[0].replace(/-/g, '');
     const rand = Math.floor(1000 + Math.random() * 9000);
     const id = `PJM-${dateCode}-${rand}`;
+    const serviceSla = this.getServiceSlaConfig();
 
     const newTicket: LoanTicket = {
-      ...loan,
+      ...loanPayload,
       id,
       status: 'Diajukan',
-      tglAju: new Date().toLocaleString('id-ID')
+      tglAju: nowDate.toLocaleString('id-ID'),
+      createdAtIso: loanPayload.createdAtIso || nowIso,
+      approvalTargetMinutes: loanPayload.approvalTargetMinutes ?? serviceSla.loan.approvalTargetMinutes,
+      fulfillmentTargetHours: loanPayload.fulfillmentTargetHours ?? serviceSla.loan.fulfillmentTargetHours
     };
 
     this.save(STORAGE_KEYS.LOANS, [newTicket, ...loans]);
@@ -1754,8 +1974,11 @@ export class AppDatabase {
       hasilPemeriksaanKembali?: 'Baik / Lengkap' | 'Ada Kendala';
       rincianKondisiKembali?: string;
       completeHandover?: boolean;
+      customNowMs?: number;
     }
   ): { success: boolean; message: string; ticket?: LoanTicket } {
+    const nowMs = data.customNowMs ?? Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const active = this.getActiveUser();
     AccessControlService.enforce(active, 'peminjaman_aset', ['manage', 'approve'], `Memproses peminjaman (${action})`);
 
@@ -1794,6 +2017,10 @@ export class AppDatabase {
           jadwalPengambilan: schedule,
           lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
           nomorSuratPeminjaman: nomorSurat,
+          approvedAtIso: loan.approvedAtIso || nowIso,
+          approvedBy: loan.approvedBy || data.petugas || active.nama,
+          fulfilledAtIso: loan.fulfilledAtIso || nowIso,
+          fulfilledBy: data.petugas || active.nama,
           penandatangan: {
             peminjam: loan.peminjam,
             petugas: data.petugas || active.nama,
@@ -1869,7 +2096,9 @@ export class AppDatabase {
         tglAmbil: data.tglAmbil || loan.tglPinjam,
         metodePengambilan: handover,
         jadwalPengambilan: schedule,
-        lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)'
+        lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
+        approvedAtIso: loan.approvedAtIso || nowIso,
+        approvedBy: loan.approvedBy || data.petugas || active.nama
       };
       this.save(STORAGE_KEYS.LOANS, loans);
 
@@ -1916,7 +2145,11 @@ export class AppDatabase {
           kepalaPusdatin: signatories.kepalaPusdatinNama
         },
         tglAmbil: data.tglAmbil || new Date().toISOString().split('T')[0],
-        catatan: data.catatan || 'Aset telah diserahkan resmi dengan Surat Peminjaman resmi.'
+        catatan: data.catatan || 'Aset telah diserahkan resmi dengan Surat Peminjaman resmi.',
+        approvedAtIso: loan.approvedAtIso || nowIso,
+        approvedBy: loan.approvedBy || data.petugas || active.nama,
+        fulfilledAtIso: loan.fulfilledAtIso || nowIso,
+        fulfilledBy: data.petugas || active.nama
       };
       this.save(STORAGE_KEYS.LOANS, loans);
 
@@ -1984,7 +2217,9 @@ export class AppDatabase {
         ...loan,
         status: 'Ditolak',
         alasanPenolakan: reason,
-        catatan: reason
+        catatan: reason,
+        approvedAtIso: loan.approvedAtIso || nowIso,
+        approvedBy: loan.approvedBy || data.petugas || active.nama
       };
       this.save(STORAGE_KEYS.LOANS, loans);
 
@@ -3409,15 +3644,25 @@ export class AppDatabase {
   }
 
   // F-DEV-01: Civitas Ajukan Permintaan Fitur / Sistem Baru
-  public static addSystemProposal(proposal: Omit<SystemProposal, 'id' | 'tanggalPengajuan' | 'status'>): SystemProposal {
+  public static addSystemProposal(
+    proposal: Omit<SystemProposal, 'id' | 'tanggalPengajuan' | 'status'> & { customNowMs?: number }
+  ): SystemProposal {
+    const { customNowMs, ...proposalPayload } = proposal;
     const list = this.getSystemProposals();
     const active = this.getActiveUser();
-    const id = `SYS-${new Date().getFullYear()}-${String(list.length + 1).padStart(3, '0')}`;
+    const nowMs = customNowMs ?? Date.now();
+    const nowDate = new Date(nowMs);
+    const nowIso = nowDate.toISOString();
+    const id = `SYS-${nowDate.getFullYear()}-${String(list.length + 1).padStart(3, '0')}`;
+    const serviceSla = this.getServiceSlaConfig();
 
     const newProposal: SystemProposal = {
-      ...proposal,
+      ...proposalPayload,
       id,
-      tanggalPengajuan: new Date().toLocaleString('id-ID'),
+      tanggalPengajuan: nowDate.toLocaleString('id-ID'),
+      createdAtIso: proposalPayload.createdAtIso || nowIso,
+      feasibilityTargetHours: proposalPayload.feasibilityTargetHours ?? serviceSla.proposal.feasibilityTargetHours,
+      brdTargetHours: proposalPayload.brdTargetHours ?? serviceSla.proposal.brdTargetHours,
       status: 'status_verifikasi' // Tahap 1
     };
 
@@ -3465,15 +3710,19 @@ export class AppDatabase {
     const p = list[index];
     const statusLama = p.status;
     const active = this.getActiveUser();
-    const nowStr = new Date().toLocaleString('id-ID');
+    const nowMs = payload?.customNowMs ?? Date.now();
+    const nowDate = new Date(nowMs);
+    const nowIso = nowDate.toISOString();
+    const nowStr = nowDate.toLocaleString('id-ID');
 
-    // Tahap 1: Verifikasi Kelengkapan oleh Admin (ACT-03)
+    // Tahap 1: Verifikasi Kelengkapan oleh Admin (ACT-03) -> Menutup Feasibility Study SLA
     if (action === 'verifikasi_admin') {
       AccessControlService.enforce(active, 'pengajuan_sistem', ['verify', 'manage'], 'Verifikasi kelengkapan dokumen sistem baru');
       const lengkap = payload.lengkap ?? true;
       list[index] = {
         ...p,
         status: lengkap ? 'status_analisis' : 'status_verifikasi',
+        verifiedAtIso: lengkap ? (p.verifiedAtIso || nowIso) : p.verifiedAtIso,
         verifikasiAdmin: {
           petugas: active.nama,
           tanggal: nowStr,
@@ -3501,12 +3750,14 @@ export class AppDatabase {
       };
     }
 
-    // Tahap 2: Analisis Kebutuhan oleh System Analyst (ACT-05)
+    // Tahap 2: Analisis Kebutuhan oleh System Analyst (ACT-05) -> Menutup BRD Specification SLA
     if (action === 'analisis_system_analyst') {
       AccessControlService.enforce(active, 'pengajuan_sistem', ['execute', 'manage'], 'Analisis kebutuhan sistem baru');
       list[index] = {
         ...p,
         status: 'status_keamanan',
+        verifiedAtIso: p.verifiedAtIso || nowIso,
+        brdCompletedAtIso: p.brdCompletedAtIso || nowIso,
         analisisKebutuhan: {
           analystName: active.nama,
           tanggal: nowStr,
@@ -3650,6 +3901,7 @@ export class AppDatabase {
       list[index] = {
         ...p,
         status: isCompleted ? 'Selesai' : 'status_pengembangan',
+        liveAtIso: isCompleted ? (p.liveAtIso || nowIso) : p.liveAtIso,
         pengembangan: {
           ...currentDev,
           progresPersen: newPercent,
@@ -3685,6 +3937,7 @@ export class AppDatabase {
       list[index] = {
         ...p,
         status: 'Serah Terima',
+        liveAtIso: p.liveAtIso || nowIso,
         pengembangan: {
           ...currentDev,
           serahTerimaServiceDesk: true,
@@ -4138,6 +4391,115 @@ export class AppDatabase {
     return { role: 'IT Support & Helpdesk Specialist', name: 'Aditiya Ahmad Fadila, S.Kom.' };
   }
 
+  // --- SERVICE SLA CONFIG (PEMINJAMAN ASET & PENGAJUAN SISTEM BARU) ---
+  public static getServiceSlaConfig(): ServiceSlaConfig {
+    const saved = this.load<Partial<ServiceSlaConfig> | null>(STORAGE_KEYS.SERVICE_SLA_CONFIG, null);
+    if (!saved) return DEFAULT_SERVICE_SLA_CONFIG;
+    return {
+      loan: {
+        approvalTargetMinutes:
+          saved.loan?.approvalTargetMinutes ?? DEFAULT_SERVICE_SLA_CONFIG.loan.approvalTargetMinutes,
+        fulfillmentTargetHours:
+          saved.loan?.fulfillmentTargetHours ?? DEFAULT_SERVICE_SLA_CONFIG.loan.fulfillmentTargetHours
+      },
+      proposal: {
+        feasibilityTargetHours:
+          saved.proposal?.feasibilityTargetHours ?? DEFAULT_SERVICE_SLA_CONFIG.proposal.feasibilityTargetHours,
+        brdTargetHours:
+          saved.proposal?.brdTargetHours ?? DEFAULT_SERVICE_SLA_CONFIG.proposal.brdTargetHours
+      }
+    };
+  }
+
+  public static setServiceSlaConfig(config: ServiceSlaConfig): { success: boolean; message: string } {
+    const active = this.getActiveUser();
+    if (active.role !== 'ACT-02' && active.role !== 'ACT-03') {
+      return {
+        success: false,
+        message: 'Hanya Kepala PUSDATIN (ACT-02) atau Admin (ACT-03) yang dapat mengubah kebijakan SLA Layanan.'
+      };
+    }
+    const sanitized: ServiceSlaConfig = {
+      loan: {
+        approvalTargetMinutes: Math.max(5, Number(config.loan?.approvalTargetMinutes) || 120),
+        fulfillmentTargetHours: Math.max(1, Number(config.loan?.fulfillmentTargetHours) || 4)
+      },
+      proposal: {
+        feasibilityTargetHours: Math.max(1, Number(config.proposal?.feasibilityTargetHours) || 24),
+        brdTargetHours: Math.max(1, Number(config.proposal?.brdTargetHours) || 72)
+      }
+    };
+    this.save(STORAGE_KEYS.SERVICE_SLA_CONFIG, sanitized);
+    return {
+      success: true,
+      message: 'Target SLA Peminjaman Aset & Pengajuan Sistem Baru berhasil diperbarui!'
+    };
+  }
+
+  // --- ITIL CONTINUAL IMPROVEMENT: SURVEI KEPUASAN PENGGUNA (CSAT) ---
+  public static getSurveys(): SurveyResponse[] {
+    return this.load<SurveyResponse[]>(STORAGE_KEYS.SURVEYS, INITIAL_SURVEYS);
+  }
+
+  public static getSurveyByEntity(moduleType: SurveyModuleType, entityId: string): SurveyResponse | undefined {
+    return this.getSurveys().find(s => s.moduleType === moduleType && s.entityId === entityId);
+  }
+
+  public static submitSurveyResponse(params: {
+    moduleType: SurveyModuleType;
+    entityId: string;
+    entityTitle: string;
+    respondentName?: string;
+    respondentEmail?: string;
+    respondentUnit?: string;
+    technicianOrPic?: string;
+    ratings: { q1: number; q2: number; q3: number };
+    feedbackText: string;
+    customNowMs?: number;
+  }): { success: boolean; message: string; survey?: SurveyResponse } {
+    const active = this.getActiveUser();
+    const existing = this.getSurveyByEntity(params.moduleType, params.entityId);
+    if (existing) {
+      return {
+        success: false,
+        message: `Survei kepuasan untuk layanan ${params.entityId} sudah pernah dikirimkan.`,
+        survey: existing
+      };
+    }
+
+    const q1 = Math.min(5, Math.max(1, Math.round(Number(params.ratings.q1) || 5)));
+    const q2 = Math.min(5, Math.max(1, Math.round(Number(params.ratings.q2) || 5)));
+    const q3 = Math.min(5, Math.max(1, Math.round(Number(params.ratings.q3) || 5)));
+    const nowMs = params.customNowMs ?? Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const monthKey = nowIso.slice(0, 7);
+
+    const newSurvey: SurveyResponse = {
+      id: `SRV-${monthKey.replace('-', '')}-${Math.floor(100 + Math.random() * 900)}`,
+      moduleType: params.moduleType,
+      entityId: params.entityId,
+      entityTitle: params.entityTitle,
+      respondentName: params.respondentName || active.nama,
+      respondentEmail: params.respondentEmail || active.email,
+      respondentUnit: params.respondentUnit || active.unit,
+      technicianOrPic: params.technicianOrPic,
+      ratings: { q1, q2, q3 },
+      averageScore: computeSurveyAverageScore({ q1, q2, q3 }),
+      feedbackText: (params.feedbackText || '').trim(),
+      submittedAtIso: nowIso,
+      monthKey
+    };
+
+    const current = this.getSurveys();
+    this.save(STORAGE_KEYS.SURVEYS, [newSurvey, ...current]);
+
+    return {
+      success: true,
+      message: `Terima kasih! Penilaian kepuasan Anda (${newSurvey.averageScore}/5.0) berhasil direkam untuk peningkatan layanan PUSDATIN UMC.`,
+      survey: newSurvey
+    };
+  }
+
   // --- RESET & RESTORE ---
   public static resetToDefaultSeed(): void {
     this.save(STORAGE_KEYS.ASSETS, INITIAL_ASSETS);
@@ -4148,6 +4510,7 @@ export class AppDatabase {
     this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, INITIAL_SYSTEM_PROPOSALS);
     this.save(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
     this.save(STORAGE_KEYS.AUDIT_TRAIL, INITIAL_AUDIT_TRAIL);
+    this.save(STORAGE_KEYS.SURVEYS, INITIAL_SURVEYS);
     this.save(STORAGE_KEYS.USERS, SEED_USERS);
   }
 }

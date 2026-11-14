@@ -1,9 +1,16 @@
 import {
+  AppUser,
   DamageTicket,
+  LoanSlaEvaluation,
+  LoanTicket,
+  ProposalSlaEvaluation,
+  ServiceSlaConfig,
   SlaComplianceState,
   SlaConfig,
   SlaEvaluation,
   SlaUrgencyRule,
+  SystemProposal,
+  TechnicianSlaBreakdown,
   TicketUrgency
 } from '../types';
 
@@ -17,6 +24,17 @@ export const DEFAULT_SLA_CONFIG: SlaConfig = {
   Rendah: { frtTargetMinutes: 120, rtTargetHours: 48 },
   Problem: { frtTargetMinutes: 240, rtTargetHours: 336 }, // 14 hari (2 minggu)
   RFC: { frtTargetMinutes: 480, rtTargetHours: 720 } // 30 hari (1 bulan)
+};
+
+export const DEFAULT_SERVICE_SLA_CONFIG: ServiceSlaConfig = {
+  loan: {
+    approvalTargetMinutes: 120, // Target Waktu Persetujuan (Approval Time): 2 jam (120 menit)
+    fulfillmentTargetHours: 4 // Target Waktu Penyiapan Barang (Fulfillment Time): 4 jam
+  },
+  proposal: {
+    feasibilityTargetHours: 24, // Target Waktu Tinjauan Kelayakan (Feasibility Study): 24 jam
+    brdTargetHours: 72 // Target Waktu Penentuan Spesifikasi Kebutuhan (BRD): 72 jam
+  }
 };
 
 export const isResolvedTicketStatus = (status: string): boolean =>
@@ -424,3 +442,406 @@ export function computeAggregateSlaStats(
     waitingStage2Count
   };
 }
+
+/**
+ * Filter tickets belonging to a technician (matching ID, roleName, or delegation).
+ */
+export function filterTicketsForTechnician(tickets: DamageTicket[], tech: Pick<AppUser, 'id' | 'nama' | 'roleName'>): DamageTicket[] {
+  return tickets.filter(
+    t =>
+      t.assignedTechnicianId === tech.id ||
+      t.picTeknisi === tech.roleName ||
+      (t.delegasiDari && tech.nama && t.delegasiDari.includes(tech.nama))
+  );
+}
+
+/**
+ * Computes individual SLA scorecards across all PUSDATIN technicians.
+ */
+export function computeTechnicianSlaBreakdown(
+  tickets: DamageTicket[],
+  technicians: AppUser[],
+  config: SlaConfig = DEFAULT_SLA_CONFIG,
+  nowMs: number = Date.now()
+): TechnicianSlaBreakdown[] {
+  const activeTechs = technicians.filter(u => u.role !== 'ACT-01' && u.role !== 'ACT-10');
+
+  return activeTechs.map(tech => {
+    const mine = filterTicketsForTechnician(tickets, tech);
+    const agg = computeAggregateSlaStats(mine, config, nowMs);
+
+    const openCount = mine.filter(
+      t =>
+        t.status === 'Open/Unassigned' ||
+        (t.status as string) === 'Open' ||
+        (t.status as string) === 'Baru' ||
+        t.status === 'Re-opened' ||
+        t.status === 'Need More Info'
+    ).length;
+
+    const inProgressCount = mine.filter(
+      t =>
+        t.status === 'Assigned' ||
+        (t.status as string) === 'Diterima' ||
+        t.status === 'In Progress' ||
+        (t.status as string) === 'Perbaikan'
+    ).length;
+
+    const resolvedCount = mine.filter(t => isResolvedTicketStatus(t.status)).length;
+
+    return {
+      technicianId: tech.id,
+      technicianName: tech.nama,
+      roleName: tech.roleName,
+      actorCode: tech.role,
+      totalTickets: mine.length,
+      openCount,
+      inProgressCount,
+      pausedCount: agg.pausedCount,
+      resolvedCount,
+      frtComplianceRate: agg.frtComplianceRate,
+      rtComplianceRate: agg.rtComplianceRate,
+      avgFrtMinutes: agg.avgFrtMinutes,
+      avgRtHours: agg.avgRtHours,
+      frtOverdueCount: agg.frtOverdueCount,
+      rtOverdueCount: agg.rtOverdueCount,
+      waitingStage2Count: agg.waitingStage2Count
+    };
+  });
+}
+
+// --- 4a. ITIL SERVICE REQUEST SLA: PEMINJAMAN ASET IT (APPROVAL TIME & FULFILLMENT TIME) ---
+export function computeLoanSlaEvaluation(
+  loan: LoanTicket,
+  config: ServiceSlaConfig = DEFAULT_SERVICE_SLA_CONFIG,
+  nowMs: number = Date.now()
+): LoanSlaEvaluation {
+  const approvalTargetMinutes = loan.approvalTargetMinutes ?? config.loan.approvalTargetMinutes;
+  const fulfillmentTargetHours = loan.fulfillmentTargetHours ?? config.loan.fulfillmentTargetHours;
+
+  const createdDate = parseFlexibleDate(loan.createdAtIso || loan.tglAju || loan.tglPinjam);
+  const createdMs = createdDate ? createdDate.getTime() : nowMs;
+
+  const isRejected = loan.status === 'Ditolak';
+  const isFulfilled =
+    Boolean(loan.fulfilledAtIso) ||
+    loan.status === 'Diserahkan' ||
+    (loan.status as string) === 'Disetujui' ||
+    loan.status === 'Terlambat' ||
+    loan.status === 'Dikembalikan' ||
+    (loan.status as string) === 'Diterima Kembali' ||
+    loan.status === 'Ditutup';
+
+  const isApproved =
+    isFulfilled ||
+    isRejected ||
+    Boolean(loan.approvedAtIso) ||
+    loan.status === 'Dikonfirmasi' ||
+    (loan.status as string) === 'Diterima';
+
+  const approvedDate = parseFlexibleDate(loan.approvedAtIso || loan.fulfilledAtIso);
+  const fulfilledDate = parseFlexibleDate(loan.fulfilledAtIso);
+
+  const approvalEndMs = isApproved
+    ? approvedDate
+      ? approvedDate.getTime()
+      : createdMs
+    : nowMs;
+  const approvalElapsedMinutes = Math.max(0, Math.round((approvalEndMs - createdMs) / 60000));
+
+  let approvalStatus: LoanSlaEvaluation['approvalStatus'];
+  if (isApproved) {
+    approvalStatus = approvalElapsedMinutes <= approvalTargetMinutes ? 'Memenuhi SLA' : 'Melewati SLA';
+  } else if (approvalElapsedMinutes > approvalTargetMinutes) {
+    approvalStatus = 'Melewati SLA';
+  } else if (approvalTargetMinutes - approvalElapsedMinutes <= Math.max(15, approvalTargetMinutes * 0.25)) {
+    approvalStatus = 'Mendekati Batas';
+  } else {
+    approvalStatus = 'Dalam Batas';
+  }
+
+  let fulfillmentElapsedHours = 0;
+  let fulfillmentStatus: LoanSlaEvaluation['fulfillmentStatus'];
+
+  if (isRejected) {
+    fulfillmentStatus = 'N/A (Ditolak)';
+  } else {
+    const fulfillEndMs = isFulfilled
+      ? fulfilledDate
+        ? fulfilledDate.getTime()
+        : approvedDate
+        ? approvedDate.getTime()
+        : createdMs
+      : nowMs;
+    fulfillmentElapsedHours = Math.max(0, (fulfillEndMs - createdMs) / 3600000);
+
+    if (isFulfilled) {
+      fulfillmentStatus = fulfillmentElapsedHours <= fulfillmentTargetHours ? 'Memenuhi SLA' : 'Melewati SLA';
+    } else if (fulfillmentElapsedHours > fulfillmentTargetHours) {
+      fulfillmentStatus = 'Melewati SLA';
+    } else if (fulfillmentTargetHours - fulfillmentElapsedHours <= Math.max(1, fulfillmentTargetHours * 0.25)) {
+      fulfillmentStatus = 'Mendekati Batas';
+    } else {
+      fulfillmentStatus = 'Dalam Batas';
+    }
+  }
+
+  let overallStatus: LoanSlaEvaluation['overallStatus'] = 'On Track';
+  if (approvalStatus === 'Melewati SLA' || fulfillmentStatus === 'Melewati SLA') {
+    overallStatus = 'Overdue';
+  } else if (approvalStatus === 'Mendekati Batas' || fulfillmentStatus === 'Mendekati Batas') {
+    overallStatus = 'Mendekati Batas';
+  }
+
+  const approvalLabel = isApproved
+    ? `${formatMinutesLabel(approvalElapsedMinutes)} / target ${formatMinutesLabel(approvalTargetMinutes)}`
+    : `Berjalan ${formatMinutesLabel(approvalElapsedMinutes)} (target ${formatMinutesLabel(approvalTargetMinutes)})`;
+
+  const fulfillmentLabel = isRejected
+    ? 'Ditolak pada tahap verifikasi'
+    : isFulfilled
+    ? `${formatHoursLabel(fulfillmentElapsedHours)} / target ${formatHoursLabel(fulfillmentTargetHours)}`
+    : `Berjalan ${formatHoursLabel(fulfillmentElapsedHours)} (target ${formatHoursLabel(fulfillmentTargetHours)})`;
+
+  return {
+    approvalTargetMinutes,
+    fulfillmentTargetHours,
+    isApproved,
+    isFulfilled,
+    isRejected,
+    approvalElapsedMinutes,
+    fulfillmentElapsedHours,
+    approvalStatus,
+    fulfillmentStatus,
+    overallStatus,
+    approvalLabel,
+    fulfillmentLabel
+  };
+}
+
+export interface AggregateLoanSlaStats {
+  totalLoans: number;
+  approvalComplianceRate: number;
+  fulfillmentComplianceRate: number;
+  avgApprovalMinutes: number;
+  avgFulfillmentHours: number;
+  pendingApprovalCount: number;
+  pendingFulfillmentCount: number;
+  overdueCount: number;
+}
+
+export function computeAggregateLoanSlaStats(
+  loans: LoanTicket[],
+  config: ServiceSlaConfig = DEFAULT_SERVICE_SLA_CONFIG,
+  nowMs: number = Date.now()
+): AggregateLoanSlaStats {
+  if (loans.length === 0) {
+    return {
+      totalLoans: 0,
+      approvalComplianceRate: 100,
+      fulfillmentComplianceRate: 100,
+      avgApprovalMinutes: 0,
+      avgFulfillmentHours: 0,
+      pendingApprovalCount: 0,
+      pendingFulfillmentCount: 0,
+      overdueCount: 0
+    };
+  }
+
+  const evals = loans.map(l => computeLoanSlaEvaluation(l, config, nowMs));
+  const approvedList = evals.filter(e => e.isApproved);
+  const approvalMet = approvedList.filter(e => e.approvalStatus === 'Memenuhi SLA');
+  const approvalComplianceRate =
+    approvedList.length > 0 ? Math.round((approvalMet.length / approvedList.length) * 100) : 100;
+
+  const fulfilledList = evals.filter(e => e.isFulfilled && !e.isRejected);
+  const fulfillMet = fulfilledList.filter(e => e.fulfillmentStatus === 'Memenuhi SLA');
+  const fulfillmentComplianceRate =
+    fulfilledList.length > 0 ? Math.round((fulfillMet.length / fulfilledList.length) * 100) : 100;
+
+  const avgApprovalMinutes =
+    approvedList.length > 0
+      ? Math.round(approvedList.reduce((sum, e) => sum + e.approvalElapsedMinutes, 0) / approvedList.length)
+      : 0;
+
+  const avgFulfillmentHours =
+    fulfilledList.length > 0
+      ? Math.round((fulfilledList.reduce((sum, e) => sum + e.fulfillmentElapsedHours, 0) / fulfilledList.length) * 10) / 10
+      : 0;
+
+  const pendingApprovalCount = evals.filter(e => !e.isApproved).length;
+  const pendingFulfillmentCount = evals.filter(e => e.isApproved && !e.isFulfilled && !e.isRejected).length;
+  const overdueCount = evals.filter(e => e.overallStatus === 'Overdue').length;
+
+  return {
+    totalLoans: loans.length,
+    approvalComplianceRate,
+    fulfillmentComplianceRate,
+    avgApprovalMinutes,
+    avgFulfillmentHours,
+    pendingApprovalCount,
+    pendingFulfillmentCount,
+    overdueCount
+  };
+}
+
+// --- 4b. ITIL INITIAL RESPONSE & ANALYSIS SLA: PENGAJUAN SISTEM BARU (FEASIBILITY & BRD) ---
+export function computeProposalSlaEvaluation(
+  proposal: SystemProposal,
+  config: ServiceSlaConfig = DEFAULT_SERVICE_SLA_CONFIG,
+  nowMs: number = Date.now()
+): ProposalSlaEvaluation {
+  const feasibilityTargetHours = proposal.feasibilityTargetHours ?? config.proposal.feasibilityTargetHours;
+  const brdTargetHours = proposal.brdTargetHours ?? config.proposal.brdTargetHours;
+
+  const createdDate = parseFlexibleDate(proposal.createdAtIso || proposal.tanggalPengajuan);
+  const createdMs = createdDate ? createdDate.getTime() : nowMs;
+
+  const isFeasibilityDone = Boolean(proposal.verifiedAtIso || proposal.verifikasiAdmin);
+  const verifiedDate = parseFlexibleDate(proposal.verifiedAtIso || proposal.verifikasiAdmin?.tanggal);
+  const feasibilityEndMs = isFeasibilityDone
+    ? verifiedDate
+      ? verifiedDate.getTime()
+      : createdMs
+    : nowMs;
+  const feasibilityElapsedHours = Math.max(0, (feasibilityEndMs - createdMs) / 3600000);
+
+  let feasibilityStatus: ProposalSlaEvaluation['feasibilityStatus'];
+  if (isFeasibilityDone) {
+    feasibilityStatus = feasibilityElapsedHours <= feasibilityTargetHours ? 'Memenuhi SLA' : 'Melewati SLA';
+  } else if (feasibilityElapsedHours > feasibilityTargetHours) {
+    feasibilityStatus = 'Melewati SLA';
+  } else if (feasibilityTargetHours - feasibilityElapsedHours <= Math.max(4, feasibilityTargetHours * 0.25)) {
+    feasibilityStatus = 'Mendekati Batas';
+  } else {
+    feasibilityStatus = 'Dalam Batas';
+  }
+
+  const isBrdStarted = isFeasibilityDone;
+  const isBrdDone = Boolean(proposal.brdCompletedAtIso || proposal.analisisKebutuhan);
+  const brdStartMs = verifiedDate ? verifiedDate.getTime() : createdMs;
+  const brdDoneDate = parseFlexibleDate(proposal.brdCompletedAtIso || proposal.analisisKebutuhan?.tanggal);
+
+  let brdElapsedHours = 0;
+  let brdStatus: ProposalSlaEvaluation['brdStatus'];
+
+  if (!isBrdStarted) {
+    brdStatus = 'Menunggu Tahap 1';
+  } else {
+    const brdEndMs = isBrdDone
+      ? brdDoneDate
+        ? brdDoneDate.getTime()
+        : brdStartMs
+      : nowMs;
+    brdElapsedHours = Math.max(0, (brdEndMs - brdStartMs) / 3600000);
+
+    if (isBrdDone) {
+      brdStatus = brdElapsedHours <= brdTargetHours ? 'Memenuhi SLA' : 'Melewati SLA';
+    } else if (brdElapsedHours > brdTargetHours) {
+      brdStatus = 'Melewati SLA';
+    } else if (brdTargetHours - brdElapsedHours <= Math.max(12, brdTargetHours * 0.25)) {
+      brdStatus = 'Mendekati Batas';
+    } else {
+      brdStatus = 'Dalam Batas';
+    }
+  }
+
+  let overallStatus: ProposalSlaEvaluation['overallStatus'] = 'On Track';
+  if (feasibilityStatus === 'Melewati SLA' || brdStatus === 'Melewati SLA') {
+    overallStatus = 'Overdue';
+  } else if (feasibilityStatus === 'Mendekati Batas' || brdStatus === 'Mendekati Batas') {
+    overallStatus = 'Mendekati Batas';
+  }
+
+  const feasibilityLabel = isFeasibilityDone
+    ? `${formatHoursLabel(feasibilityElapsedHours)} / target ${formatHoursLabel(feasibilityTargetHours)}`
+    : `Berjalan ${formatHoursLabel(feasibilityElapsedHours)} (target ${formatHoursLabel(feasibilityTargetHours)})`;
+
+  const brdLabel = !isBrdStarted
+    ? `Menunggu Verifikasi Kelayakan (target ${formatHoursLabel(brdTargetHours)})`
+    : isBrdDone
+    ? `${formatHoursLabel(brdElapsedHours)} / target ${formatHoursLabel(brdTargetHours)}`
+    : `Berjalan ${formatHoursLabel(brdElapsedHours)} (target ${formatHoursLabel(brdTargetHours)})`;
+
+  return {
+    feasibilityTargetHours,
+    brdTargetHours,
+    isFeasibilityDone,
+    isBrdStarted,
+    isBrdDone,
+    feasibilityElapsedHours,
+    brdElapsedHours,
+    feasibilityStatus,
+    brdStatus,
+    overallStatus,
+    feasibilityLabel,
+    brdLabel
+  };
+}
+
+export interface AggregateProposalSlaStats {
+  totalProposals: number;
+  feasibilityComplianceRate: number;
+  brdComplianceRate: number;
+  avgFeasibilityHours: number;
+  avgBrdHours: number;
+  waitingFeasibilityCount: number;
+  waitingBrdCount: number;
+  overdueCount: number;
+}
+
+export function computeAggregateProposalSlaStats(
+  proposals: SystemProposal[],
+  config: ServiceSlaConfig = DEFAULT_SERVICE_SLA_CONFIG,
+  nowMs: number = Date.now()
+): AggregateProposalSlaStats {
+  if (proposals.length === 0) {
+    return {
+      totalProposals: 0,
+      feasibilityComplianceRate: 100,
+      brdComplianceRate: 100,
+      avgFeasibilityHours: 0,
+      avgBrdHours: 0,
+      waitingFeasibilityCount: 0,
+      waitingBrdCount: 0,
+      overdueCount: 0
+    };
+  }
+
+  const evals = proposals.map(p => computeProposalSlaEvaluation(p, config, nowMs));
+  const feasDone = evals.filter(e => e.isFeasibilityDone);
+  const feasMet = feasDone.filter(e => e.feasibilityStatus === 'Memenuhi SLA');
+  const feasibilityComplianceRate =
+    feasDone.length > 0 ? Math.round((feasMet.length / feasDone.length) * 100) : 100;
+
+  const brdDone = evals.filter(e => e.isBrdDone);
+  const brdMet = brdDone.filter(e => e.brdStatus === 'Memenuhi SLA');
+  const brdComplianceRate =
+    brdDone.length > 0 ? Math.round((brdMet.length / brdDone.length) * 100) : 100;
+
+  const avgFeasibilityHours =
+    feasDone.length > 0
+      ? Math.round((feasDone.reduce((s, e) => s + e.feasibilityElapsedHours, 0) / feasDone.length) * 10) / 10
+      : 0;
+
+  const avgBrdHours =
+    brdDone.length > 0
+      ? Math.round((brdDone.reduce((s, e) => s + e.brdElapsedHours, 0) / brdDone.length) * 10) / 10
+      : 0;
+
+  const waitingFeasibilityCount = evals.filter(e => !e.isFeasibilityDone).length;
+  const waitingBrdCount = evals.filter(e => e.isFeasibilityDone && !e.isBrdDone).length;
+  const overdueCount = evals.filter(e => e.overallStatus === 'Overdue').length;
+
+  return {
+    totalProposals: proposals.length,
+    feasibilityComplianceRate,
+    brdComplianceRate,
+    avgFeasibilityHours,
+    avgBrdHours,
+    waitingFeasibilityCount,
+    waitingBrdCount,
+    overdueCount
+  };
+}
+

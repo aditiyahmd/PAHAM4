@@ -16,10 +16,19 @@ import {
   ExternalLink,
   PlusCircle,
   BarChart2,
-  Upload
+  Upload,
+  SlidersHorizontal,
+  Gauge,
+  AlertTriangle
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
-import { SystemProposal, SystemProposalStatus } from '../../types';
+import { SystemProposal, SystemProposalStatus, ServiceSlaConfig } from '../../types';
+import {
+  computeProposalSlaEvaluation,
+  computeAggregateProposalSlaStats,
+  formatHoursLabel,
+  DEFAULT_SERVICE_SLA_CONFIG
+} from '../../services/slaService';
 import { AccessControlService } from '../../services/rbac';
 import { WhatsAppNotificationService } from '../../services/whatsappService';
 
@@ -52,7 +61,19 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
     hargaBeli: 0
   });
 
+  const [serviceSlaConfig, setServiceSlaConfig] = useState<ServiceSlaConfig>(() =>
+    AppDatabase.getServiceSlaConfig()
+  );
+  const [showProposalSlaModal, setShowProposalSlaModal] = useState(false);
+  const [proposalSlaDraft, setProposalSlaDraft] = useState(() => AppDatabase.getServiceSlaConfig().proposal);
+  const [proposalSlaFeedback, setProposalSlaFeedback] = useState<string | null>(null);
+
   const activeUser = AppDatabase.getActiveUser();
+  const canEditServiceSla = activeUser?.role === 'ACT-02' || activeUser?.role === 'ACT-03';
+  const proposalSlaStats = computeAggregateProposalSlaStats(proposals, serviceSlaConfig);
+  const selectedProposalSla = selectedProposal
+    ? computeProposalSlaEvaluation(selectedProposal, serviceSlaConfig)
+    : null;
 
   const reloadData = () => {
     const list = AppDatabase.getSystemProposals();
@@ -135,10 +156,101 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canEditServiceSla && (
+            <button
+              type="button"
+              data-testid="open-proposal-sla-policy-btn"
+              onClick={() => {
+                const current = AppDatabase.getServiceSlaConfig();
+                setServiceSlaConfig(current);
+                setProposalSlaDraft(current.proposal);
+                setShowProposalSlaModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 shadow-xs transition-colors cursor-pointer"
+              title="Atur target waktu Feasibility Study (Tahap 1) & BRD (Tahap 2)"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Atur SLA Analisis Usulan</span>
+            </button>
+          )}
           <div className="text-xs text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
             Peran Anda: <strong className="text-slate-900">{activeUser.roleName} ({activeUser.role})</strong>
           </div>
+        </div>
+      </div>
+
+      {proposalSlaFeedback && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{proposalSlaFeedback}</span>
+        </div>
+      )}
+
+      {/* ITIL Initial Response & Analysis SLA Strip (Feasibility Study & BRD) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="proposal-sla-kpi-strip">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">SLA Feasibility Study (Tahap 1)</span>
+            <Gauge className="w-4 h-4 text-cyan-600 shrink-0 mt-0.5" />
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold font-mono text-cyan-700">
+              {proposalSlaStats.feasibilityComplianceRate}%
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Rata-rata {formatHoursLabel(proposalSlaStats.avgFeasibilityHours)}
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1">
+            Target Tinjauan Kelayakan: {formatHoursLabel(serviceSlaConfig.proposal.feasibilityTargetHours)}
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">SLA Spesifikasi BRD (Tahap 2)</span>
+            <Clock className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold font-mono text-indigo-700">
+              {proposalSlaStats.brdComplianceRate}%
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Rata-rata {formatHoursLabel(proposalSlaStats.avgBrdHours)}
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1">
+            Target Penentuan BRD: {formatHoursLabel(serviceSlaConfig.proposal.brdTargetHours)}
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">Antrean Respons Awal Unit</span>
+            <FileCheck2 className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          </div>
+          <div className="mt-1.5 text-[11px] text-slate-700 font-semibold space-y-0.5">
+            <div>{proposalSlaStats.waitingFeasibilityCount} Menunggu Feasibility (Tahap 1)</div>
+            <div>{proposalSlaStats.waitingBrdCount} Menunggu Analisis BRD (Tahap 2)</div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
+          <div className="flex items-start justify-between gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span className="leading-snug">Status SLA Analisis Awal</span>
+            <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${proposalSlaStats.overdueCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`} />
+          </div>
+          <div className="mt-1.5 text-xs font-bold">
+            {proposalSlaStats.overdueCount > 0 ? (
+              <span className="text-rose-700">{proposalSlaStats.overdueCount} Usulan Melewati SLA Awal</span>
+            ) : (
+              <span className="text-emerald-700">0 Usulan Menggantung (On Track)</span>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1">
+            Kepastian respons awal (bukan durasi coding)
+          </p>
         </div>
       </div>
 
@@ -177,6 +289,32 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
                   </span>
                 )}
               </div>
+
+              {(() => {
+                const itemSla = computeProposalSlaEvaluation(item, serviceSlaConfig);
+                return (
+                  <div className="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1 text-[10px]">
+                    <span className={`px-1.5 py-0.5 rounded font-bold ${
+                      itemSla.feasibilityStatus === 'Memenuhi SLA'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        : itemSla.feasibilityStatus === 'Melewati SLA'
+                        ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                        : 'bg-cyan-50 text-cyan-800 border border-cyan-200'
+                    }`}>
+                      Feasibility: {itemSla.feasibilityStatus}
+                    </span>
+                    <span className={`px-1.5 py-0.5 rounded font-bold ${
+                      itemSla.brdStatus === 'Memenuhi SLA'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        : itemSla.brdStatus === 'Melewati SLA'
+                        ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                        : 'bg-slate-100 text-slate-700'
+                    }`}>
+                      BRD: {itemSla.brdStatus}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>
@@ -203,6 +341,41 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
                   <span>🏛 Unit: <strong>{selectedProposal.unitKerja}</strong></span>
                   <span>📱 WA: <strong>{selectedProposal.kontakWhatsapp}</strong></span>
                 </div>
+
+                {selectedProposalSla && (
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-slate-500 block font-semibold">SLA Feasibility Study (Tahap 1)</span>
+                        <span className="font-mono text-slate-800 font-bold">{selectedProposalSla.feasibilityLabel}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded font-bold shrink-0 ${
+                        selectedProposalSla.feasibilityStatus === 'Memenuhi SLA'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : selectedProposalSla.feasibilityStatus === 'Melewati SLA'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-cyan-100 text-cyan-800'
+                      }`}>
+                        {selectedProposalSla.feasibilityStatus}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-slate-500 block font-semibold">SLA Spesifikasi BRD (Tahap 2)</span>
+                        <span className="font-mono text-slate-800 font-bold">{selectedProposalSla.brdLabel}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded font-bold shrink-0 ${
+                        selectedProposalSla.brdStatus === 'Memenuhi SLA'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : selectedProposalSla.brdStatus === 'Melewati SLA'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-indigo-100 text-indigo-800'
+                      }`}>
+                        {selectedProposalSla.brdStatus}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Workstation Tabs */}
@@ -670,6 +843,125 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
           )}
         </div>
       </div>
+
+      {/* Modal Pengaturan Target SLA Pengajuan Sistem Baru (Feasibility & BRD) */}
+      {showProposalSlaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                  <span>Target SLA Analisis Usulan Sistem (ITIL)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  SLA diterapkan pada tinjauan kelayakan awal dan penyusunan spesifikasi kebutuhan (BRD) agar unit pengusul mendapat kepastian waktu respons.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProposalSlaModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                const current = AppDatabase.getServiceSlaConfig();
+                const next = {
+                  ...current,
+                  proposal: {
+                    feasibilityTargetHours: Math.max(1, Number(proposalSlaDraft.feasibilityTargetHours) || 24),
+                    brdTargetHours: Math.max(1, Number(proposalSlaDraft.brdTargetHours) || 72)
+                  }
+                };
+                AppDatabase.setServiceSlaConfig(next);
+                setServiceSlaConfig(next);
+                setShowProposalSlaModal(false);
+                setProposalSlaFeedback('Target SLA Tinjauan Kelayakan (Feasibility) & BRD Usulan Sistem berhasil diperbarui.');
+                if (onDataChanged) onDataChanged();
+                setTimeout(() => setProposalSlaFeedback(null), 4000);
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Target Waktu Tinjauan Kelayakan / Feasibility Study (Jam)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  data-testid="proposal-sla-feasibility-input"
+                  value={proposalSlaDraft.feasibilityTargetHours}
+                  onChange={e =>
+                    setProposalSlaDraft(prev => ({
+                      ...prev,
+                      feasibilityTargetHours: Math.max(1, Number(e.target.value) || 1)
+                    }))
+                  }
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Standar ITIL: 24 jam (1 hari kerja) sejak unit mengajukan sistem baru.
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Target Waktu Penentuan Spesifikasi / BRD (Jam)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  data-testid="proposal-sla-brd-input"
+                  value={proposalSlaDraft.brdTargetHours}
+                  onChange={e =>
+                    setProposalSlaDraft(prev => ({
+                      ...prev,
+                      brdTargetHours: Math.max(1, Number(e.target.value) || 1)
+                    }))
+                  }
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Standar ITIL: 72 jam (3 hari kerja) setelah verifikasi kelayakan selesai.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setProposalSlaDraft(DEFAULT_SERVICE_SLA_CONFIG.proposal)}
+                  className="text-xs font-semibold text-slate-600 hover:text-slate-900 underline cursor-pointer"
+                >
+                  Reset Standar ITIL
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowProposalSlaModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    data-testid="save-proposal-sla-policy-btn"
+                    className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs cursor-pointer"
+                  >
+                    Simpan Target SLA
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
