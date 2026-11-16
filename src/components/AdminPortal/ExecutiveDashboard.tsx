@@ -6,23 +6,30 @@ import {
   AlertTriangle,
   RefreshCw,
   FileSpreadsheet,
-  FileText,
   Layers,
-  Users,
   Download,
   Calendar,
   PackagePlus,
   PackageMinus,
   CheckSquare,
   Wrench,
-  ShieldCheck,
-  Server
+  Server,
+  Star,
+  ArrowRight,
+  Building2
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
 import { AppStatistics, PicPerformanceReport } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
 import { formatMinutesLabel, formatHoursLabel } from '../../services/slaService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import {
+  computeExecutiveDashboardMetrics,
+  getAvailablePeriodKeys,
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 
 interface ExecutiveDashboardProps {
   onNavigateTab?: (tab: string) => void;
@@ -37,18 +44,12 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const [picReports, setPicReports] = useState<PicPerformanceReport[]>(() =>
     AppDatabase.getPicPerformanceReport()
   );
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
-  const [countdown, setCountdown] = useState<number>(4);
+  const [countdown, setCountdown] = useState<number>(6);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(true);
 
-  // Sub-tabs: "Dashboard Pimpinan" vs "Dashboard Operasional" (Requirement 3.1 & 3.2)
-  const [dashboardTab, setDashboardTab] = useState<'pimpinan' | 'operasional'>('pimpinan');
-
-  // Month selector for reporting (Requirement 3.1)
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [dashboardTab, setDashboardTab] = useState<'eksekutif' | 'operasional'>('eksekutif');
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
   const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
 
   const activeUser = AppDatabase.getActiveUser();
@@ -61,83 +62,135 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const penerimaanList = AppDatabase.getBukuPenerimaan();
   const pengeluaranList = AppDatabase.getBukuPengeluaran();
   const allAssets = AppDatabase.getAssets();
+  const rekapKategori = AppDatabase.getBukuAsetInventarisRekap();
   const damageTickets = AppDatabase.getDamageTickets();
   const loanTickets = AppDatabase.getLoans();
+  const proposals = AppDatabase.getSystemProposals();
+  const surveys = AppDatabase.getSurveys();
+  const spareParts = AppDatabase.getAllSpareParts();
+  const slaConfig = AppDatabase.getSlaConfig();
+  const serviceSlaConfig = AppDatabase.getServiceSlaConfig();
+
+  const allGovernanceDates: (string | undefined)[] = [
+    ...allAssets.map(a => a.tanggalMasuk || a.tanggalPembelian),
+    ...damageTickets.map(t => t.createdAtIso || t.tanggalLapor),
+    ...loanTickets.map(l => l.createdAtIso || l.tglAju || l.tglPinjam),
+    ...proposals.map(p => p.createdAtIso || p.tanggalPengajuan),
+    ...surveys.map(s => s.submittedAtIso || s.monthKey)
+  ];
+
+  const availablePeriodKeys = cadence === 'semua' ? [] : getAvailablePeriodKeys(allGovernanceDates, cadence);
+
+  const handleSelectCadence = (next: ReportingCadence) => {
+    setCadence(next);
+    if (next === 'semua') {
+      setPeriodKey('');
+      return;
+    }
+    const keys = getAvailablePeriodKeys(allGovernanceDates, next);
+    setPeriodKey(keys[0] || '');
+  };
+
+  // Filtered collections for selected cadence
+  const scopedAssets =
+    cadence === 'semua'
+      ? allAssets
+      : allAssets.filter(a => matchesReportingPeriod(a.tanggalMasuk || a.tanggalPembelian, cadence, periodKey));
+  const scopedTickets =
+    cadence === 'semua'
+      ? damageTickets
+      : damageTickets.filter(t => matchesReportingPeriod(t.createdAtIso || t.tanggalLapor, cadence, periodKey));
+  const scopedLoans =
+    cadence === 'semua'
+      ? loanTickets
+      : loanTickets.filter(l => matchesReportingPeriod(l.createdAtIso || l.tglAju || l.tglPinjam, cadence, periodKey));
+  const scopedProposals =
+    cadence === 'semua'
+      ? proposals
+      : proposals.filter(p => matchesReportingPeriod(p.createdAtIso || p.tanggalPengajuan, cadence, periodKey));
+  const scopedSurveys =
+    cadence === 'semua'
+      ? surveys
+      : surveys.filter(s => matchesReportingPeriod(s.submittedAtIso || s.monthKey, cadence, periodKey));
+
+  const execMetrics = computeExecutiveDashboardMetrics({
+    assets: scopedAssets,
+    rekapList: rekapKategori,
+    loans: scopedLoans,
+    damageTickets: scopedTickets,
+    proposals: scopedProposals,
+    surveys: scopedSurveys,
+    spareParts,
+    slaConfig,
+    serviceSlaConfig
+  });
+
+  const activePeriodLabel = getStandardPeriodLabel(cadence, periodKey);
 
   const handleRefresh = () => {
     setStats(AppDatabase.getStatistics());
     setPicReports(AppDatabase.getPicPerformanceReport());
-    setLastRefreshed(new Date());
-    setCountdown(4);
+    setCountdown(6);
   };
 
-  // Real-time refresh ticker
   useEffect(() => {
     if (!autoRefreshEnabled) return;
-
     const timer = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
           handleRefresh();
-          return 4;
+          return 6;
         }
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(timer);
   }, [autoRefreshEnabled]);
 
-  // Export CSV
   const handleExportExcelCsv = () => {
-    const assets = AppDatabase.getAssets();
     const rows = [
-      ['Kode Unik Aset', 'Barcode', 'Nama Aset', 'Kategori', 'Status Operasional', 'Lokasi', 'Harga Beli (Rp)'],
-      ...assets.map(a => [
-        a.kodeUnikAset,
-        a.barcode,
-        `"${a.nama.replace(/"/g, '""')}"`,
-        a.kategori,
-        a.status,
-        `"${a.lokasi.replace(/"/g, '""')}"`,
-        a.hargaBeli || 0
+      ['Unit / Fakultas', 'Total Unit', 'Komputer', 'Networking', 'Multimedia', 'Lainnya', 'Total Valuasi (Rp)'],
+      ...execMetrics.portfolio.facultyUnitCompositions.map(f => [
+        `"${f.unitName.replace(/"/g, '""')}"`,
+        String(f.totalUnits),
+        String(f.komputer),
+        String(f.networking),
+        String(f.multimedia),
+        String(f.lainnya),
+        String(f.valuationRp)
       ])
     ];
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(',')).join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = '\uFEFF' + rows.map(e => e.join(',')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Laporan_Eksekutif_Pusdatin_UMC_${selectedMonth}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.href = url;
+    link.setAttribute(
+      'download',
+      `Laporan_Eksekutif_Portofolio_PUSDATIN_${periodKey || 'Semua'}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Export Full PDF (Requirement 3.1)
-  const rekapKategori = AppDatabase.getBukuAsetInventarisRekap();
-  const totalNilaiAset = rekapKategori.reduce((s, r) => s + r.nilaiAsetTotal, 0);
-
-  // Export Full PDF (konfirmasi penandatangan lebih dulu)
-  const handleDownloadPdfReport = () => {
-    setIsSignatoryModalOpen(true);
-  };
-
   const handleConfirmExecutivePdf = (values: ConfirmedSignatoryValues) => {
-    const doc = PdfReportService.generateExecutiveDashboardPdf(stats, selectedMonth, {
+    const doc = PdfReportService.generateExecutiveDashboardPdf(stats, periodKey || 'Semua Periode', {
       penerimaanCount: penerimaanList.length,
       pengeluaranCount: pengeluaranList.length,
-      totalAsetValue: totalNilaiAset,
+      totalAsetValue: execMetrics.portfolio.totalValuationRp,
+      executiveMetrics: execMetrics,
+      cadenceLabel: activePeriodLabel,
       rektorNama: values.pimpinanUniv,
       pimpinanJabatan: values.pimpinanUnivJabatan,
       kepalaPusdatin: values.kepalaPusdatin,
       nipKepala: values.nipKepala
     });
-    const safeMonth = (selectedMonth || 'Periode').replace(/[^a-zA-Z0-9_-]/g, '_');
-    doc.save(`Laporan_Eksekutif_Dashboard_UMC_${safeMonth}.pdf`);
+    const safePeriod = (periodKey || 'Semua').replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`Laporan_Dashboard_Eksekutif_UMC_${safePeriod}.pdf`);
   };
 
-  // Operational metrics
   const totalBarangMasuk = penerimaanList.reduce((acc, curr) => {
     if (curr.items && curr.items.length > 0) {
       return acc + curr.items.reduce((sum, it) => sum + (it.banyaknya || it.jumlah || 0), 0);
@@ -146,52 +199,39 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   }, 0);
 
   const totalBarangKeluar = pengeluaranList.reduce((acc, curr) => {
-    if (curr.items && curr.items.length > 0) {
-      return acc + curr.items.length;
-    }
+    if (curr.items && curr.items.length > 0) return acc + curr.items.length;
     return acc + 1;
   }, 0);
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner & Control Bar */}
-      <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 min-w-0 max-w-full overflow-x-hidden" data-testid="executive-dashboard-root">
+      {/* Top Executive Command Header */}
+      <div className="bg-slate-900 text-white p-5 rounded-xl border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-md bg-amber-400 text-slate-950 text-xs font-bold font-mono">
-              {isRektorOrWarek ? 'EKSEKUTIF UMC' : 'PUSDATIN'}
+          <div className="flex items-center gap-2 text-xs text-slate-300">
+            <span className="font-mono font-bold text-amber-400">
+              {isRektorOrWarek ? 'TATA KELOLA EKSEKUTIF UMC' : 'MANAJEMEN PUSDATIN UMC'}
             </span>
-            <h1 className="text-xl font-bold">Dashboard Pimpinan</h1>
+            <span aria-hidden="true">·</span>
+            <span>{activePeriodLabel}</span>
           </div>
+          <h1 className="text-xl font-bold tracking-tight mt-0.5">Dashboard Eksekutif</h1>
           <p className="text-xs text-slate-300 mt-1">
-            Pusat Komando & Analitik Strategis Teknologi Informasi PUSDATIN Universitas Muhammadiyah Cirebon.
+            Tata kelola strategis ITIL: Valuasi aset kampus per fakultas, kepatuhan SLA &ge; 90%, indeks CSAT, serta transformasi digital &amp; proyeksi RAPBU.
           </p>
         </div>
 
-        {/* Live Refresh Counter & Actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Month Filter (Requirement 3.1) */}
-          <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-xl text-xs text-slate-200">
-            <Calendar className="w-3.5 h-3.5 text-amber-400" />
-            <span className="font-semibold text-slate-400 text-[11px]">Bulan:</span>
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={e => setSelectedMonth(e.target.value)}
-              className="bg-transparent text-xs font-bold text-white border-0 outline-none cursor-pointer"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-xl text-xs text-slate-300">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg text-xs text-slate-200 whitespace-nowrap">
             <RefreshCw
               className={`w-3.5 h-3.5 text-cyan-400 ${autoRefreshEnabled ? 'animate-spin' : ''}`}
               style={{ animationDuration: '4s' }}
             />
-            <span>Auto: <strong>{countdown}s</strong></span>
+            <span className="font-mono tabular-nums">{countdown}s</span>
             <button
               type="button"
               onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
-              className="text-[10px] text-cyan-400 underline ml-1 cursor-pointer"
+              className="text-[11px] text-cyan-300 underline cursor-pointer"
             >
               {autoRefreshEnabled ? 'Jeda' : 'Aktifkan'}
             </button>
@@ -199,20 +239,19 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 
           <button
             type="button"
+            data-testid="exec-export-csv-btn"
             onClick={handleExportExcelCsv}
-            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
-            title="Ekspor CSV Data Master"
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Excel / CSV</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Ekspor CSV</span>
           </button>
 
-          {/* Unduh Seluruh Dashboard PDF (Requirement 3.1) */}
           <button
             type="button"
-            onClick={handleDownloadPdfReport}
-            className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
-            title="Unduh seluruh ringkasan dashboard pimpinan dalam bentuk PDF resmi"
+            data-testid="exec-download-pdf-btn"
+            onClick={() => setIsSignatoryModalOpen(true)}
+            className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Unduh Laporan PDF</span>
@@ -220,373 +259,611 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         </div>
       </div>
 
-      {/* Sub-tab Switcher: Dashboard Pimpinan vs Dashboard Operasional (Requirement 3.1) */}
-      <div className="flex border-b border-slate-200 gap-2">
+      {/* Standardized 3-Tier Reporting Cadence Control Bar */}
+      <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="text-xs text-slate-600">
+          <span className="font-semibold text-slate-900">Kadenza Pelaporan Eksekutif ITIL:</span>{' '}
+          <strong className="font-mono text-slate-800">{activePeriodLabel}</strong>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg">
+            {(
+              [
+                { id: 'semua', label: 'Semua' },
+                { id: 'bulanan', label: 'Bulanan' },
+                { id: 'triwulanan', label: 'Triwulan' },
+                { id: 'semesteran', label: 'Semester' },
+                { id: 'tahunan', label: 'Tahunan' }
+              ] as { id: ReportingCadence; label: string }[]
+            ).map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                data-testid={`exec-cadence-${opt.id}`}
+                onClick={() => handleSelectCadence(opt.id)}
+                className={`px-2.5 py-1 text-[11px] font-semibold rounded-md whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  cadence === opt.id
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {cadence !== 'semua' && availablePeriodKeys.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
+              <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <select
+                data-testid="exec-period-select"
+                value={periodKey || availablePeriodKeys[0]}
+                onChange={e => setPeriodKey(e.target.value)}
+                className="bg-transparent text-xs font-mono font-semibold text-slate-900 outline-none cursor-pointer"
+              >
+                {availablePeriodKeys.map(k => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sub-tab Switcher */}
+      <div className="flex flex-wrap sm:flex-nowrap border-b border-slate-200 gap-1 sm:gap-2 overflow-x-auto">
         <button
-          onClick={() => setDashboardTab('pimpinan')}
-          className={`px-5 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-            dashboardTab === 'pimpinan'
-              ? 'border-red-600 text-red-600 bg-red-50/50 rounded-t-xl'
+          type="button"
+          onClick={() => setDashboardTab('eksekutif')}
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            dashboardTab === 'eksekutif'
+              ? 'border-red-600 text-red-700'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>Dashboard Pimpinan (Strategis)</span>
+          <span>Dashboard Eksekutif (Strategis)</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setDashboardTab('operasional')}
-          className={`px-5 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             dashboardTab === 'operasional'
-              ? 'border-red-600 text-red-600 bg-red-50/50 rounded-t-xl'
+              ? 'border-red-600 text-red-700'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
           <Wrench className="w-4 h-4" />
-          <span>Dashboard Operasional (Logistik & Aset)</span>
+          <span>Ringkasan Logistik &amp; Mutasi Aset</span>
         </button>
       </div>
 
-      {/* TAB 1: DASHBOARD PIMPINAN (STRATEGIS) */}
-      {dashboardTab === 'pimpinan' && (
+      {dashboardTab === 'eksekutif' && (
         <div className="space-y-6">
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* SLA Achievement Rate (FRT & RT) */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
+          {/* 4 TOP STRATEGIC KPI CARDS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* a. Valuasi */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
               <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
-                <span>SLA Achievement Rate</span>
+                <span>Valuasi Aset IT Kampus</span>
+                <TrendingUp className="w-4 h-4 text-slate-600" />
+              </div>
+              <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-2">
+                Rp {execMetrics.portfolio.totalValuationRp.toLocaleString('id-ID')}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 font-mono tabular-nums">
+                {execMetrics.portfolio.totalUnits} Unit · Rata-rata Rp {execMetrics.portfolio.averageUnitValueRp.toLocaleString('id-ID')}
+              </div>
+            </div>
+
+            {/* b. Kepatuhan SLA Menyeluruh */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                <span>Kepatuhan SLA Gabungan</span>
                 <Clock className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="text-3xl font-extrabold font-mono text-emerald-700 mt-2">
-                {stats.slaAchievementRate}%
+              <div className="flex items-baseline gap-2 mt-2">
+                <span
+                  className={`text-2xl font-bold font-mono tabular-nums ${
+                    execMetrics.slaGovernance.meetsTarget ? 'text-emerald-700' : 'text-amber-700'
+                  }`}
+                >
+                  {execMetrics.slaGovernance.combinedSlaComplianceRate}%
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Target &ge; {execMetrics.slaGovernance.institutionalTargetRate}%
+                </span>
               </div>
-              <div className="text-[11px] text-slate-600 mt-1 space-y-0.5">
-                <div>
-                  FRT: <strong>{stats.frtComplianceRate ?? stats.slaAchievementRate}%</strong> ({formatMinutesLabel(stats.avgFrtMinutes || 0)})
+              <div className="text-[11px] text-slate-500 mt-1 font-mono tabular-nums">
+                Insiden {execMetrics.slaGovernance.incidentSlaRate}% · Peminjaman {execMetrics.slaGovernance.loanSlaRate}%
+              </div>
+            </div>
+
+            {/* c. Indeks CSAT */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                <span>Indeks Kepuasan (CSAT)</span>
+                <Star className="w-4 h-4 text-amber-500" />
+              </div>
+              <div className="flex items-baseline gap-2 mt-2">
+                <span
+                  className={`text-2xl font-bold font-mono tabular-nums ${
+                    execMetrics.csatGovernance.meetsTarget ? 'text-emerald-700' : 'text-rose-700'
+                  }`}
+                >
+                  {execMetrics.csatGovernance.overallAverage}/5.0
+                </span>
+                <span className="text-xs font-mono font-semibold text-slate-600">
+                  ({execMetrics.csatGovernance.csatPercentage}%)
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                {execMetrics.csatGovernance.totalResponses} Responden · Target &ge; 4.0 / 85%
+              </div>
+            </div>
+
+            {/* d. Transformasi Digital & RAPBU */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                <span>Proyeksi Anggaran RAPBU</span>
+                <Server className="w-4 h-4 text-slate-600" />
+              </div>
+              <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-2">
+                Rp {execMetrics.digitalTransformation.totalEstimatedRapbuRp.toLocaleString('id-ID')}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                {execMetrics.digitalTransformation.criticalGapCount} Defisit Kritis ·{' '}
+                {execMetrics.digitalTransformation.approvedAndActiveCount} RFC Aktif
+              </div>
+            </div>
+          </div>
+
+          {/* MODUL A: VALUASI & PORTOFOLIO ASET PER FAKULTAS / UNIT KERJA */}
+          <section
+            data-testid="exec-module-portfolio"
+            className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-slate-700" />
+                  <span>a. Valuasi &amp; Portofolio Aset IT per Fakultas / Unit Kerja</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Komposisi perangkat komputer, jaringan, dan multimedia di seluruh fakultas dan unit kerja UMC.
+                </p>
+              </div>
+              {onNavigateTab && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('seluruh-aset')}
+                  className="text-xs font-semibold text-slate-700 hover:text-slate-900 inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <span>Master Aset &amp; Registri CI</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px]">
+                  <tr>
+                    <th className="py-2.5 px-3">Fakultas / Unit Kerja</th>
+                    <th className="py-2.5 px-3 text-right">Total Unit</th>
+                    <th className="py-2.5 px-3 text-right">Komputer &amp; Laptop</th>
+                    <th className="py-2.5 px-3 text-right">Jaringan &amp; Server</th>
+                    <th className="py-2.5 px-3 text-right">Multimedia</th>
+                    <th className="py-2.5 px-3 text-right">Lainnya</th>
+                    <th className="py-2.5 px-3 text-right">Valuasi Investasi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {execMetrics.portfolio.facultyUnitCompositions.map(row => (
+                    <tr key={row.unitName} className="hover:bg-slate-50">
+                      <td className="py-2.5 px-3 font-semibold text-slate-900">{row.unitName}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-slate-900">
+                        {row.totalUnits}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">{row.komputer}</td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">{row.networking}</td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">{row.multimedia}</td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums">{row.lainnya}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-slate-900">
+                        Rp {row.valuationRp.toLocaleString('id-ID')}
+                      </td>
+                    </tr>
+                  ))}
+                  {execMetrics.portfolio.facultyUnitCompositions.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-6 text-center text-slate-400">
+                        Tidak ada aset tercatat pada periode yang dipilih.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* MODUL B & C: KINERJA SLA + RECURRING INCIDENTS & INDEKS KEPUASAN CSAT */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* b. Kinerja Mutu Layanan, Tren Eskalasi & Insiden Berulang */}
+            <section
+              data-testid="exec-module-sla"
+              className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
+            >
+              <div className="pb-3 border-b border-slate-100">
+                <h2 className="text-base font-bold text-slate-900">
+                  b. Kinerja Mutu Layanan, SLA &amp; Insiden Berulang
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Perbandingan capaian SLA terhadap target universitas (&ge; {execMetrics.slaGovernance.institutionalTargetRate}%) dan identifikasi <em>Recurring Incidents</em>.
+                </p>
+              </div>
+
+              {/* SLA Comparison Bars */}
+              <div className="space-y-2.5 text-xs">
+                {[
+                  { label: 'Helpdesk Insiden (FRT & RT)', val: execMetrics.slaGovernance.incidentSlaRate },
+                  { label: 'Pemenuhan Peminjaman Aset IT', val: execMetrics.slaGovernance.loanSlaRate },
+                  { label: 'Respon Analisis Awal RFC Sistem', val: execMetrics.slaGovernance.proposalInitialSlaRate }
+                ].map(item => (
+                  <div key={item.label} className="space-y-1">
+                    <div className="flex justify-between font-medium">
+                      <span className="text-slate-700">{item.label}</span>
+                      <span
+                        className={`font-mono font-bold tabular-nums ${
+                          item.val >= 90 ? 'text-emerald-700' : item.val >= 75 ? 'text-amber-700' : 'text-rose-700'
+                        }`}
+                      >
+                        {item.val}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          item.val >= 90 ? 'bg-emerald-600' : item.val >= 75 ? 'bg-amber-500' : 'bg-rose-600'
+                        }`}
+                        style={{ width: `${item.val}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tren Bulanan & Recurring Incidents */}
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800">
+                    Insiden Berulang (Recurring) &amp; Eskalasi Problem/RFC
+                  </span>
+                  <span className="font-mono text-slate-600 tabular-nums">
+                    {execMetrics.slaGovernance.problemAndRfcEscalations} Eskalasi
+                  </span>
                 </div>
-                <div>
-                  RT: <strong>{stats.rtComplianceRate ?? stats.slaAchievementRate}%</strong> ({formatHoursLabel(stats.avgRtHours || 0)})
+
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {execMetrics.slaGovernance.recurringIncidents.slice(0, 4).map(rec => (
+                    <div key={rec.groupName} className="px-3 py-2 flex items-center justify-between text-xs">
+                      <div className="min-w-0 pr-2">
+                        <div className="font-semibold text-slate-800 truncate">{rec.groupName}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {rec.problemOrRfcCount > 0
+                            ? `${rec.problemOrRfcCount} eskalasi Problem/RFC`
+                            : 'Insiden perangkat rutin'}
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold tabular-nums text-slate-900 shrink-0">
+                        {rec.totalTickets} tiket
+                      </span>
+                    </div>
+                  ))}
+                  {execMetrics.slaGovernance.recurringIncidents.length === 0 && (
+                    <div className="p-3 text-xs text-slate-400 text-center">
+                      Tidak ada insiden tercatat pada periode ini.
+                    </div>
+                  )}
                 </div>
-                {stats.totalSlaOverdue > 0 ? (
-                  <span className="text-rose-600 font-bold block">⚠️ {stats.totalSlaOverdue} Tiket Overdue</span>
-                ) : (
-                  <span className="text-emerald-700 font-bold block">✅ On-Time SLA</span>
+              </div>
+            </section>
+
+            {/* c. Indeks Kepuasan Pengguna (Continual Improvement / CSAT) */}
+            <section
+              data-testid="exec-module-csat"
+              className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
+            >
+              <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    c. Indeks Kepuasan Pengguna (ITIL CSAT)
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Evaluasi kepuasan sivitas lintas modul terhadap standar mutu PUSDATIN (&ge; 4.0 / 85%).
+                  </p>
+                </div>
+                {onNavigateTab && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab('rekap-survei')}
+                    className="text-xs font-semibold text-slate-700 hover:text-slate-900 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    Rekap Survei &rarr;
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  {
+                    label: 'Helpdesk Kerusakan',
+                    score: execMetrics.csatGovernance.byModule.Incident.avgScore,
+                    count: execMetrics.csatGovernance.byModule.Incident.count
+                  },
+                  {
+                    label: 'Peminjaman Aset',
+                    score: execMetrics.csatGovernance.byModule.Loan.avgScore,
+                    count: execMetrics.csatGovernance.byModule.Loan.count
+                  },
+                  {
+                    label: 'Sistem Baru (RFC)',
+                    score: execMetrics.csatGovernance.byModule.SystemProposal.avgScore,
+                    count: execMetrics.csatGovernance.byModule.SystemProposal.count
+                  }
+                ].map(mod => (
+                  <div key={mod.label} className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
+                    <span className="text-[11px] font-medium text-slate-600 block">{mod.label}</span>
+                    <div className="text-lg font-bold font-mono tabular-nums text-slate-900 mt-1">
+                      {mod.score}/5.0
+                    </div>
+                    <span className="text-[11px] text-slate-500">{mod.count} respons</span>
+                  </div>
+                ))}
+              </div>
+
+              {!isRektorOrWarek ? (
+                <div className="pt-2 border-t border-slate-100">
+                  <div className="text-xs font-bold text-slate-800 mb-2">
+                    Ringkasan Kepatuhan SLA Teknisi (Internal PUSDATIN)
+                  </div>
+                  <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px]">
+                        <tr>
+                          <th className="py-2 px-3">Teknisi</th>
+                          <th className="py-2 px-3 text-right">Tugas</th>
+                          <th className="py-2 px-3 text-right">Selesai</th>
+                          <th className="py-2 px-3 text-right">SLA %</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {picReports.slice(0, 5).map(pic => (
+                          <tr key={pic.technicianId} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-medium text-slate-900">{pic.technicianName}</td>
+                            <td className="py-2 px-3 text-right font-mono tabular-nums">{pic.totalAssigned}</td>
+                            <td className="py-2 px-3 text-right font-mono tabular-nums text-emerald-700">
+                              {pic.totalResolved}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold tabular-nums">
+                              {pic.slaOnTimeRate}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-slate-100">
+                  <div className="text-xs font-bold text-slate-800 mb-2">
+                    Ringkasan Nilai Aset per Kategori Utama
+                  </div>
+                  <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px]">
+                        <tr>
+                          <th className="py-2 px-3">Kategori</th>
+                          <th className="py-2 px-3 text-right">Unit</th>
+                          <th className="py-2 px-3 text-right">Nilai (Rp)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {rekapKategori.map(rk => (
+                          <tr key={rk.kategori}>
+                            <td className="py-2 px-3 font-medium text-slate-900">{rk.kategori}</td>
+                            <td className="py-2 px-3 text-right font-mono tabular-nums">{rk.totalMasuk}</td>
+                            <td className="py-2 px-3 text-right font-mono font-bold tabular-nums">
+                              Rp {rk.nilaiAsetTotal.toLocaleString('id-ID')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+
+          {/* MODUL D: STRATEGI, TRANSFORMASI DIGITAL & RESPON ANGGARAN (RAPBU) */}
+          <section
+            data-testid="exec-module-strategy"
+            className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">
+                  d. Strategi Transformasi Digital (RFC) &amp; Efisiensi Anggaran (RAPBU)
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Progres aplikasi strategis yang mendukung akreditasi/operasional kampus serta proyeksi kebutuhan pengadaan (Gap Analysis).
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {onNavigateTab && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('pengajuan-sistem')}
+                      className="text-xs font-semibold text-slate-700 hover:text-slate-900 whitespace-nowrap cursor-pointer"
+                    >
+                      Portofolio RFC &rarr;
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('suku-cadang')}
+                      className="text-xs font-semibold text-slate-700 hover:text-slate-900 whitespace-nowrap cursor-pointer"
+                    >
+                      Analisis RAPBU &rarr;
+                    </button>
+                  </>
                 )}
               </div>
             </div>
 
-            {/* Total Investasi TI */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
-                <span>Total Investasi Aset TI</span>
-                <TrendingUp className="w-4 h-4 text-blue-600" />
-              </div>
-              <div className="text-xl font-extrabold font-mono text-slate-900 mt-2">
-                Rp {(totalNilaiAset / 1000000).toFixed(1)} Jt
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                {stats.totalAset} Unit Terdaftar di Master
-              </div>
-            </div>
-
-            {/* Ketersediaan Perangkat */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
-                <span>Ketersediaan Perangkat</span>
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div className="text-3xl font-extrabold font-mono text-slate-900 mt-2">
-                {stats.tersedia}{' '}
-                <span className="text-xs font-normal text-slate-500">Ready / {stats.digunakan} Pakai</span>
-              </div>
-              <div className="text-[11px] text-purple-700 font-semibold mt-1">
-                {stats.dipinjam} Sedang Dipinjam
-              </div>
-            </div>
-
-            {/* Pengembangan Aplikasi */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
-                <span>Pengembangan Aplikasi</span>
-                <Server className="w-4 h-4 text-purple-600" />
-              </div>
-              <div className="text-3xl font-extrabold font-mono text-purple-700 mt-2">
-                {stats.pengajuanDalamPengembangan}{' '}
-                <span className="text-xs font-normal text-slate-500">Sprint Aktif</span>
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                Total {stats.totalPengajuanSistem} Pengajuan Masuk
-              </div>
-            </div>
-          </div>
-
-          {/* Row 2: Status Operasional Aset vs Kinerja PIC Helpdesk */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Rekap Distribusi Status Aset */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-              <h2 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-600" />
-                Distribusi Status Operasional Aset Master
-              </h2>
-
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-emerald-700">Tersedia (Ready)</span>
-                    <span className="font-mono">
-                      {stats.tersedia} Unit ({Math.round((stats.tersedia / (stats.totalAset || 1)) * 100)}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div
-                      className="bg-emerald-600 h-2 rounded-full"
-                      style={{ width: `${(stats.tersedia / (stats.totalAset || 1)) * 100}%` }}
-                    ></div>
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Strategic RFC List */}
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-slate-700">
+                  Usulan Pengembangan Sistem Baru ({execMetrics.digitalTransformation.totalProposals} Usulan)
                 </div>
-
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-blue-700">Digunakan (Terpasang)</span>
-                    <span className="font-mono">
-                      {stats.digunakan} Unit ({Math.round((stats.digunakan / (stats.totalAset || 1)) * 100)}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full"
-                      style={{ width: `${(stats.digunakan / (stats.totalAset || 1)) * 100}%` }}
-                    ></div>
-                  </div>
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {execMetrics.digitalTransformation.strategicProposals.slice(0, 4).map(p => (
+                    <div key={p.id} className="px-3 py-2.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-900 truncate">{p.namaSistem}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {p.unitKerja} ·{' '}
+                          {p.status === 'status_verifikasi'
+                            ? 'Tahap 1: Feasibility Study'
+                            : p.status === 'status_analisis'
+                            ? 'Tahap 2: Analisis BRD'
+                            : p.status === 'status_keamanan'
+                            ? 'Tahap 3: Uji Keamanan'
+                            : p.status === 'status_approval'
+                            ? 'Tahap 4: Approval Pimpinan'
+                            : p.status === 'status_pengembangan'
+                            ? 'Tahap 5: Sprint Pengembangan'
+                            : p.status}
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold tabular-nums text-slate-800 shrink-0">
+                        {p.pengembangan?.progresPersen ?? (p.status === 'Selesai' || p.status === 'Serah Terima' ? 100 : 25)}%
+                      </span>
+                    </div>
+                  ))}
+                  {execMetrics.digitalTransformation.strategicProposals.length === 0 && (
+                    <div className="p-4 text-xs text-slate-400 text-center">
+                      Tidak ada usulan sistem strategis pada periode ini.
+                    </div>
+                  )}
                 </div>
+              </div>
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-purple-700">Dipinjam Civitas</span>
-                    <span className="font-mono">
-                      {stats.dipinjam} Unit ({Math.round((stats.dipinjam / (stats.totalAset || 1)) * 100)}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div
-                      className="bg-purple-600 h-2 rounded-full"
-                      style={{ width: `${(stats.dipinjam / (stats.totalAset || 1)) * 100}%` }}
-                    ></div>
-                  </div>
+              {/* RAPBU Gap Summary */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-700">Prioritas Kebutuhan Pengadaan &amp; RAPBU</span>
+                  <span className="font-mono font-bold text-slate-900 tabular-nums">
+                    Total Rp {execMetrics.digitalTransformation.totalEstimatedRapbuRp.toLocaleString('id-ID')}
+                  </span>
                 </div>
-
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-amber-700">Maintenance / Rusak</span>
-                    <span className="font-mono">
-                      {stats.maintenance} Unit ({Math.round((stats.maintenance / (stats.totalAset || 1)) * 100)}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div
-                      className="bg-amber-600 h-2 rounded-full"
-                      style={{ width: `${(stats.maintenance / (stats.totalAset || 1)) * 100}%` }}
-                    ></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span className="text-rose-700">Tidak Layak (Afkir)</span>
-                    <span className="font-mono">
-                      {stats.tidakLayak} Unit ({Math.round((stats.tidakLayak / (stats.totalAset || 1)) * 100)}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div
-                      className="bg-rose-600 h-2 rounded-full"
-                      style={{ width: `${(stats.tidakLayak / (stats.totalAset || 1)) * 100}%` }}
-                    ></div>
-                  </div>
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {execMetrics.digitalTransformation.gapRows.slice(0, 4).map(g => (
+                    <div key={g.categoryOrItem} className="px-3 py-2.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-900 truncate">{g.categoryOrItem}</div>
+                        <div className="text-[11px] text-slate-500">
+                          Stok siap: {g.readyStockCount} · Defisit: {g.netGap} unit ({g.priority})
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold tabular-nums text-slate-900 shrink-0">
+                        Rp {g.estimatedBudgetRp.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-
-            {/* Requirement 3.2: Analitik performa teknisi PUSDATIN TIDAK ditampilkan untuk Rektor dan Wakil Rektor 1 */}
-            {!isRektorOrWarek ? (
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-                <h2 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <Users className="w-4 h-4 text-emerald-600" />
-                  Kinerja Helpdesk & SLA per PIC Teknisi
-                </h2>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
-                      <tr>
-                        <th className="py-2.5 px-3">Teknisi & Role</th>
-                        <th className="py-2.5 px-3 text-center">Ditugaskan</th>
-                        <th className="py-2.5 px-3 text-center">Selesai</th>
-                        <th className="py-2.5 px-3 text-right">SLA On-Time</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {picReports.map(pic => (
-                        <tr key={pic.technicianId} className="hover:bg-slate-50">
-                          <td className="py-2.5 px-3">
-                            <div className="font-bold text-slate-900">{pic.technicianName}</div>
-                            <div className="text-[10px] text-slate-500">{pic.role}</div>
-                          </td>
-                          <td className="py-2.5 px-3 text-center font-mono font-semibold">{pic.totalAssigned}</td>
-                          <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-700">
-                            {pic.totalResolved}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold">
-                            <span
-                              className={`px-2 py-0.5 rounded ${
-                                pic.slaOnTimeRate >= 90
-                                  ? 'bg-emerald-50 text-emerald-800'
-                                  : 'bg-amber-50 text-amber-800'
-                              }`}
-                            >
-                              {pic.slaOnTimeRate}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              /* When viewing as Rektor or Warek 1, replace with Rekap Nilai Aset per Kategori */
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-                <h2 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-600" />
-                  Ringkasan Nilai Aset per Kategori
-                </h2>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
-                      <tr>
-                        <th className="py-2 px-3">Kategori</th>
-                        <th className="py-2 px-3 text-center">Total Unit</th>
-                        <th className="py-2 px-3 text-right">Total Nilai</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {rekapKategori.map(rk => (
-                        <tr key={rk.kategori} className="hover:bg-slate-50">
-                          <td className="py-2.5 px-3 font-semibold text-slate-900">{rk.kategori}</td>
-                          <td className="py-2.5 px-3 text-center font-mono">{rk.jumlahAset} Unit</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                            Rp {rk.nilaiAsetTotal.toLocaleString('id-ID')}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+          </section>
         </div>
       )}
 
-      {/* TAB 2: DASHBOARD OPERASIONAL (Requirement 3.2: Logistik, Buku Penerimaan, & Buku Pengeluaran) */}
+      {/* TAB 2: LOGISTIK & MUTASI ASET */}
       {dashboardTab === 'operasional' && (
         <div className="space-y-6">
-          {/* Summary Cards: Penerimaan & Pengeluaran */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-emerald-200 bg-emerald-50/30 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-emerald-800 font-bold">
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
                 <span>Buku Penerimaan Aset</span>
-                <PackagePlus className="w-5 h-5 text-emerald-600" />
+                <PackagePlus className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="text-3xl font-extrabold font-mono text-emerald-950 mt-2">
-                {penerimaanList.length} <span className="text-xs font-normal text-emerald-700">Faktur/BAST</span>
+              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-2">
+                {penerimaanList.length} BAST
               </div>
-              <p className="text-[11px] text-emerald-800 mt-1 font-medium">
-                Total {totalBarangMasuk} Unit Barang Diterima
-              </p>
+              <p className="text-[11px] text-slate-500 mt-1">Total {totalBarangMasuk} unit masuk</p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-blue-200 bg-blue-50/30 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-blue-800 font-bold">
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
                 <span>Buku Pengeluaran Aset</span>
-                <PackageMinus className="w-5 h-5 text-blue-600" />
+                <PackageMinus className="w-4 h-4 text-blue-600" />
               </div>
-              <div className="text-3xl font-extrabold font-mono text-blue-950 mt-2">
-                {pengeluaranList.length} <span className="text-xs font-normal text-blue-700">Distribusi</span>
+              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-2">
+                {pengeluaranList.length} Mutasi
               </div>
-              <p className="text-[11px] text-blue-800 mt-1 font-medium">
-                Total {totalBarangKeluar} Unit Barang Terpasang
-              </p>
+              <p className="text-[11px] text-slate-500 mt-1">Total {totalBarangKeluar} unit keluar</p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-amber-200 bg-amber-50/30 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-amber-800 font-bold">
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
                 <span>Tiket Kerusakan Aktif</span>
-                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
               </div>
-              <div className="text-3xl font-extrabold font-mono text-amber-950 mt-2">
-                {damageTickets.filter(t => t.status !== 'Resolved' && !t.status.startsWith('Closed')).length}{' '}
-                <span className="text-xs font-normal text-amber-700">Tiket</span>
+              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-2">
+                {damageTickets.filter(t => t.status !== 'Resolved' && !t.status.startsWith('Closed')).length} Tiket
               </div>
-              <p className="text-[11px] text-amber-800 mt-1 font-medium">
-                {damageTickets.filter(t => t.status === 'In Progress').length} Dalam Pengerjaan
+              <p className="text-[11px] text-slate-500 mt-1">
+                {damageTickets.filter(t => t.status === 'In Progress').length} sedang diperbaiki
               </p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-purple-200 bg-purple-50/30 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-purple-800 font-bold">
-                <span>Peminjaman Aset Berjalan</span>
-                <CheckSquare className="w-5 h-5 text-purple-600" />
+            <div className="bg-white p-5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
+                <span>Peminjaman Berjalan</span>
+                <CheckSquare className="w-4 h-4 text-slate-600" />
               </div>
-              <div className="text-3xl font-extrabold font-mono text-purple-950 mt-2">
-                {loanTickets.filter(l => l.status === 'Diserahkan' || l.status === 'Disetujui' || l.status === 'Dikonfirmasi').length}{' '}
-                <span className="text-xs font-normal text-purple-700">Aset</span>
+              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-2">
+                {loanTickets.filter(l => l.status === 'Diserahkan' || l.status === 'Disetujui' || l.status === 'Dikonfirmasi').length} Unit
               </div>
-              <p className="text-[11px] text-purple-800 mt-1 font-medium">
-                {loanTickets.filter(l => l.status === 'Diajukan' || l.status === 'Menunggu').length} Menunggu Review
+              <p className="text-[11px] text-slate-500 mt-1">
+                {loanTickets.filter(l => l.status === 'Diajukan' || l.status === 'Menunggu').length} menunggu persetujuan
               </p>
             </div>
           </div>
 
-          {/* Operational Tables: Penerimaan Terkini & Pengeluaran Terkini */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 5 Penerimaan Terakhir */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <PackagePlus className="w-4 h-4 text-emerald-600" />
-                  Penerimaan Aset Terkini
-                </h3>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                  {penerimaanList.length} BAST Masuk
-                </span>
-              </div>
-
+            <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-3">
+              <h3 className="font-bold text-slate-900 text-sm">Penerimaan Aset Terkini</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase">
                     <tr>
-                      <th className="py-2.5 px-3">No. BAST</th>
-                      <th className="py-2.5 px-3">Sumber / Vendor</th>
-                      <th className="py-2.5 px-3 text-center">Tanggal</th>
-                      <th className="py-2.5 px-3 text-right">Nilai Total</th>
+                      <th className="py-2 px-3">No. BAST</th>
+                      <th className="py-2 px-3">Vendor</th>
+                      <th className="py-2 px-3 text-right">Nilai Total</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                  <tbody className="divide-y divide-slate-100">
                     {penerimaanList.slice(0, 5).map(p => (
-                      <tr key={p.idPenerimaan} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3">
-                          <div className="font-mono font-bold text-slate-900">{p.nomorBeritaAcara}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {p.items ? `${p.items.length} macam barang` : p.namaAset}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-700 font-medium">{p.dari}</td>
-                        <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-500">
-                          {p.tanggalPenerimaan}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
+                      <tr key={p.idPenerimaan}>
+                        <td className="py-2 px-3 font-mono font-semibold text-slate-900">{p.nomorBeritaAcara}</td>
+                        <td className="py-2 px-3 text-slate-700">{p.dari}</td>
+                        <td className="py-2 px-3 text-right font-mono font-bold tabular-nums text-emerald-700">
                           Rp {(p.jumlahHarga || 0).toLocaleString('id-ID')}
                         </td>
                       </tr>
@@ -596,42 +873,23 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
               </div>
             </div>
 
-            {/* 5 Pengeluaran Terakhir */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <PackageMinus className="w-4 h-4 text-blue-600" />
-                  Pengeluaran & Distribusi Terkini
-                </h3>
-                <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
-                  {pengeluaranList.length} Distribusi
-                </span>
-              </div>
-
+            <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-3">
+              <h3 className="font-bold text-slate-900 text-sm">Pengeluaran &amp; Distribusi Terkini</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase">
                     <tr>
-                      <th className="py-2.5 px-3">ID / Aset</th>
-                      <th className="py-2.5 px-3">Tujuan / Ruangan</th>
-                      <th className="py-2.5 px-3 text-center">Tanggal</th>
-                      <th className="py-2.5 px-3">Petugas</th>
+                      <th className="py-2 px-3">ID Mutasi</th>
+                      <th className="py-2 px-3">Tujuan</th>
+                      <th className="py-2 px-3">Tanggal</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                  <tbody className="divide-y divide-slate-100">
                     {pengeluaranList.slice(0, 5).map(pg => (
-                      <tr key={pg.idPengeluaran} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3">
-                          <div className="font-mono font-bold text-slate-900">{pg.idPengeluaran}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {pg.items ? `${pg.items.length} jenis aset` : pg.namaAset}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-800 font-semibold">{pg.untuk}</td>
-                        <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-500">
-                          {pg.tanggalPenyerahan}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-700 font-medium">{pg.petugas || 'Admin PUSDATIN'}</td>
+                      <tr key={pg.idPengeluaran}>
+                        <td className="py-2 px-3 font-mono font-semibold text-slate-900">{pg.idPengeluaran}</td>
+                        <td className="py-2 px-3 text-slate-700">{pg.untuk}</td>
+                        <td className="py-2 px-3 font-mono text-slate-500">{pg.tanggalPenyerahan}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -641,9 +899,10 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
         </div>
       )}
+
       <SignatoryConfirmModal
         isOpen={isSignatoryModalOpen}
-        documentTitle={`Laporan Eksekutif Dashboard PUSDATIN (${selectedMonth})`}
+        documentTitle={`Laporan Dashboard Eksekutif PUSDATIN (${activePeriodLabel})`}
         showPimpinanUniv={true}
         showPetugas={false}
         onClose={() => setIsSignatoryModalOpen(false)}

@@ -20,6 +20,12 @@ import { AppDatabase } from '../../services/db';
 import { BukuPengeluaranItem, Asset } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 
 interface BukuPengeluaranViewProps {
   onDataChanged?: () => void;
@@ -32,6 +38,8 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
   const [searchTerm, setSearchTerm] = useState('');
   const [filterJenis, setFilterJenis] = useState<'Semua' | 'Penggunaan' | 'Peminjaman'>('Semua');
   const [filterMonth, setFilterMonth] = useState('');
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
 
   // Multi-item Issuance Modal (Jalur 1)
   const [isJalur1ModalOpen, setIsJalur1ModalOpen] = useState(false);
@@ -127,22 +135,28 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
     const listToPrint = pengeluaranList.filter(item => {
       const dateStr = item.tanggalPenyerahan || item.tanggalPengeluaran || '';
       const matchMonth = filterMonth ? dateStr.startsWith(filterMonth) : true;
+      const matchCadence = matchesReportingPeriod(dateStr, cadence, periodKey);
       const matchJenis = filterJenis === 'Semua' || item.jenisPengeluaran === filterJenis;
-      return matchMonth && matchJenis;
+      return matchMonth && matchCadence && matchJenis;
     });
 
     if (listToPrint.length === 0) {
       setStatusBanner({
         type: 'info',
-        message: 'Tidak ada data pengeluaran untuk bulan atau filter yang dipilih.'
+        message: 'Tidak ada data pengeluaran untuk periode atau filter yang dipilih.'
       });
       return;
     }
 
+    const activePeriod =
+      cadence !== 'semua'
+        ? getStandardPeriodLabel(cadence, periodKey)
+        : filterMonth || 'Semua Periode';
+
     setPendingPrint({
       type: 'monthly',
       list: listToPrint,
-      period: filterMonth || 'Semua Periode'
+      period: activePeriod
     });
   };
 
@@ -191,7 +205,8 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
     const matchFilter = filterJenis === 'Semua' || item.jenisPengeluaran === filterJenis;
     const dateStr = item.tanggalPenyerahan || item.tanggalPengeluaran || '';
     const matchMonth = filterMonth ? dateStr.startsWith(filterMonth) : true;
-    return matchSearch && matchFilter && matchMonth;
+    const matchCadence = matchesReportingPeriod(dateStr, cadence, periodKey);
+    return matchSearch && matchFilter && matchMonth && matchCadence;
   });
 
   return (
@@ -201,12 +216,12 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-800 text-xs font-bold font-mono">
-              MODUL A.2
+              MODUL A.2 · MUTASI &amp; DISTRIBUSI
             </span>
-            <h1 className="text-xl font-bold text-slate-900">Buku Pengeluaran Aset TI</h1>
+            <h1 className="text-xl font-bold text-slate-900">Laporan Mutasi &amp; Distribusi (Buku Pengeluaran)</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Mencatat mutasi pengeluaran multi-aset untuk keperluan yang sama (Jalur 1) dan pengeluaran otomatis peminjaman (Jalur 2).
+            Pelacakan pengeluaran aset untuk operasional ruangan maupun peminjaman sementara civitas secara akurat.
           </p>
         </div>
 
@@ -240,6 +255,15 @@ export const BukuPengeluaranView: React.FC<BukuPengeluaranViewProps> = ({ onData
           )}
         </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="buku-pengeluaran"
+        dates={pengeluaranList.map(pg => pg.tanggalPenyerahan || pg.tanggalPengeluaran)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {/* Inline Status Banner */}
       {statusBanner && (

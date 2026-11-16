@@ -24,10 +24,18 @@ import {
   getModuleLabel
 } from '../../services/surveyService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 
 export const SurveyRecapView: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState<string>(''); // '' = Semua Periode
   const [moduleFilter, setModuleFilter] = useState<'Semua' | SurveyModuleType>('Semua');
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
   const [showSignatoryModal, setShowSignatoryModal] = useState(false);
   const [feedbackBanner, setFeedbackBanner] = useState<string | null>(null);
 
@@ -36,7 +44,7 @@ export const SurveyRecapView: React.FC = () => {
     allSurveys,
     selectedMonth || 'Semua',
     moduleFilter
-  );
+  ).filter(s => matchesReportingPeriod(s.submittedAtIso || s.monthKey, cadence, periodKey));
   const agg = computeAggregateSurveyStats(filteredSurveys);
 
   const distinctMonths = Array.from(new Set(allSurveys.map(s => s.monthKey))).sort((a, b) =>
@@ -120,7 +128,10 @@ export const SurveyRecapView: React.FC = () => {
   };
 
   const handleConfirmPdf = (sig: ConfirmedSignatoryValues) => {
-    const periodLabel = formatMonthLabel(selectedMonth);
+    const periodLabel =
+      cadence !== 'semua'
+        ? getStandardPeriodLabel(cadence, periodKey)
+        : formatMonthLabel(selectedMonth);
     const doc = PdfReportService.generateSurveyRecapMonthlyPdf(
       filteredSurveys,
       periodLabel,
@@ -134,11 +145,11 @@ export const SurveyRecapView: React.FC = () => {
       }
     );
     doc.save(
-      `Laporan_Rekap_Survei_CSAT_${selectedMonth || 'Semua'}_${moduleFilter}.pdf`
+      `Laporan_Indeks_CSAT_${periodKey || selectedMonth || 'Semua'}_${moduleFilter}.pdf`
     );
     setShowSignatoryModal(false);
     setFeedbackBanner(
-      `Laporan PDF Rekapitulasi Survei Kepuasan (${periodLabel}) berhasil diunduh.`
+      `Laporan Indeks CSAT (${periodLabel}) berhasil diunduh.`
     );
     setTimeout(() => setFeedbackBanner(null), 4000);
   };
@@ -153,12 +164,12 @@ export const SurveyRecapView: React.FC = () => {
               ITIL CONTINUAL IMPROVEMENT
             </span>
             <h1 className="text-xl font-bold text-slate-900">
-              Rekapitulasi Survei Kepuasan Pengguna (CSAT)
+              Laporan Indeks CSAT &amp; Rekap Survei Kepuasan
             </h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Evaluasi terpadu kepuasan sivitas akademika pada modul <strong>Laporan Kerusakan</strong>,{' '}
-            <strong>Peminjaman Aset IT</strong>, dan <strong>Pasca-Implementasi Sistem Baru</strong>.
+            Evaluasi mutu layanan per modul (<strong>Laporan Kerusakan</strong>,{' '}
+            <strong>Peminjaman Aset</strong>, dan <strong>Sistem Baru</strong>) terhadap target ITIL (&ge; 85%).
           </p>
         </div>
 
@@ -184,6 +195,15 @@ export const SurveyRecapView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="rekap-survei"
+        dates={allSurveys.map(s => s.submittedAtIso || s.monthKey)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {feedbackBanner && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2">

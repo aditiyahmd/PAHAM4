@@ -19,7 +19,9 @@ import {
   Upload,
   SlidersHorizontal,
   Gauge,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  Printer
 } from 'lucide-react';
 import { AppDatabase } from '../../services/db';
 import { SystemProposal, SystemProposalStatus, ServiceSlaConfig } from '../../types';
@@ -31,6 +33,14 @@ import {
 } from '../../services/slaService';
 import { AccessControlService } from '../../services/rbac';
 import { WhatsAppNotificationService } from '../../services/whatsappService';
+import { PdfReportService } from '../../services/pdfReportService';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 
 interface SystemProposalManagementProps {
   onDataChanged?: () => void;
@@ -67,13 +77,58 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
   const [showProposalSlaModal, setShowProposalSlaModal] = useState(false);
   const [proposalSlaDraft, setProposalSlaDraft] = useState(() => AppDatabase.getServiceSlaConfig().proposal);
   const [proposalSlaFeedback, setProposalSlaFeedback] = useState<string | null>(null);
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
+  const [showRfcPdfSignatory, setShowRfcPdfSignatory] = useState(false);
 
   const activeUser = AppDatabase.getActiveUser();
   const canEditServiceSla = activeUser?.role === 'ACT-02' || activeUser?.role === 'ACT-03';
-  const proposalSlaStats = computeAggregateProposalSlaStats(proposals, serviceSlaConfig);
+  const filteredProposals = proposals.filter(p =>
+    matchesReportingPeriod(p.createdAtIso || p.tanggalPengajuan, cadence, periodKey)
+  );
+  const proposalSlaStats = computeAggregateProposalSlaStats(filteredProposals, serviceSlaConfig);
   const selectedProposalSla = selectedProposal
     ? computeProposalSlaEvaluation(selectedProposal, serviceSlaConfig)
     : null;
+
+  const handleExportRfcCsv = () => {
+    const headers = [
+      'ID RFC',
+      'Nama Aplikasi / Sistem',
+      'Unit Pengusul',
+      'Pemohon',
+      'Tanggal Pengajuan',
+      'Status Tahap',
+      'Progres Sprint (%)',
+      'SLA Feasibility Study',
+      'SLA Analisis BRD'
+    ];
+    const rows = filteredProposals.map(p => {
+      const ev = computeProposalSlaEvaluation(p, serviceSlaConfig);
+      return [
+        p.id,
+        `"${p.namaSistem.replace(/"/g, '""')}"`,
+        `"${p.unitKerja.replace(/"/g, '""')}"`,
+        `"${p.pemohon.replace(/"/g, '""')}"`,
+        p.tanggalPengajuan,
+        p.status,
+        String(p.pengembangan?.progresPersen ?? 0),
+        ev.feasibilityStatus,
+        ev.brdStatus
+      ];
+    });
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Laporan_Portofolio_RFC_Akreditasi_${periodKey || 'Semua'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setProposalSlaFeedback('Portofolio Alur 5-Tahap RFC berhasil diekspor ke CSV (Akreditasi LAM/BAN-PT).');
+    setTimeout(() => setProposalSlaFeedback(null), 4000);
+  };
 
   const reloadData = () => {
     const list = AppDatabase.getSystemProposals();
@@ -147,16 +202,37 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-md bg-cyan-100 text-cyan-800 text-xs font-bold font-mono">
-              MODUL 5.4 & F-DEV
+              MODUL 5.4 &amp; RFC 5-TAHAP
             </span>
-            <h1 className="text-xl font-bold text-slate-900">Pengajuan Sistem Baru & Pengembangan Aplikasi</h1>
+            <h1 className="text-xl font-bold text-slate-900">Laporan Alur 5-Tahap RFC &amp; Pengembangan Sistem Baru</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Alur 5-Tahap Terintegrasi: <strong>Verifikasi</strong> (Admin) → <strong>Analisis</strong> (System Analyst) → <strong>Keamanan</strong> (Cyber Security) → <strong>Approval</strong> (Pimpinan PUSDATIN) → <strong>Eksekusi & Serah Terima</strong> (Lead Dev & Programmer).
+            Pemantauan Feasibility Study, Analisis BRD, Uji Keamanan, Approval Kepala PUSDATIN, hingga Sprint Pengembangan aplikasi.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="export-rfc-csv-btn"
+            onClick={handleExportRfcCsv}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 shadow-xs cursor-pointer whitespace-nowrap"
+            title="Ekspor portofolio pengembangan sistem untuk keperluan akreditasi LAM/BAN-PT"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Ekspor CSV (Akreditasi)</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="print-rfc-pdf-btn"
+            onClick={() => setShowRfcPdfSignatory(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs cursor-pointer whitespace-nowrap"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Cetak Portofolio RFC PDF</span>
+          </button>
+
           {canEditServiceSla && (
             <button
               type="button"
@@ -179,6 +255,15 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
           </div>
         </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="pengajuan-sistem"
+        dates={proposals.map(p => p.createdAtIso || p.tanggalPengajuan)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {proposalSlaFeedback && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2">
@@ -259,10 +344,10 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
         {/* Left Column: Proposals List */}
         <div className="space-y-3">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-500 px-1">
-            Daftar Usulan Sistem ({proposals.length})
+            Daftar Usulan Sistem ({filteredProposals.length})
           </div>
 
-          {proposals.map(item => (
+          {filteredProposals.map(item => (
             <div
               key={item.id}
               onClick={() => setSelectedProposal(item)}
@@ -962,6 +1047,30 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
           </div>
         </div>
       )}
+
+      <SignatoryConfirmModal
+        isOpen={showRfcPdfSignatory}
+        documentTitle={`Laporan Portofolio 5-Tahap RFC Sistem Baru (${getStandardPeriodLabel(cadence, periodKey)})`}
+        showPimpinanUniv={true}
+        showPetugas={false}
+        onClose={() => setShowRfcPdfSignatory(false)}
+        onConfirm={(values: ConfirmedSignatoryValues) => {
+          const periodLabel = getStandardPeriodLabel(cadence, periodKey);
+          const doc = PdfReportService.generateRfcPortfolioReportPdf(
+            filteredProposals,
+            periodLabel,
+            serviceSlaConfig,
+            {
+              kepalaPusdatin: values.kepalaPusdatin,
+              nipKepala: values.nipKepala,
+              pimpinanUniv: values.pimpinanUniv,
+              pimpinanUnivJabatan: values.pimpinanUnivJabatan
+            }
+          );
+          doc.save(`Laporan_Portofolio_RFC_Sistem_${periodKey || 'Semua'}.pdf`);
+          setShowRfcPdfSignatory(false);
+        }}
+      />
     </div>
   );
 };

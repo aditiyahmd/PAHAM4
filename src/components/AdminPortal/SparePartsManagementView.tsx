@@ -21,6 +21,13 @@ import { AppDatabase, SparePartWithTicket } from '../../services/db';
 import { SparePartStatus, TicketUrgency } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  computeAssetGapAnalysis,
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 
 interface SparePartsManagementViewProps {
   onDataChanged: () => void;
@@ -35,8 +42,18 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
   const [newStatus, setNewStatus] = useState<SparePartStatus>('Sudah Dibeli');
   const [statusNote, setStatusNote] = useState('');
   const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
+  const [printMode, setPrintMode] = useState<'parts' | 'gap'>('parts');
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
+  const [statusBanner, setStatusBanner] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const allParts = AppDatabase.getAllSpareParts();
+  const assets = AppDatabase.getAssets();
+  const rekapList = AppDatabase.getBukuAsetInventarisRekap();
+  const gapRows = computeAssetGapAnalysis(assets, rekapList, allParts, 2);
 
   const filteredParts = allParts.filter(part => {
     const matchesSearch =
@@ -48,15 +65,16 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
 
     const matchesStatus = statusFilter === 'Semua' || part.statusPengadaan === statusFilter;
     const matchesUrgency = urgencyFilter === 'Semua' || part.urgensi === urgencyFilter;
+    const matchesPeriod = matchesReportingPeriod(part.tanggalKebutuhan, cadence, periodKey);
 
-    return matchesSearch && matchesStatus && matchesUrgency;
+    return matchesSearch && matchesStatus && matchesUrgency && matchesPeriod;
   });
 
   // Metrics
-  const totalParts = allParts.length;
-  const belumDibeli = allParts.filter(p => p.statusPengadaan === 'Belum Dibeli').length;
-  const sudahDibeli = allParts.filter(p => p.statusPengadaan === 'Sudah Dibeli').length;
-  const sudahDigunakan = allParts.filter(p => p.statusPengadaan === 'Sudah Digunakan').length;
+  const totalParts = filteredParts.length;
+  const belumDibeli = filteredParts.filter(p => p.statusPengadaan === 'Belum Dibeli').length;
+  const sudahDibeli = filteredParts.filter(p => p.statusPengadaan === 'Sudah Dibeli').length;
+  const sudahDigunakan = filteredParts.filter(p => p.statusPengadaan === 'Sudah Digunakan').length;
 
   const handleOpenStatusModal = (part: SparePartWithTicket) => {
     setSelectedPart(part);
@@ -81,10 +99,47 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
       setStatusModalOpen(false);
       setSelectedPart(null);
       onDataChanged();
-      alert(res.message);
+      setStatusBanner({ type: 'success', message: res.message });
     } else {
-      alert(res.message);
+      setStatusBanner({ type: 'error', message: res.message });
     }
+    setTimeout(() => setStatusBanner(null), 4000);
+  };
+
+  const handleExportGapCsv = () => {
+    const headers = [
+      'Kategori / Komponen',
+      'Stok Siap (Unit)',
+      'Permintaan Suku Cadang (Unit)',
+      'Pengganti Afkir (Unit)',
+      'Defisit Net Gap (Unit)',
+      'Prioritas',
+      'Est. Harga Satuan (Rp)',
+      'Est. Kebutuhan RAPBU (Rp)',
+      'Rekomendasi Pengadaan'
+    ];
+    const rows = gapRows.map(g => [
+      `"${g.categoryOrItem.replace(/"/g, '""')}"`,
+      String(g.readyStockCount),
+      String(g.demandSparePartsCount),
+      String(g.damagedReplacementCount),
+      String(g.netGap),
+      `"${g.priority}"`,
+      String(g.estimatedUnitCostRp),
+      String(g.estimatedBudgetRp),
+      `"${g.recommendation.replace(/"/g, '""')}"`
+    ]);
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Laporan_Gap_Analysis_Kebutuhan_Aset_${periodKey || 'Semua'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setStatusBanner({ type: 'success', message: 'Laporan Analisis Kesenjangan (Gap Analysis) berhasil diekspor ke CSV.' });
+    setTimeout(() => setStatusBanner(null), 4000);
   };
 
   const getUrgencyBadge = (urgensi: TicketUrgency) => {
@@ -153,20 +208,74 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
             <Wrench className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Pusat Kebutuhan & Pengadaan Suku Cadang Aset
+                Laporan Analisis Kesenjangan (Gap Analysis) &amp; Suku Cadang
               </h2>
-              <span className="px-2 py-0.5 text-[10px] font-bold bg-red-100 text-red-700 rounded-md border border-red-200">
-                Akses Penuh
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-red-100 text-red-700 rounded-md border border-red-200 whitespace-nowrap shrink-0">
+                Capacity &amp; Demand ITIL
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Pantau seluruh komponen yang dibutuhkan pada tiket kerusakan. Perbarui status apakah suku cadang <strong>Belum Dibeli</strong>, <strong>Sudah Dibeli</strong>, atau <strong>Sudah Digunakan</strong> oleh teknisi.
+              Proyeksi kebutuhan aset &amp; suku cadang unit kerja dibandingkan stok gudang PUSDATIN serta pembaruan status pengadaan.
             </p>
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            data-testid="export-gap-csv-btn"
+            onClick={handleExportGapCsv}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Ekspor CSV Gap Analysis</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="print-gap-pdf-btn"
+            onClick={() => {
+              setPrintMode('gap');
+              setIsSignatoryModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Cetak Gap Analysis PDF</span>
+          </button>
+        </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="suku-cadang"
+        dates={allParts.map(p => p.tanggalKebutuhan)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
+
+      {statusBanner && (
+        <div
+          role="status"
+          className={`px-4 py-3 rounded-xl border text-xs font-semibold flex items-center justify-between ${
+            statusBanner.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : 'bg-rose-50 border-rose-200 text-rose-900'
+          }`}
+        >
+          <span>{statusBanner.message}</span>
+          <button
+            type="button"
+            onClick={() => setStatusBanner(null)}
+            className="text-current font-bold px-2 cursor-pointer"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -263,13 +372,83 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
           {/* Cetak Laporan Suku Cadang PDF */}
           <button
             type="button"
-            onClick={() => setIsSignatoryModalOpen(true)}
+            onClick={() => {
+              setPrintMode('parts');
+              setIsSignatoryModalOpen(true);
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
             title="Cetak Rekap Kebutuhan Suku Cadang berdasarkan status yang dipilih"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>Cetak PDF ({statusFilter})</span>
+            <span>Cetak PDF Suku Cadang ({statusFilter})</span>
           </button>
+        </div>
+      </div>
+
+      {/* Analisis Kesenjangan (Gap Analysis): Kebutuhan Unit vs Stok Gudang */}
+      <div
+        data-testid="gap-analysis-table"
+        className="bg-white rounded-xl border border-slate-200 p-5 space-y-3"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">
+              Analisis Kesenjangan (Gap Analysis): Kebutuhan Unit vs Stok Gudang PUSDATIN
+            </h3>
+            <p className="text-xs text-slate-500">
+              Proyeksi kebutuhan pengadaan dan estimasi RAPBU berdasarkan stok siap pakai, pengajuan suku cadang, dan aset afkir.
+            </p>
+          </div>
+          <span className="text-xs font-mono font-bold text-slate-900 tabular-nums shrink-0">
+            Est. RAPBU: Rp {gapRows.reduce((s, r) => s + r.estimatedBudgetRp, 0).toLocaleString('id-ID')}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px]">
+              <tr>
+                <th className="py-2 px-3">Kategori / Komponen</th>
+                <th className="py-2 px-3 text-right">Stok Siap</th>
+                <th className="py-2 px-3 text-right">Butuh Part</th>
+                <th className="py-2 px-3 text-right">Afkir</th>
+                <th className="py-2 px-3 text-right">Defisit (Gap)</th>
+                <th className="py-2 px-3">Prioritas</th>
+                <th className="py-2 px-3 text-right">Est. RAPBU (Rp)</th>
+                <th className="py-2 px-3">Rekomendasi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {gapRows.map(row => (
+                <tr key={row.categoryOrItem} className="hover:bg-slate-50">
+                  <td className="py-2.5 px-3 font-semibold text-slate-900">{row.categoryOrItem}</td>
+                  <td className="py-2.5 px-3 text-right font-mono tabular-nums">{row.readyStockCount}</td>
+                  <td className="py-2.5 px-3 text-right font-mono tabular-nums">{row.demandSparePartsCount}</td>
+                  <td className="py-2.5 px-3 text-right font-mono tabular-nums">{row.damagedReplacementCount}</td>
+                  <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-rose-700">
+                    {row.netGap}
+                  </td>
+                  <td className="py-2.5 px-3 whitespace-nowrap">
+                    <span
+                      className={`text-[11px] font-bold ${
+                        row.priority === 'Kritis (Defisit)'
+                          ? 'text-rose-700'
+                          : row.priority === 'Perhatian (Menipis)'
+                          ? 'text-amber-700'
+                          : 'text-emerald-700'
+                      }`}
+                    >
+                      {row.priority}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-mono font-semibold tabular-nums text-slate-900 whitespace-nowrap">
+                    Rp {row.estimatedBudgetRp.toLocaleString('id-ID')}
+                  </td>
+                  <td className="py-2.5 px-3 text-[11px] text-slate-600">{row.recommendation}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -496,16 +675,31 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
       )}
       <SignatoryConfirmModal
         isOpen={isSignatoryModalOpen}
-        documentTitle={`Laporan Pengadaan Suku Cadang (${statusFilter})`}
+        documentTitle={
+          printMode === 'gap'
+            ? `Laporan Analisis Kesenjangan (Gap Analysis) (${getStandardPeriodLabel(cadence, periodKey)})`
+            : `Laporan Pengadaan Suku Cadang (${statusFilter})`
+        }
         onClose={() => setIsSignatoryModalOpen(false)}
         onConfirm={(values: ConfirmedSignatoryValues) => {
-          const doc = PdfReportService.generateSparePartsPdf(filteredParts, statusFilter, {
-            kepalaPusdatin: values.kepalaPusdatin,
-            nipKepala: values.nipKepala,
-            petugas: values.petugas
-          });
-          const safeStatus = statusFilter.replace(/[^a-zA-Z0-9_-]/g, '_');
-          doc.save(`Laporan_Suku_Cadang_${safeStatus}_${new Date().toISOString().split('T')[0]}.pdf`);
+          const periodLabel = getStandardPeriodLabel(cadence, periodKey);
+          if (printMode === 'gap') {
+            const doc = PdfReportService.generateGapAnalysisPdf(gapRows, periodLabel, {
+              kepalaPusdatin: values.kepalaPusdatin,
+              nipKepala: values.nipKepala,
+              petugas: values.petugas
+            });
+            doc.save(`Laporan_Gap_Analysis_PUSDATIN_${periodKey || 'Semua'}.pdf`);
+          } else {
+            const doc = PdfReportService.generateSparePartsPdf(filteredParts, statusFilter, {
+              kepalaPusdatin: values.kepalaPusdatin,
+              nipKepala: values.nipKepala,
+              petugas: values.petugas
+            });
+            const safeStatus = statusFilter.replace(/[^a-zA-Z0-9_-]/g, '_');
+            doc.save(`Laporan_Suku_Cadang_${safeStatus}_${new Date().toISOString().split('T')[0]}.pdf`);
+          }
+          setIsSignatoryModalOpen(false);
         }}
       />
     </div>

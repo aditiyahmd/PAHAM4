@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { AppDatabase } from '../../services/db';
 import { Asset } from '../../types';
 import { BarcodeView } from '../BarcodeView';
-import { Barcode, Search, Printer, Sliders, ArrowUp, Sparkles, RefreshCw } from 'lucide-react';
+import { Barcode, Search, Sliders, ArrowUp, Sparkles, RefreshCw, Smartphone, ExternalLink } from 'lucide-react';
+import {
+  BLUETOOTH_PRINT_APP_URL,
+  buildAndroidStickerSchemeUrl
+} from '../../services/bluetoothPrintService';
 
 export const BarcodeScannerThermal: React.FC = () => {
   // Search state
@@ -219,15 +223,79 @@ export const BarcodeScannerThermal: React.FC = () => {
               />
               <button
                 type="button"
-                onClick={() => alert(`Kertas dimajukan ${paperFeedMm} mm.`)}
-                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs"
+                onClick={() => setPaperFeedMm(prev => prev)}
+                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+                title="Gunakan tombol Test Print Android untuk menguji tarikan kertas langsung ke printer thermal"
               >
                 <ArrowUp className="w-3.5 h-3.5" />
-                <span>Feed</span>
+                <span>Set {paperFeedMm} mm</span>
               </button>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Android Bluetooth Print App Setup Guide & Test Print */}
+      <div
+        data-testid="android-bt-guide-card"
+        className="bg-emerald-50/70 rounded-xl border border-emerald-200 p-6 shadow-xs space-y-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base text-emerald-950">
+                Cetak Langsung dari Android (Aplikasi Bluetooth Print)
+              </h3>
+              <p className="text-xs text-emerald-800 mt-0.5">
+                Mendukung printer thermal Bluetooth maupun USB OTG melalui browser Chrome Android menggunakan skema <code className="font-mono font-bold">my.bluetoothprint.scheme://</code>.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <a
+              href={BLUETOOTH_PRINT_APP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xl text-xs font-bold transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Unduh Aplikasi (Play Store)</span>
+            </a>
+
+            <a
+              href={buildAndroidStickerSchemeUrl({
+                code: customCode || '20495812',
+                name: customName || 'Test Print Thermal PUSDATIN UMC',
+                kategori: 'Uji Cetak Android',
+                lokasi: `Feed ${paperFeedMm}mm / Pitch ${pitchMm}mm`
+              })}
+              data-testid="android-bt-test-print"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Test Print via Android</span>
+            </a>
+          </div>
+        </div>
+
+        <ol className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-emerald-950">
+          <li className="bg-white/90 rounded-lg border border-emerald-200 p-3 space-y-1">
+            <span className="font-bold block text-emerald-700">1. Aktifkan Browser Print</span>
+            <span>Buka aplikasi <strong>Bluetooth Print</strong> di HP/Tablet Android Anda, hubungkan ke printer thermal Bluetooth/USB, lalu aktifkan opsi <strong>Browser Print</strong> di menu Settings.</span>
+          </li>
+          <li className="bg-white/90 rounded-lg border border-emerald-200 p-3 space-y-1">
+            <span className="font-bold block text-emerald-700">2. Buka Web di Chrome Android</span>
+            <span>Akses portal PAHAM PUSDATIN UMC melalui browser Chrome di Android pada URL aktif saat ini.</span>
+          </li>
+          <li className="bg-white/90 rounded-lg border border-emerald-200 p-3 space-y-1">
+            <span className="font-bold block text-emerald-700">3. Klik Print Thermal Android</span>
+            <span>Tekan tombol hijau <strong>Print Thermal Android</strong> pada kartu barcode atau struk tiket; aplikasi Bluetooth Print otomatis mengambil data JSON dan mencetak ke printer.</span>
+          </li>
+        </ol>
       </div>
     </div>
   );

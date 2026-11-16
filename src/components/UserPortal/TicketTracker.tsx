@@ -33,8 +33,10 @@ import {
   Info,
   Star,
   Sparkles,
-  Code2
+  Code2,
+  Smartphone
 } from 'lucide-react';
+import { buildAndroidReceiptSchemeUrl } from '../../services/bluetoothPrintService';
 import { LoanTicket, DamageTicket, SystemProposal, SurveyModuleType } from '../../types';
 
 interface TicketTrackerProps {
@@ -397,17 +399,38 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {isApproved && (
                           <button
                             type="button"
                             onClick={() => downloadReceipt(loan)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg shadow-xs"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg shadow-xs cursor-pointer"
                           >
                             <Printer className="w-3.5 h-3.5 text-red-600" />
                             <span>Cetak Bukti Pinjam (PDF)</span>
                           </button>
                         )}
+
+                        <a
+                          href={buildAndroidReceiptSchemeUrl({
+                            title: 'BUKTI TIKET PEMINJAMAN ASET',
+                            subtitle: loan.id,
+                            barcode: loan.barcode || undefined,
+                            lines: [
+                              { label: 'Peminjam', value: loan.peminjam },
+                              { label: 'Unit', value: loan.unit },
+                              { label: 'Perangkat', value: loan.namaBarangT || loan.barangPinjaman },
+                              { label: 'Tgl Pinjam', value: loan.tglPinjam },
+                              { label: 'Tgl Kembali', value: loan.tglKembali },
+                              { label: 'Status', value: displayLoanStatus }
+                            ]
+                          })}
+                          data-testid={`android-bt-print-loan-${loan.id}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs cursor-pointer"
+                        >
+                          <Smartphone className="w-3.5 h-3.5" />
+                          <span>Struk Android (BT)</span>
+                        </a>
 
                         <span className={`px-3 py-1 text-xs font-bold rounded-full ${
                           isApproved ? 'bg-emerald-100 text-emerald-800' :
@@ -625,7 +648,28 @@ export const TicketTracker: React.FC<TicketTrackerProps> = ({ initialSearchId = 
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href={buildAndroidReceiptSchemeUrl({
+                          title: 'TIKET PERBAIKAN HELPDESK',
+                          subtitle: dmg.id,
+                          barcode: dmg.barcode && dmg.barcode !== 'Tanpa Barcode' ? dmg.barcode : undefined,
+                          lines: [
+                            { label: 'Pelapor', value: dmg.pelapor },
+                            { label: 'Lokasi', value: dmg.lokasi || '-' },
+                            { label: 'Perangkat', value: dmg.namaBarang },
+                            { label: 'PIC Teknisi', value: dmg.picTeknisi || '-' },
+                            { label: 'Urgensi', value: dmg.urgensi || 'Sedang' },
+                            { label: 'Status', value: dmg.status }
+                          ]
+                        })}
+                        data-testid={`android-bt-print-damage-${dmg.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs cursor-pointer"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        <span>Struk Android (BT)</span>
+                      </a>
+
                       <span className={`px-3 py-1 text-xs font-bold rounded-full ${
                         dmg.status === 'Resolved' || dmg.status === 'Closed – Auto' || dmg.status === 'Closed – Manual' ? 'bg-emerald-100 text-emerald-800' :
                         dmg.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :

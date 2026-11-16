@@ -12,21 +12,32 @@ import {
   AppStatistics,
   TechnicianSlaBreakdown,
   SlaConfig,
-  SurveyResponse
+  SurveyResponse,
+  SystemProposal,
+  ServiceSlaConfig
 } from '../types';
 import { KOP_OFFICIAL_BASE64 } from './kopBase64';
 import { AppDatabase } from './db';
 import {
   computeAggregateSlaStats,
   computeSlaEvaluation,
+  computeLoanSlaEvaluation,
+  computeAggregateLoanSlaStats,
+  computeProposalSlaEvaluation,
+  computeAggregateProposalSlaStats,
   formatMinutesLabel,
   formatHoursLabel,
-  AggregateSlaStats
+  AggregateSlaStats,
+  DEFAULT_SERVICE_SLA_CONFIG
 } from './slaService';
 import {
   computeAggregateSurveyStats,
   getModuleLabel
 } from './surveyService';
+import type {
+  ExecutiveDashboardMetrics,
+  GapAnalysisRow
+} from './reportGovernanceService';
 
 export interface MonthlyReportParams {
   bulan: string;
@@ -1359,12 +1370,22 @@ export class PdfReportService {
   }
 
   /**
-   * Cetak Laporan Eksekutif Dashboard Pimpinan
+   * Cetak Laporan Dashboard Eksekutif (Ringkasan Strategis TI: Valuasi, SLA >= 90%, CSAT, RFC & RAPBU)
    */
   public static generateExecutiveDashboardPdf(
     stats: AppStatistics,
     monthStr: string,
-    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; rektorNama?: string; pimpinanJabatan?: string; [key: string]: any }
+    options?: {
+      kepalaPusdatin?: string;
+      nipKepala?: string;
+      petugas?: string;
+      rektorNama?: string;
+      pimpinanJabatan?: string;
+      totalAsetValue?: number;
+      executiveMetrics?: ExecutiveDashboardMetrics;
+      cadenceLabel?: string;
+      [key: string]: any;
+    }
   ): jsPDF {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const masterSig = AppDatabase.getDocumentSignatories();
@@ -1372,6 +1393,8 @@ export class PdfReportService {
     const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
     const rektorNama = options?.rektorNama || masterSig.pimpinanUnivNama;
     const pimpinanJabatan = options?.pimpinanJabatan || masterSig.pimpinanUnivJabatan || 'Rektor / Pimpinan Universitas';
+    const exec = options?.executiveMetrics;
+    const totalValuasi = exec?.portfolio.totalValuationRp ?? options?.totalAsetValue ?? 0;
 
     try {
       doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
@@ -1385,42 +1408,89 @@ export class PdfReportService {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
-    doc.text('LAPORAN EKSEKUTIF DASHBOARD PIMPINAN TI', 105, 43, { align: 'center' });
+    doc.text('LAPORAN DASHBOARD EKSEKUTIF TATA KELOLA TI (ITIL)', 105, 43, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(71, 85, 105);
-    doc.text(`Periode: ${monthStr.toUpperCase()} | Sistem Informasi PAHAM PUSDATIN UMC`, 105, 48, { align: 'center' });
+    doc.text(
+      `Periode: ${(options?.cadenceLabel || monthStr).toUpperCase()} | Sistem Informasi PAHAM PUSDATIN UMC`,
+      105,
+      48,
+      { align: 'center' }
+    );
+
+    const summaryRows: string[][] = [
+      ['Total Valuasi Finansial Aset IT', `Rp ${totalValuasi.toLocaleString('id-ID')}`, `${stats.totalAset} Unit tercatat di Master Aset`],
+      ['Komposisi Status Aset', `${stats.tersedia} Ready / ${stats.digunakan} Pakai`, `${stats.dipinjam} Dipinjam | ${stats.maintenance || 0} Maintenance`],
+      [
+        'Indeks Kepatuhan SLA Menyeluruh (Target >= 90%)',
+        `${exec?.slaGovernance.combinedSlaComplianceRate ?? stats.slaAchievementRate}%`,
+        `Insiden: ${exec?.slaGovernance.incidentSlaRate ?? stats.slaAchievementRate}% | Peminjaman: ${exec?.slaGovernance.loanSlaRate ?? 100}%`
+      ],
+      ['Kepatuhan FRT & RT Helpdesk', `FRT ${stats.frtComplianceRate ?? 100}% / RT ${stats.rtComplianceRate ?? 100}%`, `Rata-rata FRT ${formatMinutesLabel(stats.avgFrtMinutes ?? 0)} | RT ${formatHoursLabel(stats.avgRtHours ?? 0)}`],
+      ['Tren Eskalasi & Problem / RFC', `${exec?.slaGovernance.problemAndRfcEscalations ?? 0} Eskalasi`, `${stats.totalSlaOverdue} tiket melewati SLA`],
+      [
+        'Indeks Kepuasan Pengguna (CSAT >= 4.0 / 85%)',
+        exec ? `${exec.csatGovernance.overallAverage}/5.0 (${exec.csatGovernance.csatPercentage}%)` : '-',
+        `Total ${exec?.csatGovernance.totalResponses ?? 0} responden lintas modul`
+      ],
+      [
+        'Transformasi Digital & Sistem Strategis (RFC)',
+        `${stats.totalPengajuanSistem} Usulan`,
+        `Sprint Aktif: ${stats.pengajuanDalamPengembangan} | Go-Live: ${exec?.digitalTransformation.goLiveCount ?? 0}`
+      ],
+      [
+        'Proyeksi Kebutuhan Anggaran (RAPBU)',
+        exec ? `Rp ${exec.digitalTransformation.totalEstimatedRapbuRp.toLocaleString('id-ID')}` : '-',
+        `${exec?.digitalTransformation.criticalGapCount ?? 0} kategori/item defisit kritis`
+      ]
+    ];
 
     autoTable(doc, {
       startY: 53,
       theme: 'grid',
-      head: [['METRIK UTAMA TI KAMPUS', 'NILAI / JUMLAH', 'KETERANGAN']],
-      body: [
-        ['Total Master Aset TI', `${stats.totalAset} Unit`, 'Akumulasi perangkat tercatat di kampus'],
-        ['Aset Siap Pakai (Tersedia)', `${stats.tersedia} Unit`, 'Standby di Ruang PUSDATIN / Lab'],
-        ['Aset Sedang Digunakan', `${stats.digunakan} Unit`, 'Terpasang operasional unit kerja'],
-        ['Aset Sedang Dipinjam', `${stats.dipinjam} Unit`, 'Peminjaman civitas akademika'],
-        ['Aset Dalam Perbaikan / Servis', `${stats.maintenance || 0} Unit`, 'Proses reparasi & suku cadang'],
-        ['Antrean Tiket Gangguan Masuk', `${stats.totalAntreanTiket} Tiket`, 'Tiket helpdesk baru & perlu ditangani'],
-        ['Tiket Melewati Batas SLA', `${stats.totalSlaOverdue} Tiket`, stats.totalSlaOverdue === 0 ? 'Optimal (Tidak ada overdue)' : 'Perlu atensi teknis'],
-        ['Kepatuhan First Response Time (FRT)', `${stats.frtComplianceRate ?? 100}%`, `Rata-rata respon pertama: ${formatMinutesLabel(stats.avgFrtMinutes ?? 0)}`],
-        ['Kepatuhan Resolution Time (RT / SLA)', `${stats.rtComplianceRate ?? stats.slaAchievementRate}%`, `Rata-rata penyelesaian: ${formatHoursLabel(stats.avgRtHours ?? 0)}`],
-        ['Peminjaman Menunggu Persetujuan', `${stats.totalPinjamMenunggu} Pengajuan`, 'Menunggu verifikasi admin'],
-        ['Peminjaman Terlambat Kembali', `${stats.totalPinjamTerlambat} Unit`, stats.totalPinjamTerlambat === 0 ? 'Tertib' : 'Peringatan otomatis aktif'],
-        ['Pengajuan Sistem Baru', `${stats.totalPengajuanSistem} Usulan`, `Dalam pengembangan: ${stats.pengajuanDalamPengembangan} sistem`]
-      ],
+      head: [['PILAR TATA KELOLA EKSEKUTIF ITIL', 'CAPAIAN / VALUASI', 'KETERANGAN & KONTEKS']],
+      body: summaryRows,
       headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-      styles: { fontSize: 7.5, cellPadding: 2 },
+      styles: { fontSize: 7.5, cellPadding: 2.2 },
       columnStyles: {
-        0: { cellWidth: 70, fontStyle: 'bold' },
-        1: { cellWidth: 40, halign: 'center', fontStyle: 'bold', textColor: [185, 28, 28] }
+        0: { cellWidth: 65, fontStyle: 'bold' },
+        1: { cellWidth: 48, halign: 'center', fontStyle: 'bold', textColor: [185, 28, 28] }
       },
       margin: { left: 15, right: 15 }
     });
 
+    if (exec && exec.portfolio.facultyUnitCompositions.length > 0) {
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 6,
+        theme: 'grid',
+        head: [['Fakultas / Unit Kerja', 'Total Unit', 'Komputer', 'Networking', 'Multimedia', 'Lainnya', 'Valuasi (Rp)']],
+        body: exec.portfolio.facultyUnitCompositions.map(f => [
+          f.unitName,
+          String(f.totalUnits),
+          String(f.komputer),
+          String(f.networking),
+          String(f.multimedia),
+          String(f.lainnya),
+          `Rp ${f.valuationRp.toLocaleString('id-ID')}`
+        ]),
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+        styles: { fontSize: 7, cellPadding: 1.8 },
+        columnStyles: {
+          1: { halign: 'center', fontStyle: 'bold' },
+          2: { halign: 'center' },
+          3: { halign: 'center' },
+          4: { halign: 'center' },
+          5: { halign: 'center' },
+          6: { halign: 'right', fontStyle: 'bold' }
+        },
+        margin: { left: 15, right: 15 }
+      });
+    }
+
     let currentY = (doc as any).lastAutoTable.finalY + 10;
-    if (currentY > 230) {
+    if (currentY > 235) {
       doc.addPage();
       currentY = 25;
     }
@@ -1772,4 +1842,382 @@ export class PdfReportService {
 
     return doc;
   }
+
+  /**
+   * Laporan Bulanan Kepatuhan Fulfillment & Peminjaman Aset TI (ITIL Service Request)
+   */
+  public static generateLoanComplianceMonthlyPdf(
+    loans: LoanTicket[],
+    periodLabel: string,
+    serviceSlaConfig: ServiceSlaConfig = DEFAULT_SERVICE_SLA_CONFIG,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || masterSig.petugasDefaultNama;
+    const loanStats = computeAggregateLoanSlaStats(loans, serviceSlaConfig);
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('LAPORAN KEPATUHAN FULFILLMENT & PEMINJAMAN ASET IT (ITIL)', 148.5, 38, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Periode: ${periodLabel} | Total Tiket: ${loans.length} | Kepatuhan Approval: ${loanStats.approvalComplianceRate}% | Kepatuhan Fulfillment: ${loanStats.fulfillmentComplianceRate}% | Overdue SLA: ${loanStats.overdueCount}`,
+      148.5,
+      43,
+      { align: 'center' }
+    );
+
+    const rows = loans.map((l, idx) => {
+      const ev = computeLoanSlaEvaluation(l, serviceSlaConfig);
+      const isLateReturn =
+        (l.status === 'Diserahkan' || l.status === 'Disetujui' || l.status === 'Terlambat') &&
+        l.tglKembali < todayStr;
+      return [
+        String(idx + 1),
+        l.id,
+        `${l.peminjam}\n(${l.unit})`,
+        `${l.namaBarangT || l.barangPinjaman}\nBC: ${l.barcode || '-'}`,
+        `${l.tglPinjam} s/d\n${l.tglKembali}`,
+        isLateReturn ? `${l.status} (OVERDUE)` : l.status,
+        `${ev.approvalStatus}\n${ev.approvalLabel}`,
+        `${ev.fulfillmentStatus}\n${ev.fulfillmentLabel}`
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 47,
+      theme: 'grid',
+      head: [['No', 'ID Tiket', 'Peminjam & Unit', 'Aset & Barcode', 'Jadwal Pinjam', 'Status', 'SLA Approval', 'SLA Fulfillment']],
+      body: rows.length > 0 ? rows : [['-', '-', '-', 'Tidak ada data peminjaman pada periode ini', '-', '-', '-', '-']],
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      styles: { fontSize: 7, cellPadding: 1.8 },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { cellWidth: 28, fontStyle: 'bold' },
+        5: { cellWidth: 24, halign: 'center' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text('Admin Layanan Peminjaman PUSDATIN,', 55, signY + 6, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(`( ${petugasNama} )`, 55, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Lembar Penyelesaian / BAST Perbaikan Tiket Helpdesk (Resmi Ber-Kop)
+   */
+  public static generateIncidentCompletionSheetPdf(
+    ticket: DamageTicket,
+    slaConfig: SlaConfig,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const teknisiNama = options?.petugas || ticket.namaPicTeknisi || masterSig.petugasDefaultNama;
+    const ev = computeSlaEvaluation(ticket, slaConfig);
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 10, 180, 27);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON', 105, 18, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('LEMBAR PENYELESAIAN & SERAH TERIMA PERBAIKAN ASET IT', 105, 44, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Nomor Tiket: ${ticket.id} | Jalur: ${ticket.ticketType || 'Incident'} | Status: ${ticket.status}`, 105, 49, { align: 'center' });
+
+    autoTable(doc, {
+      startY: 54,
+      theme: 'grid',
+      head: [['PARAMETER TIKET & PENYELESAIAN', 'RINCIAN INFORMASI']],
+      body: [
+        ['ID Tiket / Jenis Layanan', `${ticket.id} (${ticket.ticketType || 'Incident'})`],
+        ['Nama Perangkat / Sistem', `${ticket.namaBarang} (Kode/Barcode: ${ticket.kodeUnikAset || ticket.barcode || '-'})`],
+        ['Pelapor & Lokasi', `${ticket.pelapor} — ${ticket.lokasi}`],
+        ['Keluhan / Kerusakan', ticket.deskripsi || '-'],
+        ['Urgensi & PIC Teknisi', `${ticket.urgensi || ticket.prioritas} | ${teknisiNama} (${ticket.picTeknisi || 'PUSDATIN'})`],
+        ['Tanggal Lapor & Tanggal Selesai', `${ticket.tanggalLapor} s/d ${ticket.tanggalSelesai || ticket.waktuSelesai || new Date().toISOString().split('T')[0]}`],
+        ['Kepatuhan FRT (Respon Pertama)', `${ev.frtStatus} — ${ev.frtLabel}`],
+        ['Kepatuhan RT (Penyelesaian)', `${ev.rtStatus} — ${ev.rtLabel}`],
+        ['Tindakan / Catatan Penyelesaian', ticket.resolusiAkhir || ticket.workaround || ticket.catatanAdmin || 'Perbaikan selesai & perangkat berfungsi normal kembali.']
+      ],
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      columnStyles: { 0: { cellWidth: 62, fontStyle: 'bold' } },
+      margin: { left: 15, right: 15 }
+    });
+
+    const signY = (doc as any).lastAutoTable.finalY + 14;
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Cirebon, ${todayDateStr}`, 140, signY);
+    doc.text('Pelapor / Penerima Unit,', 42, signY + 7, { align: 'center' });
+    doc.text('Teknisi Penanggung Jawab,', 105, signY + 7, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN,', 168, signY + 7, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(`( ${ticket.pelapor} )`, 42, signY + 28, { align: 'center' });
+    doc.text(`( ${teknisiNama} )`, 105, signY + 28, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 168, signY + 28, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text(kepalaNip, 168, signY + 33, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Laporan Alur 5-Tahap RFC & Portofolio Pengembangan Sistem Baru (Akreditasi / Tahunan)
+   */
+  public static generateRfcPortfolioReportPdf(
+    proposals: SystemProposal[],
+    periodLabel: string,
+    serviceSlaConfig: ServiceSlaConfig = DEFAULT_SERVICE_SLA_CONFIG,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; pimpinanUniv?: string; pimpinanUnivJabatan?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const pimpinanNama = options?.pimpinanUniv || masterSig.pimpinanUnivNama;
+    const pimpinanJabatan = options?.pimpinanUnivJabatan || masterSig.pimpinanUnivJabatan || 'Rektor / Wakil Rektor';
+    const propStats = computeAggregateProposalSlaStats(proposals, serviceSlaConfig);
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('LAPORAN PORTOFOLIO ALUR 5-TAHAP RFC & PENGEMBANGAN SISTEM BARU', 148.5, 38, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Periode: ${periodLabel} | Total Usulan: ${proposals.length} | SLA Feasibility: ${propStats.feasibilityComplianceRate}% | SLA BRD: ${propStats.brdComplianceRate}%`,
+      148.5,
+      43,
+      { align: 'center' }
+    );
+
+    const rows = proposals.map((p, idx) => {
+      const ev = computeProposalSlaEvaluation(p, serviceSlaConfig);
+      return [
+        String(idx + 1),
+        p.id,
+        p.namaSistem,
+        `${p.unitKerja}\n(${p.pemohon})`,
+        p.verifikasiKeamanan?.risikoKeamanan ? `Risiko ${p.verifikasiKeamanan.risikoKeamanan}` : 'Strategis',
+        p.status,
+        `${p.pengembangan?.progresPersen ?? 0}%`,
+        `${ev.feasibilityStatus} / ${ev.brdStatus}`,
+        p.tanggalPengajuan
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 47,
+      theme: 'grid',
+      head: [['No', 'ID RFC', 'Nama Aplikasi / Sistem', 'Unit Pengusul', 'Prioritas', 'Tahap Saat Ini', 'Progres', 'SLA Feasibility / BRD', 'Tgl Ajuan']],
+      body: rows.length > 0 ? rows : [['-', '-', 'Tidak ada usulan sistem pada periode ini', '-', '-', '-', '-', '-', '-']],
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      styles: { fontSize: 7, cellPadding: 1.8 },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { cellWidth: 24, fontStyle: 'bold' },
+        6: { cellWidth: 16, halign: 'center', fontStyle: 'bold' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text(`Mengetahui, ${pimpinanJabatan}`, 55, signY + 6, { align: 'center' });
+    doc.text('Kepala PUSDATIN UMC,', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(`( ${pimpinanNama} )`, 55, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
+
+  /**
+   * Laporan Analisis Kesenjangan (Gap Analysis) Kebutuhan Aset & Suku Cadang vs Stok Gudang
+   */
+  public static generateGapAnalysisPdf(
+    gapRows: GapAnalysisRow[],
+    periodLabel: string,
+    options?: { kepalaPusdatin?: string; nipKepala?: string; petugas?: string; [key: string]: any }
+  ): jsPDF {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const masterSig = AppDatabase.getDocumentSignatories();
+    const kepalaNama = options?.kepalaPusdatin || masterSig.kepalaPusdatinNama;
+    const kepalaNip = options?.nipKepala || masterSig.kepalaPusdatinNip;
+    const petugasNama = options?.petugas || masterSig.petugasDefaultNama;
+    const totalBudget = gapRows.reduce((s, r) => s + r.estimatedBudgetRp, 0);
+
+    try {
+      doc.addImage(KOP_OFFICIAL_BASE64, 'PNG', 15, 8, 267, 26);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('UNIVERSITAS MUHAMMADIYAH CIREBON - PUSDATIN', 148.5, 14, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('LAPORAN ANALISIS KESENJANGAN (GAP ANALYSIS) KEBUTUHAN ASET & SUKU CADANG', 148.5, 38, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Periode: ${periodLabel} | Estimasi Kebutuhan Anggaran (RAPBU): Rp ${totalBudget.toLocaleString('id-ID')}`,
+      148.5,
+      43,
+      { align: 'center' }
+    );
+
+    autoTable(doc, {
+      startY: 47,
+      theme: 'grid',
+      head: [['No', 'Kategori / Komponen', 'Stok Siap', 'Permintaan Part', 'Pengganti Afkir', 'Defisit (Gap)', 'Prioritas', 'Est. Anggaran (Rp)', 'Rekomendasi Pengadaan']],
+      body: gapRows.map((g, idx) => [
+        String(idx + 1),
+        g.categoryOrItem,
+        `${g.readyStockCount} Unit`,
+        `${g.demandSparePartsCount} Unit`,
+        `${g.damagedReplacementCount} Unit`,
+        `${g.netGap} Unit`,
+        g.priority,
+        `Rp ${g.estimatedBudgetRp.toLocaleString('id-ID')}`,
+        g.recommendation
+      ]),
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+      styles: { fontSize: 7, cellPadding: 1.8 },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        2: { halign: 'center' },
+        3: { halign: 'center' },
+        4: { halign: 'center' },
+        5: { halign: 'center', fontStyle: 'bold' },
+        7: { halign: 'right', fontStyle: 'bold' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    doc.setPage(pageCount);
+    let signY = (doc as any).lastAutoTable.finalY + 8;
+    if (signY > 150) {
+      doc.addPage('landscape');
+      signY = 30;
+    }
+
+    const todayDateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Cirebon, ${todayDateStr}`, 215, signY);
+    doc.text('Bagian Logistik & Pengadaan PUSDATIN,', 55, signY + 6, { align: 'center' });
+    doc.text('Mengetahui, Kepala PUSDATIN UMC', 215, signY + 6, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(`( ${petugasNama} )`, 55, signY + 26, { align: 'center' });
+    doc.text(`( ${kepalaNama} )`, 215, signY + 26, { align: 'center' });
+    if (kepalaNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text(kepalaNip, 215, signY + 30, { align: 'center' });
+    }
+
+    return doc;
+  }
 }
+

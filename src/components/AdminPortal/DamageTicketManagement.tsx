@@ -23,6 +23,11 @@ import {
 import { PdfReportService } from '../../services/pdfReportService';
 import { BarcodeScannerModal } from '../Modals/BarcodeScannerModal';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 import {
   AlertTriangle,
   Search,
@@ -173,6 +178,10 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     techId?: string;
     periodMonth: string;
   } | null>(null);
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
+  const [pendingCompletionSheetTicket, setPendingCompletionSheetTicket] =
+    useState<DamageTicket | null>(null);
 
   const tickets = AppDatabase.getDamageTickets();
   const allAssets = AppDatabase.getAssets();
@@ -309,8 +318,9 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
     const matchesPic = picFilter === 'Semua' || t.picTeknisi === picFilter;
     const matchesUrgency = urgencyFilter === 'Semua' || t.urgensi === urgencyFilter;
+    const matchesPeriod = matchesReportingPeriod(t.createdAtIso || t.tanggalLapor, cadence, periodKey);
 
-    return matchesSearch && matchesTicketType && matchesStatus && matchesPic && matchesUrgency;
+    return matchesSearch && matchesTicketType && matchesStatus && matchesPic && matchesUrgency && matchesPeriod;
   });
 
   const urgencyOrder: Record<string, number> = { Kritis: 4, Tinggi: 3, Sedang: 2, Rendah: 1 };
@@ -343,8 +353,10 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     return 0;
   });
 
-  // Scope base tickets for KPI cards and SLA metrics dynamically by active restricted technician & selected PIC filter
-  let picScopedTickets = tickets;
+  // Scope base tickets for KPI cards and SLA metrics dynamically by active restricted technician, PIC filter, & ITIL period
+  let picScopedTickets = tickets.filter(t =>
+    matchesReportingPeriod(t.createdAtIso || t.tanggalLapor, cadence, periodKey)
+  );
   if (isRestrictedPic && activeTech) {
     picScopedTickets = filterTicketsForTechnician(picScopedTickets, activeTech);
   }
@@ -811,14 +823,17 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       {/* Top Header Card */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>Sistem Tiket Perbaikan IT (Alur SOP 5-Tahap)</span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-800 border border-indigo-200 text-[10px] font-bold uppercase tracking-wider mb-1">
+            ITIL Incident &amp; Problem Management
+          </span>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight flex flex-wrap items-center gap-2">
+            <span>Laporan Kinerja Layanan Teknis (Helpdesk &amp; SLA)</span>
             <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-slate-100 text-slate-700 rounded-md border border-slate-200">
               {sortedTickets.length} Laporan
             </span>
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Standar Operasional Prosedur: 1. Pelaporan (Open) &rarr; 2. Verifikasi & Delegasi (Assigned) &rarr; 3. Penjadwalan Inspeksi (In Progress) &rarr; 4. Eksekusi Perbaikan (Fisik / Non-Fisik / Suku Cadang) &rarr; 5. Penyelesaian & Pembaruan Status (Closed).
+            Analisis kepatuhan FRT (First Response Time), RT (Resolution Time), serta eskalasi tiket insiden harian/problem dengan alur SOP 5-tahap.
           </p>
         </div>
 
@@ -870,6 +885,15 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
           </button>
         </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="kelola-tiket"
+        dates={tickets.map(t => t.createdAtIso || t.tanggalLapor)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {slaFeedback && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2">
@@ -1411,13 +1435,30 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                             <span>Tindakan Perbaikan</span>
                           </button>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => openProcessModal(t, 'selesai')}
-                            className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg shadow-xs transition-colors cursor-pointer"
-                          >
-                            Rincian Tiket
-                          </button>
+                          <div className="inline-flex items-center gap-1.5 justify-end">
+                            {(t.status === 'Resolved' ||
+                              t.status.startsWith('Closed') ||
+                              (t.status as string) === 'Selesai' ||
+                              (t.status as string) === 'Rusak Total') && (
+                              <button
+                                type="button"
+                                data-testid={`print-completion-sheet-${t.id}`}
+                                onClick={() => setPendingCompletionSheetTicket(t)}
+                                className="px-2.5 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                                title="Cetak Lembar Penyelesaian Tiket Resmi Ber-Kop (PDF)"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>Lembar Penyelesaian</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openProcessModal(t, 'selesai')}
+                              className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                            >
+                              Rincian Tiket
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -2652,6 +2693,36 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
             ? pusdatinTechnicians.find(t => t.id === pendingSlaPrint.techId)?.nama || activeTech?.nama
             : currentUser?.nama
         }
+      />
+
+      {/* Modal Konfirmasi Penandatangan untuk Cetak Lembar Penyelesaian Tiket */}
+      <SignatoryConfirmModal
+        isOpen={Boolean(pendingCompletionSheetTicket)}
+        documentTitle={
+          pendingCompletionSheetTicket
+            ? `Lembar Penyelesaian Tiket ${pendingCompletionSheetTicket.id}`
+            : 'Lembar Penyelesaian Tiket Helpdesk'
+        }
+        onClose={() => setPendingCompletionSheetTicket(null)}
+        onConfirm={(sig: ConfirmedSignatoryValues) => {
+          if (!pendingCompletionSheetTicket) return;
+          const doc = PdfReportService.generateIncidentCompletionSheetPdf(
+            pendingCompletionSheetTicket,
+            slaConfig,
+            {
+              kepalaPusdatin: sig.kepalaPusdatin,
+              nipKepala: sig.nipKepala,
+              petugas: sig.petugas
+            }
+          );
+          const safeId = pendingCompletionSheetTicket.id.replace(/[^a-zA-Z0-9_-]+/g, '_');
+          doc.save(`Lembar_Penyelesaian_${safeId}.pdf`);
+          setSlaFeedback(`Lembar Penyelesaian Tiket ${pendingCompletionSheetTicket.id} berhasil diunduh (PDF).`);
+          setPendingCompletionSheetTicket(null);
+          setTimeout(() => setSlaFeedback(null), 4500);
+        }}
+        showPetugas={true}
+        defaultPetugas={pendingCompletionSheetTicket?.namaPicTeknisi || currentUser?.nama}
       />
     </div>
   );

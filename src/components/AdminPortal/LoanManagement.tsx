@@ -12,6 +12,13 @@ import {
   DEFAULT_SERVICE_SLA_CONFIG
 } from '../../services/slaService';
 import { BarcodeScannerModal } from '../Modals/BarcodeScannerModal';
+import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 import {
   Search,
   CheckCircle2,
@@ -120,6 +127,9 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
   const [showLoanSlaModal, setShowLoanSlaModal] = useState(false);
   const [loanSlaDraft, setLoanSlaDraft] = useState(() => AppDatabase.getServiceSlaConfig().loan);
   const [loanSlaFeedback, setLoanSlaFeedback] = useState<string | null>(null);
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
+  const [showMonthlyComplianceSignatory, setShowMonthlyComplianceSignatory] = useState(false);
 
   const activeUser = AppDatabase.getActiveUser();
   const canEditServiceSla = activeUser?.role === 'ACT-02' || activeUser?.role === 'ACT-03';
@@ -185,7 +195,9 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
     else if (statusFilter === 'Dikembalikan') matchesStatus = isLoanReturned(l.status);
     else if (statusFilter === 'Ditolak') matchesStatus = isLoanRejected(l.status);
 
-    return matchesSearch && matchesStatus;
+    const matchesPeriod = matchesReportingPeriod(l.createdAtIso || l.tglAju || l.tglPinjam, cadence, periodKey);
+
+    return matchesSearch && matchesStatus && matchesPeriod;
   });
 
   const openProcessModal = (ticket: LoanTicket, defaultAction?: 'terima' | 'kembali' | 'tolak', preselectedBarcode?: string) => {
@@ -522,18 +534,29 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Manajemen & Verifikasi Peminjaman Aset
+              Laporan Kepatuhan Fulfillment &amp; Peminjaman Aset
             </h2>
             <span className="px-2 py-0.5 text-xs font-mono font-bold bg-slate-100 text-slate-700 rounded-md border border-slate-200">
               {filteredLoans.length} Data
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Validasi pengajuan peminjaman sivitas, alokasikan barcode perangkat fisik, pantau pengembalian, dan terbitkan Berita Acara resmi.
+            Monitoring Approval Time, Fulfillment Time, pengawasan aset overdue, alokasi barcode fisik, dan penerbitan Berita Acara resmi.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="print-loan-compliance-pdf-btn"
+            onClick={() => setShowMonthlyComplianceSignatory(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-xs transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+            title="Cetak Laporan Bulanan Kepatuhan Fulfillment & Peminjaman (PDF)"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-700" />
+            <span>Cetak Laporan Fulfillment PDF</span>
+          </button>
+
           {canEditServiceSla && (
             <button
               type="button"
@@ -574,6 +597,15 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
           </button>
         </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="kelola-pinjam"
+        dates={loans.map(l => l.createdAtIso || l.tglAju || l.tglPinjam)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {loanSlaFeedback && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2">
@@ -2263,6 +2295,29 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
           </div>
         </div>
       )}
+
+      <SignatoryConfirmModal
+        isOpen={showMonthlyComplianceSignatory}
+        documentTitle={`Laporan Kepatuhan Fulfillment & Peminjaman Aset (${getStandardPeriodLabel(cadence, periodKey)})`}
+        onClose={() => setShowMonthlyComplianceSignatory(false)}
+        onConfirm={(values: ConfirmedSignatoryValues) => {
+          const periodLabel = getStandardPeriodLabel(cadence, periodKey);
+          const doc = PdfReportService.generateLoanComplianceMonthlyPdf(
+            filteredLoans,
+            periodLabel,
+            serviceSlaConfig,
+            {
+              kepalaPusdatin: values.kepalaPusdatin,
+              nipKepala: values.nipKepala,
+              petugas: values.petugas
+            }
+          );
+          doc.save(`Laporan_Fulfillment_Peminjaman_${periodKey || 'Semua'}.pdf`);
+          setShowMonthlyComplianceSignatory(false);
+          setLoanSlaFeedback(`Laporan Kepatuhan Fulfillment & Peminjaman (${periodLabel}) berhasil diunduh.`);
+          setTimeout(() => setLoanSlaFeedback(null), 4000);
+        }}
+      />
     </div>
   );
 };

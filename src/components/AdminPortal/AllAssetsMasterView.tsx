@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import { PdfReportService } from '../../services/pdfReportService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import { matchesReportingPeriod, ReportingCadence } from '../../services/reportGovernanceService';
 
 interface AllAssetsMasterViewProps {
   onDataChanged: () => void;
@@ -49,6 +51,8 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
   const [selectedLokasi, setSelectedLokasi] = useState<string>('Semua');
   const [filterBulanMasuk, setFilterBulanMasuk] = useState<string>('');
   const [sortBulanMasuk, setSortBulanMasuk] = useState<'desc' | 'asc' | 'none'>('desc');
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
 
   const [viewingBarcodeAsset, setViewingBarcodeAsset] = useState<Asset | null>(null);
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null);
@@ -135,8 +139,9 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
         ? (a.tanggalMasuk && a.tanggalMasuk.startsWith(filterBulanMasuk)) ||
           (a.tanggalPembelian && a.tanggalPembelian.startsWith(filterBulanMasuk))
         : true;
+      const matchesCadence = matchesReportingPeriod(a.tanggalMasuk || a.tanggalPembelian, cadence, periodKey);
 
-      return matchesSearch && matchesStatus && matchesKategori && matchesLokasi && matchesBulan;
+      return matchesSearch && matchesStatus && matchesKategori && matchesLokasi && matchesBulan && matchesCadence;
     })
     .sort((a, b) => {
       if (sortBulanMasuk === 'none') return 0;
@@ -417,7 +422,7 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>Master Aset PUSDATIN UMC</span>
+            <span>Katalog &amp; Registri CI (Master Aset)</span>
             <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-slate-100 text-slate-800 rounded-md border border-slate-200">
               {assets.length} Total Aset
             </span>
@@ -428,7 +433,7 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
             )}
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Katalog master seluruh inventaris perangkat IT, server, jaringan, multimedia, dan software Universitas Muhammadiyah Cirebon.
+            Registri Configuration Item (CI) universal: spesifikasi teknis, riwayat PO/invoice, valuasi finansial, dan status kondisi fisik.
           </p>
         </div>
 
@@ -466,6 +471,15 @@ export const AllAssetsMasterView: React.FC<AllAssetsMasterViewProps> = ({
           </button>
         </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="seluruh-aset"
+        dates={assets.map(a => a.tanggalMasuk || a.tanggalPembelian)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {/* Inline Status Banner */}
       {statusBanner && (

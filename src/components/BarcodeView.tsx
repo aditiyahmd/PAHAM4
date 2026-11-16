@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import jsPDF from 'jspdf';
-import { Download, Printer, Copy, Check } from 'lucide-react';
+import { Download, Printer, Copy, Check, Smartphone } from 'lucide-react';
+import { buildAndroidStickerSchemeUrl } from '../services/bluetoothPrintService';
 
 export interface BarcodeCardParams {
   value: string;
@@ -296,24 +297,41 @@ export const BarcodeView: React.FC<BarcodeViewProps> = ({
       </div>
 
       {showActions && (
-        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={downloadBarcodePng}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl shadow-2xs transition-colors cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Unduh PNG</span>
-          </button>
+        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 space-y-2">
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={downloadBarcodePng}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl shadow-2xs transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>Unduh PNG</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={printThermalLabel}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-2xs transition-colors cursor-pointer"
+            <button
+              type="button"
+              onClick={printThermalLabel}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-2xs transition-colors cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak Stiker PDF</span>
+            </button>
+          </div>
+
+          <a
+            href={buildAndroidStickerSchemeUrl({
+              code: value.trim(),
+              name,
+              kategori,
+              lokasi
+            })}
+            data-testid="android-bt-print-sticker"
+            title="Cetak langsung ke printer thermal Bluetooth/USB via aplikasi Android Bluetooth Print"
+            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-2xs transition-colors cursor-pointer"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Cetak Stiker</span>
-          </button>
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>Print Thermal Android (Bluetooth Print)</span>
+          </a>
         </div>
       )}
     </div>

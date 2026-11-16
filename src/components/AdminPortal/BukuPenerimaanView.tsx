@@ -24,6 +24,12 @@ import { BukuPenerimaanItem, PenerimaanBarangSubItem, Asset, AssetStatus } from 
 import { UnifiedAssetCode } from '../QRCodeView';
 import { PdfReportService } from '../../services/pdfReportService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 
 interface BukuPenerimaanViewProps {
   onDataChanged?: () => void;
@@ -44,6 +50,8 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
   );
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMonth, setFilterMonth] = useState('');
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -356,19 +364,26 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
 
   // Print Monthly Receipts (konfirmasi penandatangan lebih dulu)
   const handlePrintMonthly = () => {
-    const listToPrint = filterMonth
-      ? penerimaanList.filter(p => p.tanggalPenerimaan.startsWith(filterMonth))
-      : penerimaanList;
+    const listToPrint = penerimaanList.filter(p => {
+      const matchMonth = filterMonth ? p.tanggalPenerimaan.startsWith(filterMonth) : true;
+      const matchCadence = matchesReportingPeriod(p.tanggalPenerimaan, cadence, periodKey);
+      return matchMonth && matchCadence;
+    });
 
     if (listToPrint.length === 0) {
       setStatusBanner({
         type: 'info',
-        message: 'Tidak ada data penerimaan untuk bulan yang dipilih.'
+        message: 'Tidak ada data penerimaan aset pada periode yang dipilih.'
       });
       return;
     }
 
-    setPendingPrint({ type: 'monthly', list: listToPrint, period: filterMonth || 'Semua Periode' });
+    const activePeriod =
+      cadence !== 'semua'
+        ? getStandardPeriodLabel(cadence, periodKey)
+        : filterMonth || 'Semua Periode';
+
+    setPendingPrint({ type: 'monthly', list: listToPrint, period: activePeriod });
   };
 
   const handleConfirmSignatoryPrint = (values: ConfirmedSignatoryValues) => {
@@ -409,8 +424,9 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
       (p.items && p.items.some(it => it.namaAset.toLowerCase().includes(term)));
 
     const matchMonth = filterMonth ? p.tanggalPenerimaan.startsWith(filterMonth) : true;
+    const matchCadence = matchesReportingPeriod(p.tanggalPenerimaan, cadence, periodKey);
 
-    return matchSearch && matchMonth;
+    return matchSearch && matchMonth && matchCadence;
   });
 
   return (
@@ -420,12 +436,12 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-xs font-bold font-mono">
-              MODUL A.1
+              MODUL A.1 · AUDIT INBOUND
             </span>
-            <h1 className="text-xl font-bold text-slate-900">Buku Penerimaan Aset TI</h1>
+            <h1 className="text-xl font-bold text-slate-900">Laporan BAST &amp; Audit Inbound (Buku Penerimaan)</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Faktur multi-item, berita acara serah terima (BAST), registrasi unit fisik otomatis, dan cetak laporan PDF.
+            Rekapitulasi faktur multi-item, verifikasi vendor, pencatatan BAST digital, dan registrasi serial number unit fisik.
           </p>
         </div>
 
@@ -464,6 +480,15 @@ export const BukuPenerimaanView: React.FC<BukuPenerimaanViewProps> = ({ onDataCh
           )}
         </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="buku-penerimaan"
+        dates={penerimaanList.map(p => p.tanggalPenerimaan)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {/* Inline Status Banner */}
       {statusBanner && (

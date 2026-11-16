@@ -27,8 +27,10 @@ import {
   DollarSign,
   ShieldCheck,
   FileText,
-  Tag
+  Tag,
+  Smartphone
 } from 'lucide-react';
+import { buildAndroidBatchSchemeUrl } from '../../services/bluetoothPrintService';
 
 interface AssetInventoryProps {
   onDataChanged: () => void;
@@ -800,7 +802,22 @@ export const AssetInventory: React.FC<AssetInventoryProps> = ({ onDataChanged })
               ))}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <a
+                href={buildAndroidBatchSchemeUrl(
+                  generatedItems.map(it => ({
+                    code: it.barcode.trim(),
+                    name: it.nama,
+                    kategori: it.kategori,
+                    lokasi: it.lokasi
+                  }))
+                )}
+                data-testid="android-bt-print-batch"
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Print Semua via Android (BT)</span>
+              </a>
               <button
                 type="button"
                 onClick={printBatchThermalLabels}

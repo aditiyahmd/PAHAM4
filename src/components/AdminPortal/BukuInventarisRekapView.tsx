@@ -17,6 +17,12 @@ import { AppDatabase } from '../../services/db';
 import { BukuAsetInventarisRekap, Asset } from '../../types';
 import { PdfReportService } from '../../services/pdfReportService';
 import { SignatoryConfirmModal, ConfirmedSignatoryValues } from '../Modals/SignatoryConfirmModal';
+import { ItilPeriodSelector } from './ItilPeriodSelector';
+import {
+  getStandardPeriodLabel,
+  matchesReportingPeriod,
+  ReportingCadence
+} from '../../services/reportGovernanceService';
 
 interface BukuInventarisRekapViewProps {
   onDataChanged?: () => void;
@@ -30,6 +36,8 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
   const [selectedStatus, setSelectedStatus] = useState<string>('Semua');
   const [searchTerm, setSearchTerm] = useState('');
+  const [cadence, setCadence] = useState<ReportingCadence>('semua');
+  const [periodKey, setPeriodKey] = useState<string>('');
   const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
 
   const categories = AppDatabase.getMasterCategories();
@@ -40,12 +48,13 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
   const filteredAssets = assets.filter(a => {
     const matchCat = selectedCategory === 'Semua' || a.kategori === selectedCategory;
     const matchStatus = selectedStatus === 'Semua' || a.status === selectedStatus;
+    const matchCadence = matchesReportingPeriod(a.tanggalMasuk || a.tanggalPembelian, cadence, periodKey);
     const matchSearch =
       a.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
       a.kodeUnikAset.toLowerCase().includes(searchTerm.toLowerCase()) ||
       a.barcode.toLowerCase().includes(searchTerm.toLowerCase()) ||
       a.lokasi.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchCat && matchStatus && matchSearch;
+    return matchCat && matchStatus && matchCadence && matchSearch;
   });
 
   const handlePrintInventaris = () => {
@@ -53,13 +62,48 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
   };
 
   const handleConfirmPrintInventaris = (values: ConfirmedSignatoryValues) => {
+    const periodLabel = getStandardPeriodLabel(cadence, periodKey);
     const doc = PdfReportService.generateBukuInventarisPdf(rekapList, filteredAssets, {
-      title: 'Buku Aset Inventaris (Rekapitulasi Saldo Stok & Nilai Aset TI UMC)',
+      title: `Laporan Saldo Stok & Valuasi Inventaris TI UMC (${periodLabel})`,
       kepalaPusdatin: values.kepalaPusdatin,
       nipKepala: values.nipKepala,
       petugas: values.petugas
     });
-    doc.save(`Buku_Aset_Inventaris_UMC_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`Buku_Aset_Inventaris_UMC_${periodKey || new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  const handleExportCsv = () => {
+    const headers = [
+      'Kategori',
+      'Total Masuk',
+      'Total Keluar',
+      'Stok Tersedia',
+      'Digunakan',
+      'Dipinjam',
+      'Maintenance',
+      'Tidak Layak',
+      'Nilai Valuasi (Rp)'
+    ];
+    const rows = rekapList.map(r => [
+      `"${r.kategori.replace(/"/g, '""')}"`,
+      String(r.totalMasuk),
+      String(r.totalKeluar),
+      String(r.stokTersedia),
+      String(r.rincianStatus.digunakan),
+      String(r.rincianStatus.dipinjam),
+      String(r.rincianStatus.maintenance),
+      String(r.rincianStatus.tidakLayak),
+      String(r.nilaiAsetTotal)
+    ]);
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Laporan_Saldo_Stok_Opname_UMC_${periodKey || 'Semua'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -69,24 +113,45 @@ export const BukuInventarisRekapView: React.FC<BukuInventarisRekapViewProps> = (
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-xs font-bold font-mono">
-              MODUL A.3
+              MODUL A.3 · ITAM STOCK OPNAME
             </span>
-            <h1 className="text-xl font-bold text-slate-900">Buku Aset Inventaris (Rekapitulasi Saldo)</h1>
+            <h1 className="text-xl font-bold text-slate-900">Laporan Saldo Stok &amp; Valuasi (Buku Aset Inventaris)</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Rekapitulasi gabungan Buku Penerimaan dan Buku Pengeluaran. Saldo: <strong>Total Masuk − Total Keluar = Stok Tersedia (BR-005)</strong> dengan status operasional real-time.
+            Rekapitulasi saldo masuk vs. keluar secara real-time (<strong>Total Masuk − Total Keluar = Stok Tersedia</strong>) dan posisi status operasional.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handlePrintInventaris}
-          className="px-4 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all shrink-0"
-        >
-          <Printer className="w-4 h-4" />
-          <span>Cetak Laporan Inventaris PDF</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            data-testid="export-inventaris-csv-btn"
+            onClick={handleExportCsv}
+            className="px-3.5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all whitespace-nowrap"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>Ekspor CSV (Stock Opname)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePrintInventaris}
+            className="px-4 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all whitespace-nowrap"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Cetak Laporan PDF</span>
+          </button>
+        </div>
       </div>
+
+      <ItilPeriodSelector
+        menuId="buku-inventaris-rekap"
+        dates={assets.map(a => a.tanggalMasuk || a.tanggalPembelian)}
+        cadence={cadence}
+        periodKey={periodKey}
+        onChangeCadence={setCadence}
+        onChangePeriodKey={setPeriodKey}
+      />
 
       {/* Top Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

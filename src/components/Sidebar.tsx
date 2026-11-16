@@ -80,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const executiveMenuItems: MenuItem[] = [
     {
       id: 'dashboard-pimpinan',
-      label: 'Dashboard Pimpinan',
+      label: 'Dashboard Eksekutif',
       icon: BarChart3
     },
     {
@@ -110,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     adminMenuItems = [
       {
         id: 'dashboard-pimpinan',
-        label: 'Dashboard Pimpinan',
+        label: 'Dashboard Eksekutif',
         icon: BarChart3
       },
       {
