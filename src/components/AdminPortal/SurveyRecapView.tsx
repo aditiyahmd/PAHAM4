@@ -160,9 +160,6 @@ export const SurveyRecapView: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-xs font-bold font-mono">
-              ITIL CONTINUAL IMPROVEMENT
-            </span>
             <h1 className="text-xl font-bold text-slate-900">
               Laporan Indeks CSAT &amp; Rekap Survei Kepuasan
             </h1>

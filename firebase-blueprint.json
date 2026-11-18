@@ -1,0 +1,101 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated UMC user profile linked to Google OAuth and local password setup status (no password or hash stored in Firestore).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "nama": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "ACT-01",
+            "ACT-02",
+            "ACT-03",
+            "ACT-04",
+            "ACT-05",
+            "ACT-06",
+            "ACT-07",
+            "ACT-08",
+            "ACT-09",
+            "ACT-10"
+          ]
+        },
+        "civitasType": {
+          "type": "string",
+          "enum": ["Dosen", "Karyawan", "Mahasiswa"]
+        },
+        "hasPassword": {
+          "type": "boolean"
+        },
+        "statusAkun": {
+          "type": "string",
+          "enum": ["Aktif", "Nonaktif"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "nama",
+        "role",
+        "hasPassword",
+        "statusAkun",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Admin role assignment document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user authentication profile metadata (strictly owner or admin access)."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Admin role registry readable only by existing admins or the owner."
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 
 // Mock storage for Node test environment
@@ -36,8 +36,13 @@ import {
 import { validateRegisteredSsoLogin } from '../src/services/authValidation';
 import { PdfReportService } from '../src/services/pdfReportService';
 import { DamageTicket } from '../src/types';
+import { seedTestFixtures } from './testHelpers';
 
 describe('PAHAM Refinements Suite - SLA, SSO Domain & Registered Users, One-Step Loan, Signatories & Black BAST Font', () => {
+  before(() => {
+    seedTestFixtures();
+  });
+
   it('Refinement 6a: parseFlexibleDate parses ISO timestamps and Indonesian DD/MM/YYYY formats cleanly', () => {
     const isoDate = parseFlexibleDate('2026-11-12T09:15:00.000Z');
     assert.ok(isoDate instanceof Date && !Number.isNaN(isoDate.getTime()));
@@ -168,7 +173,7 @@ describe('PAHAM Refinements Suite - SLA, SSO Domain & Registered Users, One-Step
     const users = AppDatabase.getUsers();
 
     // Active institutional staff (@umc.ac.id)
-    const adminRes = validateRegisteredSsoLogin('aditiya.it@umc.ac.id', users);
+    const adminRes = validateRegisteredSsoLogin('aditiya.ahmad@umc.ac.id', users);
     assert.strictEqual(adminRes.ok, true);
     assert.strictEqual(adminRes.user?.role, 'ACT-03');
     assert.strictEqual(adminRes.isNewUser, false);

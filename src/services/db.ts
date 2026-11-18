@@ -91,6 +91,8 @@ const STORAGE_KEYS = {
   SIGNATORIES: 'pusdatin_signatories_v4'
 };
 
+const CLEAN_DB_VERSION_KEY = 'pusdatin_clean_db_v5';
+
 export const INITIAL_LOCATIONS: string[] = [
   'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
   'Ruang Server PUSDATIN Kampus 1',
@@ -154,840 +156,62 @@ export const normalizeDamageStatus = (st: string): DamageStatus => {
   return st as DamageStatus;
 };
 
-// Initial Assets with immutable kodeUnikAset (BR-001) and QR payload (BR-002)
-const INITIAL_ASSETS: Asset[] = [
-  {
-    idAset: 'AST-001',
-    barcode: '30192848',
-    kodeUnikAset: 'AST-UMC-2026-001',
-    nama: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
-    kategori: 'Komputer & Laptop',
-    merekModel: 'ASUS ExpertBook B1 B1402CBA',
-    nomorSeri: 'ASUS-EXP-2026-001',
-    spesifikasi: 'Intel Core i7-1255U, 16GB DDR4, 512GB NVMe SSD, 14 Inch FHD IPS',
-    lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    status: 'Tersedia',
-    tanggalMasuk: '2026-10-15',
-    tanggalPembelian: '2026-10-10',
-    nomorPoInvoice: 'PO/UMC-IT/2026/X/089',
-    vendorSupplier: 'PT. Metrodata Electronics Tbk',
-    hargaBeli: 14500000,
-    masaGaransi: '2 Tahun Garansi Resmi ASUS Indonesia (s/d Oktober 2028)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    idPenerimaanTerkait: 'RCV-2026-001'
-  },
-  {
-    idAset: 'AST-002',
-    barcode: '30918274',
-    kodeUnikAset: 'AST-UMC-2026-002',
-    nama: 'Laptop Dell Latitude 5430 Core i5 16GB',
-    kategori: 'Komputer & Laptop',
-    merekModel: 'Dell Latitude 5430 Rugged Series',
-    nomorSeri: 'DELL-LAT-5430-811',
-    spesifikasi: 'Intel Core i5-1245U vPro, 16GB DDR4, 512GB SSD, 14 Inch FHD Anti-Glare',
-    lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    status: 'Tersedia',
-    tanggalMasuk: '2026-10-20',
-    tanggalPembelian: '2026-10-12',
-    nomorPoInvoice: 'PO/UMC-IT/2026/X/092',
-    vendorSupplier: 'CV. Cirebon Komputindo Mandiri',
-    hargaBeli: 12800000,
-    masaGaransi: '3 Tahun ProSupport Dell Onsite (s/d Oktober 2029)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    idPenerimaanTerkait: 'RCV-2026-001'
-  },
-  {
-    idAset: 'AST-003',
-    barcode: '20495812',
-    kodeUnikAset: 'AST-UMC-2026-003',
-    nama: 'Laptop Lenovo ThinkPad L14 Gen 3',
-    kategori: 'Komputer & Laptop',
-    merekModel: 'Lenovo ThinkPad L14 Gen 3 AMD',
-    nomorSeri: 'LNV-TP-L14-992',
-    spesifikasi: 'AMD Ryzen 5 PRO 5675U, 16GB RAM, 512GB SSD NVMe, TrackPoint, Win 11 Pro',
-    pengguna: 'Hilyah Aulia, S.T.',
-    bidangPengguna: 'Biro Administrasi Umum (BAU)',
-    lokasi: 'Biro Administrasi Umum (BAU)',
-    status: 'Dipinjam',
-    tanggalMasuk: '2026-09-10',
-    tanggalPembelian: '2026-08-25',
-    nomorPoInvoice: 'PO/UMC-BAU/2026/VIII/044',
-    vendorSupplier: 'PT. Bhinneka Mentari Dimensi',
-    hargaBeli: 13200000,
-    masaGaransi: '3 Tahun Premier Support Lenovo (s/d Agustus 2029)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    idPenerimaanTerkait: 'RCV-2026-001'
-  },
-  {
-    idAset: 'AST-004',
-    barcode: '50291847',
-    kodeUnikAset: 'AST-UMC-2026-004',
-    nama: 'Proyektor Epson EB-E500 3300 Lumens',
-    kategori: 'Multimedia',
-    merekModel: 'Epson 3LCD EB-E500 Series',
-    nomorSeri: 'EPSON-EB-5001',
-    spesifikasi: 'XGA 3300 ANSI Lumens, Kontras 15.000:1, HDMI/VGA/USB, Dilengkapi Tas & Kabel',
-    lokasi: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    status: 'Tersedia',
-    tanggalMasuk: '2026-08-20',
-    tanggalPembelian: '2026-08-15',
-    nomorPoInvoice: 'PO/UMC-MM/2026/VIII/012',
-    vendorSupplier: 'CV. Cipta Visual Mandiri',
-    hargaBeli: 5400000,
-    masaGaransi: '2 Tahun Unit / 1000 Jam Lampu (s/d Agustus 2028)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    idPenerimaanTerkait: 'RCV-2026-002'
-  },
-  {
-    idAset: 'AST-005',
-    barcode: '10928374',
-    kodeUnikAset: 'AST-UMC-2026-005',
-    nama: 'PC All-in-One HP ProOne 400 G4',
-    kategori: 'Komputer & Laptop',
-    merekModel: 'HP ProOne 400 G4 23.8 Non-Touch AIO',
-    nomorSeri: 'HP-PO400-089',
-    spesifikasi: 'Intel Core i5-8500, 8GB DDR4, 256GB SSD + 1TB HDD, 23.8 FHD IPS, Keyboard Mouse HP',
-    pengguna: 'Drs. H. Mulyono, M.Pd.',
-    bidangPengguna: 'Laboratorium Komputer 2 (FKIP)',
-    lokasi: 'Laboratorium Komputer 2 (FKIP)',
-    status: 'Digunakan',
-    tanggalMasuk: '2026-07-01',
-    tanggalPembelian: '2026-06-20',
-    nomorPoInvoice: 'PO/UMC-LAB/2026/VI/102',
-    vendorSupplier: 'PT. Harrisma Informatika Jaya',
-    hargaBeli: 11500000,
-    masaGaransi: '1 Tahun Garansi Resmi HP (s/d Juni 2027)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Laboratorium Komputer 2 (FKIP)'
-  },
-  {
-    idAset: 'AST-006',
-    barcode: '84930219',
-    kodeUnikAset: 'AST-UMC-2026-006',
-    nama: 'Access Point Ruijie Reyee RG-RAP2200(E)',
-    kategori: 'Networking',
-    merekModel: 'Ruijie Reyee Cloud AP RG-RAP2200(E)',
-    nomorSeri: 'RJ-AP-2200-881',
-    spesifikasi: 'Wi-Fi 5 AC1300 Dual Band Gigabit PoE Ceiling AP, Cloud Managed by Reyee Cloud',
-    pengguna: 'Fakultas Keguruan dan Ilmu Pendidikan',
-    bidangPengguna: 'Gedung FKIP Lantai 2',
-    lokasi: 'Gedung FKIP Lantai 2',
-    status: 'Digunakan',
-    tanggalMasuk: '2026-06-12',
-    tanggalPembelian: '2026-06-01',
-    nomorPoInvoice: 'PO/UMC-NET/2026/VI/018',
-    vendorSupplier: 'PT. Synnex Metrodata Indonesia',
-    hargaBeli: 1250000,
-    masaGaransi: '3 Tahun Garansi Distributor Resmi Ruijie (s/d Juni 2029)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Gedung FKIP Lantai 2',
-    idPenerimaanTerkait: 'RCV-2026-003'
-  },
-  {
-    idAset: 'AST-007',
-    barcode: '62910482',
-    kodeUnikAset: 'AST-UMC-2026-007',
-    nama: 'Switch Cisco Catalyst 2960-X 24 Port Gigabit',
-    kategori: 'Networking',
-    merekModel: 'Cisco WS-C2960X-24TS-L Catalyst',
-    nomorSeri: 'CSCO-2960X-4421',
-    spesifikasi: '24 Port 10/100/1000 Gigabit Ethernet + 4 SFP, Managed Switch Layer 2 Enterprise LAN Base',
-    pengguna: 'Tim Infrastruktur Jaringan Kampus',
-    bidangPengguna: 'Ruang Server PUSDATIN Kampus 1',
-    lokasi: 'Ruang Server PUSDATIN Kampus 1',
-    status: 'Digunakan',
-    tanggalMasuk: '2026-05-18',
-    tanggalPembelian: '2026-05-10',
-    nomorPoInvoice: 'PO/UMC-INF/2026/V/005',
-    vendorSupplier: 'PT. Mastersystem Infotama',
-    hargaBeli: 18500000,
-    masaGaransi: 'Enhanced Limited Lifetime Warranty (Cisco LLW)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Ruang Server PUSDATIN Kampus 1'
-  },
-  {
-    idAset: 'AST-008',
-    barcode: '94820193',
-    kodeUnikAset: 'AST-UMC-2026-008',
-    nama: 'Printer Epson L3210 All-in-One EcoTank',
-    kategori: 'Perlengkapan Kantor',
-    merekModel: 'Epson EcoTank L3210 Multifunction',
-    nomorSeri: 'EPS-L3210-990',
-    spesifikasi: 'Print, Scan, Copy Ink Tank System Original, Resolusi 5760 x 1440 dpi',
-    pengguna: 'Ahmad Fauzi (Laboran)',
-    bidangPengguna: 'Laboratorium Komputer 1 (Kampus 1)',
-    lokasi: 'Laboratorium Komputer 1 (Kampus 1)',
-    status: 'Maintenance',
-    tanggalMasuk: '2026-04-10',
-    tanggalPembelian: '2026-04-02',
-    nomorPoInvoice: 'PO/UMC-LAB/2026/IV/033',
-    vendorSupplier: 'CV. Sumber Makmur Komputer',
-    hargaBeli: 2450000,
-    masaGaransi: '2 Tahun / 30.000 Lembar Garansi Resmi Epson (s/d April 2028)',
-    jenisAset: 'Fisik',
-    lokasiAwal: 'Laboratorium Komputer 1 (Kampus 1)'
-  }
-];
-
-// 8.2 Tabel 7: Buku Penerimaan Aset
-const INITIAL_BUKU_PENERIMAAN: BukuPenerimaanItem[] = [
-  {
-    idPenerimaan: 'RCV-2026-001',
-    tanggalPenerimaan: '2026-10-15',
-    dari: 'PT. Metrodata Electronics Tbk',
-    nomorFaktur: 'INV-METRO/2026/X/1092',
-    tanggalFaktur: '2026-10-10',
-    namaAset: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
-    kategori: 'Komputer & Laptop',
-    banyaknya: 5,
-    hargaSatuan: 14500000,
-    jumlahHarga: 72500000, // BR-003: 5 × 14.500.000
-    nomorBeritaAcara: 'BAST-PUSDATIN/2026/X/041',
-    tanggalBeritaAcara: '2026-10-15',
-    keterangan: 'Pengadaan laptop operasional dosen dan inventaris peminjaman UMC tahap 2',
-    tercatatUnitCount: 5,
-    petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-  },
-  {
-    idPenerimaan: 'RCV-2026-002',
-    tanggalPenerimaan: '2026-08-20',
-    dari: 'CV. Cipta Visual Mandiri',
-    nomorFaktur: 'INV-CVM/2026/VIII/044',
-    tanggalFaktur: '2026-08-15',
-    namaAset: 'Proyektor Epson EB-E500 3300 Lumens',
-    kategori: 'Multimedia',
-    banyaknya: 3,
-    hargaSatuan: 5400000,
-    jumlahHarga: 16200000, // BR-003: 3 × 5.400.000
-    nomorBeritaAcara: 'BAST-PUSDATIN/2026/VIII/019',
-    tanggalBeritaAcara: '2026-08-20',
-    keterangan: 'Proyektor portable cadangan ruang smart classroom kampus 2',
-    tercatatUnitCount: 3,
-    petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-  },
-  {
-    idPenerimaan: 'RCV-2026-003',
-    tanggalPenerimaan: '2026-06-12',
-    dari: 'PT. Synnex Metrodata Indonesia',
-    nomorFaktur: 'INV-SMI/2026/VI/0988',
-    tanggalFaktur: '2026-06-01',
-    namaAset: 'Access Point Ruijie Reyee RG-RAP2200(E)',
-    kategori: 'Networking',
-    banyaknya: 10,
-    hargaSatuan: 1250000,
-    jumlahHarga: 12500000, // BR-003: 10 × 1.250.000
-    nomorBeritaAcara: 'BAST-PUSDATIN/2026/VI/011',
-    tanggalBeritaAcara: '2026-06-12',
-    keterangan: 'Perluasan coverage Wi-Fi Kampus 1 dan Kampus 2 UMC',
-    tercatatUnitCount: 10,
-    petugas: 'Ir. Faisal Hakim, M.T.'
-  }
-];
-
-// 8.2 Tabel 8: Buku Pengeluaran Aset
-const INITIAL_BUKU_PENGELUARAN: BukuPengeluaranItem[] = [
-  {
-    idPengeluaran: 'OUT-2026-001',
-    tanggalPenyerahan: '2026-11-04',
-    kodeUnikAset: 'AST-UMC-2026-003',
-    barcode: '20495812',
-    namaAset: 'Laptop Lenovo ThinkPad L14 Gen 3',
-    untuk: 'Hilyah Aulia, S.T. (Biro Administrasi Umum)',
-    jenisPengeluaran: 'Peminjaman',
-    idTiketPeminjaman: 'PJM-20261104-1029',
-    keterangan: 'Peminjaman operasional re-akreditasi institusi UMC (Otomatis dari Modul C)',
-    petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-  },
-  {
-    idPengeluaran: 'OUT-2026-002',
-    tanggalPenyerahan: '2026-05-18',
-    kodeUnikAset: 'AST-UMC-2026-007',
-    barcode: '62910482',
-    namaAset: 'Switch Cisco Catalyst 2960-X 24 Port Gigabit',
-    untuk: 'Ruang Server PUSDATIN Kampus 1',
-    jenisPengeluaran: 'Penggunaan',
-    keterangan: 'Pemasangan permanen rack server core switch kampus',
-    petugas: 'Ir. Faisal Hakim, M.T.'
-  }
-];
-
-// 8.2 Tabel 10: Peminjaman Aset (Status Enum: Diajukan, Diterima, Ditolak, Dikonfirmasi, Diserahkan, Terlambat, Dikembalikan, Ditutup)
-const INITIAL_LOANS: LoanTicket[] = [
-  {
-    id: 'PJM-20261104-1029',
-    peminjam: 'Hilyah Aulia, S.T.',
-    nik: '0412088801',
-    unit: 'Biro Administrasi Umum (BAU)',
-    kontak: '081234567890',
-    email: 'hilyah@umc.ac.id',
-    barangPinjaman: 'Laptop Lenovo ThinkPad L14 Gen 3',
-    jumlah: 1,
-    tglPinjam: '2026-11-04',
-    tglKembali: '2026-11-08',
-    status: 'Diserahkan', // Aset sedang di peminjam
-    barcode: '20495812',
-    kodeUnikAset: 'AST-UMC-2026-003',
-    namaBarangT: 'Laptop Lenovo ThinkPad L14 Gen 3 AMD',
-    kondisi: 'Baik / Lengkap dengan Charger & Tas',
-    petugas: 'Aditiya Ahmad Fadila, S.Kom.',
-    catatan: 'Untuk persiapan visitasi akreditasi prodi',
-    tglAju: '04/11/2026 08:30',
-    tglAmbil: '2026-11-04',
-    metodePengambilan: 'Diambil di Ruang PUSDATIN',
-    jadwalPengambilan: '2026-11-04 pukul 09:00 WIB',
-    lokasiPengambilan: 'Ruang PUSDATIN (Gedung Laboratorium Terpadu Lt.2 Kampus 2)',
-    nomorSuratPeminjaman: 'SP-PUSDATIN/2026/XI/1029',
-    createdAtIso: '2026-11-04T08:30:00.000Z',
-    approvedAtIso: '2026-11-04T08:50:00.000Z',
-    approvedBy: 'Aditiya Ahmad Fadila, S.Kom.',
-    fulfilledAtIso: '2026-11-04T09:10:00.000Z',
-    fulfilledBy: 'Aditiya Ahmad Fadila, S.Kom.',
-    penandatangan: {
-      peminjam: 'Hilyah Aulia, S.T.',
-      petugas: 'Aditiya Ahmad Fadila, S.Kom.',
-      kepalaPusdatin: 'Dr. Ir. H. Ahmad Dahlan, M.T.'
-    }
-  },
-  {
-    id: 'PJM-20261106-9921',
-    peminjam: 'BEM Universitas Muhammadiyah Cirebon',
-    nik: '2201090044',
-    unit: 'Organisasi Mahasiswa (BEM UMC)',
-    kontak: '087788991122',
-    email: 'bem@umc.ac.id',
-    barangPinjaman: 'Proyektor Epson EB-E500 3300 Lumens',
-    jumlah: 1,
-    tglPinjam: '2026-11-12',
-    tglKembali: '2026-11-13',
-    status: 'Diajukan', // Menunggu verifikasi Admin
-    catatan: 'Seminar Nasional Kepemudaan UMC di Aula Ahmad Dahlan',
-    tglAju: '06/11/2026 14:00',
-    createdAtIso: '2026-11-06T14:00:00.000Z'
-  },
-  {
-    id: 'PJM-20261102-1042',
-    peminjam: 'Dr. Hendra Wijaya, M.Pd.',
-    nik: '0419087502',
-    unit: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
-    kontak: '081234567890',
-    email: 'hendra.dosen@umc.ac.id',
-    barangPinjaman: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
-    jumlah: 1,
-    tglPinjam: '2026-11-02',
-    tglKembali: '2026-11-03',
-    tglDikembalikan: '2026-11-03',
-    status: 'Dikembalikan',
-    barcode: '30192848',
-    kodeUnikAset: 'AST-UMC-2026-001',
-    namaBarangT: 'Laptop ASUS ExpertBook B1 Core i7 16GB',
-    kondisi: 'Baik / Lengkap',
-    hasilPemeriksaanKembali: 'Baik / Lengkap',
-    petugas: 'Aditiya Ahmad Fadila, S.Kom.',
-    catatan: 'Penggunaan Workshop Kurikulum OBE FKIP (Sudah Dikembalikan)',
-    tglAju: '02/11/2026 08:00',
-    tglAmbil: '2026-11-02',
-    createdAtIso: '2026-11-02T08:00:00.000Z',
-    approvedAtIso: '2026-11-02T08:25:00.000Z',
-    approvedBy: 'Aditiya Ahmad Fadila, S.Kom.',
-    fulfilledAtIso: '2026-11-02T09:10:00.000Z',
-    fulfilledBy: 'Aditiya Ahmad Fadila, S.Kom.'
-  }
-];
-
-// 8.2 Tabel 2: Tiket Helpdesk (Status: Open/Unassigned, Assigned, In Progress, Pending – Menunggu Suku Cadang, Resolved, Closed – Auto, Closed – Manual, Re-opened)
-const INITIAL_DAMAGES: DamageTicket[] = [
-  {
-    id: 'TKT-20261107-105',
-    kodeUnikAset: 'AST-UMC-2026-004',
-    barcode: '50291847',
-    namaBarang: 'Proyektor Epson EB-E500 3300 Lumens',
-    pelapor: 'Drs. H. Mulyono, M.Pd. (Dosen FKIP)',
-    kontakPelapor: '081223344556',
-    emailPelapor: 'mulyono@umc.ac.id',
-    lokasi: 'Smart Classroom Gedung B Lt.3',
-    lokasiAwal: 'Smart Classroom Gedung B Lt.3',
-    deskripsi: 'Tampilan proyektor berkedip dan lampu indikator filter merah menyala saat digunakan kuliah umum.',
-    tanggalLapor: '2026-11-07 08:30',
-    status: 'Open/Unassigned',
-    prioritas: 'Tinggi',
-    urgensi: 'Tinggi',
-    kategoriMasalah: 'Hardware',
-    slaTargetHours: 12,
-    slaDeadline: '2026-11-07 20:30',
-    slaStatus: 'On Track',
-    jenisAset: 'Fisik',
-    picTeknisi: 'IT Support & Helpdesk Specialist',
-    namaPicTeknisi: 'Aditiya Ahmad Fadila, S.Kom.',
-    assignedTechnicianId: 'USR-ACT-03',
-    catatanAdmin: 'Laporan baru masuk via SSO. Menunggu verifikasi dan dispatch teknisi.',
-    riwayatStatus: [
-      {
-        status: 'Open/Unassigned',
-        timestamp: '07/11/2026 08:30',
-        catatan: 'Tiket diterbitkan dengan nomor TKT-20261107-105 (SLA: 12 Jam).',
-        petugas: 'Sistem SSO UMC'
-      }
-    ]
-  },
-  {
-    id: 'TKT-20261107-092',
-    kodeUnikAset: 'AST-UMC-2026-006',
-    barcode: '84930219',
-    namaBarang: 'Access Point Ruijie Reyee RG-RAP2200(E)',
-    pelapor: 'Drs. Supriyanto, M.Pd.',
-    kontakPelapor: '085290192837',
-    emailPelapor: 'supriyanto@umc.ac.id',
-    lokasi: 'Gedung FKIP Lantai 2',
-    lokasiAwal: 'Gedung FKIP Lantai 2',
-    deskripsi: 'Sinyal Wi-Fi sering putus dan roaming lambat di area koridor lantai 2.',
-    tanggalLapor: '2026-11-07 07:15',
-    status: 'Assigned',
-    prioritas: 'Tinggi',
-    urgensi: 'Tinggi',
-    kategoriMasalah: 'Jaringan / Server / Cloud',
-    slaTargetHours: 8,
-    slaDeadline: '2026-11-07 15:15',
-    slaStatus: 'On Track',
-    jenisAset: 'Fisik',
-    picTeknisi: 'Cloud & Infrastructure Engineer',
-    namaPicTeknisi: 'Ir. Faisal Hakim, M.T.',
-    assignedTechnicianId: 'USR-ACT-04',
-    catatanAdmin: 'Tiket didistribusikan ke PIC Cloud & Infrastructure Engineer untuk cek controller Reyee.',
-    riwayatStatus: [
-      {
-        status: 'Open/Unassigned',
-        timestamp: '07/11/2026 07:15',
-        catatan: 'Laporan kendala Wi-Fi diajukan.',
-        petugas: 'Drs. Supriyanto, M.Pd.'
-      },
-      {
-        status: 'Assigned',
-        timestamp: '07/11/2026 07:45',
-        catatan: 'Didistribusikan ke Ir. Faisal Hakim, M.T. (Cloud & Infrastructure Engineer).',
-        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-      }
-    ]
-  },
-  {
-    id: 'TKT-20261106-101',
-    kodeUnikAset: 'AST-UMC-2026-008',
-    barcode: '94820193',
-    namaBarang: 'Printer Epson L3210 All-in-One EcoTank',
-    pelapor: 'Ahmad Fauzi (Laboran)',
-    kontakPelapor: '081394857211',
-    emailPelapor: 'fauzi.lab@umc.ac.id',
-    lokasi: 'Laboratorium Komputer 1 (Kampus 1)',
-    lokasiAwal: 'Laboratorium Komputer 1 (Kampus 1)',
-    deskripsi: 'Paper jam berulang kali dan lampu merah berkedip terus (roller karet aus & kabel head retak).',
-    tanggalLapor: '2026-11-06 10:15',
-    status: 'Pending – Menunggu Suku Cadang',
-    prioritas: 'Sedang',
-    urgensi: 'Sedang',
-    kategoriMasalah: 'Hardware',
-    slaTargetHours: 48,
-    slaDeadline: '2026-11-08 10:15',
-    slaStatus: 'On Track',
-    jenisAset: 'Fisik',
-    skenarioPerbaikan: 'Fisik (Bawa ke PUSDATIN)',
-    cabangPerbaikan: 'Butuh Suku Cadang',
-    picTeknisi: 'IT Support & Helpdesk Specialist',
-    namaPicTeknisi: 'Aditiya Ahmad Fadila, S.Kom.',
-    assignedTechnicianId: 'USR-ACT-03',
-    kategoriPerbaikan: 'Suku Cadang (Perlu Anggaran)',
-    namaSukuCadang: 'Roller Karet Pickup Paper Epson L3210',
-    sumberAnggaran: 'Pengajuan RKAT Kampus',
-    sukuCadangList: [
-      {
-        id: 'SP-101-1',
-        idTiket: 'TKT-20261106-101',
-        namaKomponen: 'Roller Karet Pickup Paper Epson L3210',
-        jumlah: 1,
-        statusPengadaan: 'Diminta',
-        tanggalKebutuhan: '2026-11-06 10:30'
-      }
-    ],
-    riwayatStatus: [
-      {
-        status: 'Open/Unassigned',
-        timestamp: '06/11/2026 10:15',
-        catatan: 'Laporan kerusakan printer masuk.',
-        petugas: 'Ahmad Fauzi'
-      },
-      {
-        status: 'Assigned',
-        timestamp: '06/11/2026 10:30',
-        catatan: 'Ditugaskan ke IT Support.',
-        petugas: 'Admin'
-      },
-      {
-        status: 'Pending – Menunggu Suku Cadang',
-        timestamp: '06/11/2026 11:00',
-        catatan: 'Komponen roller karet aus, diajukan pengadaan suku cadang (Status: Diminta).',
-        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-      }
-    ]
-  },
-  {
-    id: 'TKT-20261105-088',
-    kodeUnikAset: 'AST-UMC-2026-007',
-    barcode: '62910482',
-    namaBarang: 'Switch Cisco Catalyst 2960-X 24 Port Gigabit',
-    pelapor: 'Dr. Hendra Wijaya, M.Pd.',
-    kontakPelapor: '081234567890',
-    emailPelapor: 'hendra.dosen@umc.ac.id',
-    lokasi: 'Gedung FKIP Lantai 2',
-    lokasiAwal: 'Gedung FKIP Lantai 2',
-    deskripsi: 'Koneksi LAN ruang dosen FKIP terputus pada port uplink switch distribusi.',
-    tanggalLapor: '2026-11-05 09:00',
-    createdAtIso: '2026-11-05T09:00:00.000Z',
-    firstResponseAtIso: '2026-11-05T09:12:00.000Z',
-    firstResponseBy: 'Aditiya Ahmad Fadila, S.Kom.',
-    slaStartedAtIso: '2026-11-05T09:12:00.000Z',
-    resolvedAtIso: '2026-11-05T11:30:00.000Z',
-    resolvedAt: '2026-11-05T11:30:00.000Z',
-    waktuSelesai: '2026-11-05 11:30',
-    status: 'Resolved',
-    prioritas: 'Tinggi',
-    urgensi: 'Tinggi',
-    kategoriMasalah: 'Jaringan / Server / Cloud',
-    frtTargetMinutes: 30,
-    rtTargetHours: 12,
-    slaTargetHours: 12,
-    slaDeadline: '2026-11-05T21:12:00.000Z',
-    slaStatus: 'On Track',
-    jenisAset: 'Fisik',
-    picTeknisi: 'Cloud & Infrastructure Engineer',
-    namaPicTeknisi: 'Ir. Faisal Hakim, M.T.',
-    assignedTechnicianId: 'USR-ACT-04',
-    resolusiAkhir: 'Kabel patch cord SFP dan konfigurasi VLAN port uplink telah diganti dan normal kembali.',
-    catatanAdmin: 'Konfigurasi uplink switch selesai diverifikasi, koneksi LAN FKIP normal.',
-    riwayatStatus: [
-      {
-        status: 'Open/Unassigned',
-        timestamp: '05/11/2026 09:00',
-        catatan: 'Laporan gangguan LAN ruang dosen FKIP masuk.',
-        petugas: 'Dr. Hendra Wijaya, M.Pd.'
-      },
-      {
-        status: 'Assigned',
-        timestamp: '05/11/2026 09:12',
-        catatan: 'Ditugaskan ke Ir. Faisal Hakim, M.T. (Cloud & Infrastructure Engineer).',
-        petugas: 'Aditiya Ahmad Fadila, S.Kom.'
-      },
-      {
-        status: 'Resolved',
-        timestamp: '05/11/2026 11:30',
-        catatan: 'Selesai perbaikan: patch cord & VLAN uplink normal.',
-        petugas: 'Ir. Faisal Hakim, M.T.'
-      }
-    ]
-  }
-];
-
-// 8.2 Tabel 14: Pengajuan Sistem Baru (F-DEV-01, 5-Tahap Workflow)
-const INITIAL_SYSTEM_PROPOSALS: SystemProposal[] = [
-  {
-    id: 'SYS-2026-001',
-    namaSistem: 'Sistem Informasi Manajemen MBKM & Magang Kampus Merdeka UMC',
-    pemohon: 'Dr. Hendra Wijaya, M.Pd.',
-    unitKerja: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
-    nidnNik: '0419087502',
-    kontakWhatsapp: '081234567890',
-    email: 'hendra.dosen@umc.ac.id',
-    deskripsiKebutuhan: 'Portal pencatatan logbook magang MBKM, konversi nilai SKS otomatis ke SIAKAD, dan tanda tangan digital sertifikat pembimbing lapangan.',
-    latarBelakang: 'Pelaksanaan program MBKM selama ini dicatat manual dengan Google Drive sehingga data sering tercecer dan verifikasi SKS memakan waktu lebih dari 3 minggu.',
-    targetPengguna: 'Mahasiswa, Dosen Pembimbing Lapangan, Koordinator MBKM Fakultas, dan BAA UMC',
-    tanggalPengajuan: '2026-11-02 09:30',
-    createdAtIso: '2026-11-02T09:30:00.000Z',
-    verifiedAtIso: '2026-11-03T06:00:00.000Z',
-    brdCompletedAtIso: '2026-11-04T14:00:00.000Z',
-    status: 'status_pengembangan',
-    verifikasiAdmin: {
-      petugas: 'Aditiya Ahmad Fadila, S.Kom.',
-      tanggal: '2026-11-03 06:00',
-      lengkap: true,
-      catatan: 'Dokumen TOR dan skema alur pengusulan telah lengkap sesuai standar PUSDATIN.'
-    },
-    analisisKebutuhan: {
-      analystName: 'Novi Andriani, M.Kom.',
-      tanggal: '2026-11-04 14:00',
-      arsitekturData: 'Relational PostgreSQL, integrasi REST API SIAKAD, schema: mbkm_logbook, mbkm_konversi_sks, mbkm_mitra.',
-      lingkupFitur: 'Autentikasi SSO Google, Dashboard Mahasiswa, Modul Review Dosen, Endpoint Sync Nilai SIAKAD.',
-      estimasiSprintWeeks: 4,
-      catatan: 'Skema tabel dan relasi foreign key telah divalidasi dengan database administrator.'
-    },
-    verifikasiKeamanan: {
-      auditorName: 'Rian Hidayat, M.Kom.',
-      tanggal: '2026-11-05 11:30',
-      risikoKeamanan: 'Rendah',
-      rekomendasiEnkripsi: 'Wajib TLS 1.3, JWT HttpOnly Cookie, enkripsi kolom nilai & NIK dengan AES-256.',
-      statusVerifikasi: 'Lolos',
-      catatan: 'Telah lolos review keamanan OWASP Top 10 dan disetujui untuk tahap approval pimpinan.'
-    },
-    approvalPimpinan: {
-      pejabat: 'Dr. Ir. H. Ahmad Dahlan, M.T.',
-      tanggal: '2026-11-06 09:00',
-      keputusan: 'Disetujui',
-      catatan: 'Disetujui untuk dikembangkan internal PUSDATIN. Prioritas sprint bulan November 2026.'
-    },
-    pengembangan: {
-      leadDev: 'Bayu Pratama, S.Kom.',
-      frontendDev: 'Dimas Saputra, S.Kom.',
-      backendDev: 'Eko Prasetyo, S.Kom.',
-      progresPersen: 65,
-      logProgres: [
-        {
-          tanggal: '2026-11-07 10:00',
-          petugas: 'Bayu Pratama, S.Kom.',
-          deskripsi: 'Setup repository monorepo, database migrations PostgreSQL, dan endpoint auth JWT.',
-          progres: 25
-        },
-        {
-          tanggal: '2026-11-08 16:30',
-          petugas: 'Dimas Saputra, S.Kom.',
-          deskripsi: 'Penyusunan UI Dashboard Logbook Mahasiswa & Modul Upload Dokumen Mitra.',
-          progres: 45
-        },
-        {
-          tanggal: '2026-11-09 15:00',
-          petugas: 'Eko Prasetyo, S.Kom.',
-          deskripsi: 'Pengujian endpoint REST API SIAKAD Sync & implementasi RBAC peran koordinator.',
-          progres: 65
-        }
-      ],
-      tanggalMulai: '2026-11-07',
-      tanggalTarget: '2026-11-28'
-    },
-    asetDihasilkan: {
-      jenisAset: 'Server VPS',
-      namaAset: 'Cloud VPS Node MBKM UMC (Ubuntu 24.04 4vCPU 8GB)',
-      spesifikasi: 'VPS Cloud Kampus 1, IP: 10.20.10.88, 80GB NVMe SSD, Docker Compose Containerized',
-      sudahDiregistrasi: false
-    },
-    dokumenTeknis: [
-      {
-        namaDokumen: 'TOR_Pengembangan_Sistem_MBKM_UMC_v1.0.pdf',
-        tipe: 'TOR',
-        urlOrFilename: 'TOR_Pengembangan_Sistem_MBKM_UMC_v1.0.pdf',
-        tanggalUpload: '2026-11-02 09:30'
-      },
-      {
-        namaDokumen: 'Arsitektur_Data_ERD_MBKM_SIAKAD.pdf',
-        tipe: 'Arsitektur',
-        urlOrFilename: 'Arsitektur_Data_ERD_MBKM_SIAKAD.pdf',
-        tanggalUpload: '2026-11-04 14:00'
-      }
-    ]
-  },
-  {
-    id: 'SYS-2026-002',
-    namaSistem: 'Aplikasi Monitoring Presensi Mahasiswa Berbasis Geofencing Mobile',
-    pemohon: 'Biro Administrasi Akademik (BAA)',
-    unitKerja: 'Biro Administrasi Akademik (BAA)',
-    nidnNik: '0420018201',
-    kontakWhatsapp: '081987654321',
-    email: 'baa@umc.ac.id',
-    deskripsiKebutuhan: 'Aplikasi presensi mahasiswa via smartphone dengan validasi radius lokasi GPS (Geofencing 50 meter dari ruang kuliah) dan deteksi fake GPS.',
-    latarBelakang: 'Mengurangi antrean presensi fingerprint di depan kelas dan mencegah titip presensi antar mahasiswa.',
-    targetPengguna: 'Seluruh Mahasiswa dan Dosen Pengampu Mata Kuliah UMC',
-    tanggalPengajuan: '2026-11-08 11:00',
-    createdAtIso: '2026-11-08T11:00:00.000Z',
-    status: 'status_verifikasi',
-    dokumenTeknis: [
-      {
-        namaDokumen: 'Spesifikasi_Kebutuhan_Presensi_Geofencing.pdf',
-        tipe: 'TOR',
-        urlOrFilename: 'Spesifikasi_Kebutuhan_Presensi_Geofencing.pdf',
-        tanggalUpload: '2026-11-08 11:00'
-      }
-    ]
-  },
-  {
-    id: 'SYS-2026-003',
-    namaSistem: 'Portal Tracer Study & Jejak Karir Alumni Terpadu UMC',
-    pemohon: 'Dr. Hendra Wijaya, M.Pd.',
-    unitKerja: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
-    nidnNik: '0419087502',
-    kontakWhatsapp: '081234567890',
-    email: 'hendra.dosen@umc.ac.id',
-    deskripsiKebutuhan: 'Dashboard survei alumni terintegrasi PDDIKTI, ekspor borang akreditasi BAN-PT/LAM, dan portal lowongan kerja mitra industri.',
-    latarBelakang: 'Mempermudah rekapitulasi masa tunggu lulusan dan kesesuaian bidang kerja untuk kepentingan akreditasi program studi.',
-    targetPengguna: 'Alumni, Kaprodi, Dekan, dan Tim Akreditasi LPM UMC',
-    tanggalPengajuan: '2026-09-10 09:00',
-    createdAtIso: '2026-09-10T09:00:00.000Z',
-    verifiedAtIso: '2026-09-10T20:00:00.000Z',
-    brdCompletedAtIso: '2026-09-12T15:00:00.000Z',
-    liveAtIso: '2026-10-20T10:00:00.000Z',
-    status: 'Serah Terima',
-    verifikasiAdmin: {
-      petugas: 'Aditiya Ahmad Fadila, S.Kom.',
-      tanggal: '2026-09-10 20:00',
-      lengkap: true,
-      catatan: 'TOR Tracer Study memenuhi kelayakan prioritas akreditasi.'
-    },
-    analisisKebutuhan: {
-      analystName: 'Novi Andriani, M.Kom.',
-      tanggal: '2026-09-12 15:00',
-      arsitekturData: 'PostgreSQL + Export Excel BAN-PT',
-      lingkupFitur: 'Kuesioner Tracer Study, Rekap Prodi, Grafik Masa Tunggu.',
-      estimasiSprintWeeks: 4,
-      catatan: 'BRD disahkan untuk sprint pengembangan.'
-    },
-    pengembangan: {
-      leadDev: 'Bayu Pratama, S.Kom.',
-      progresPersen: 100,
-      logProgres: [
-        {
-          tanggal: '2026-10-20 10:00',
-          petugas: 'Bayu Pratama, S.Kom.',
-          deskripsi: 'UAT lulus 100% dan resmi Go-Live ke Service Desk PUSDATIN.',
-          progres: 100
-        }
-      ],
-      tanggalMulai: '2026-09-15',
-      tanggalSelesai: '2026-10-20',
-      serahTerimaServiceDesk: true
-    }
-  }
-];
-
-const INITIAL_SURVEYS: SurveyResponse[] = [
-  {
-    id: 'SRV-202611-001',
-    moduleType: 'Incident',
-    entityId: 'TKT-20261028-044',
-    entityTitle: 'Perbaikan Jaringan Wi-Fi Ruang Dosen FT',
-    respondentName: 'Ir. Slamet Riyadi, M.T.',
-    respondentEmail: 'slamet.ft@umc.ac.id',
-    respondentUnit: 'Fakultas Teknik',
-    technicianOrPic: 'Ir. Faisal Hakim, M.T.',
-    ratings: { q1: 5, q2: 5, q3: 5 },
-    averageScore: 5,
-    feedbackText: 'Penanganan sangat cepat dan koneksi ruang dosen langsung stabil kembali.',
-    submittedAtIso: '2026-11-02T10:15:00.000Z',
-    monthKey: '2026-11'
-  },
-  {
-    id: 'SRV-202611-002',
-    moduleType: 'Loan',
-    entityId: 'PJM-20261030-0512',
-    entityTitle: 'Peminjaman Proyektor Epson EB-E500 (Seminar Prodi)',
-    respondentName: 'Siti Rahmawati, S.AP.',
-    respondentEmail: 'siti.tendik@umc.ac.id',
-    respondentUnit: 'Biro Administrasi Akademik (BAA)',
-    technicianOrPic: 'Aditiya Ahmad Fadila, S.Kom.',
-    ratings: { q1: 5, q2: 4, q3: 5 },
-    averageScore: 4.67,
-    feedbackText: 'Unit proyektor bersih, kabel HDMI lengkap, dan approval sangat cepat.',
-    submittedAtIso: '2026-11-05T14:20:00.000Z',
-    monthKey: '2026-11'
-  },
-  {
-    id: 'SRV-202611-003',
-    moduleType: 'SystemProposal',
-    entityId: 'SYS-2026-000',
-    entityTitle: 'Sistem E-Arsip Surat Masuk & Disposisi BAA',
-    respondentName: 'Biro Administrasi Akademik (BAA)',
-    respondentEmail: 'baa@umc.ac.id',
-    respondentUnit: 'Biro Administrasi Akademik (BAA)',
-    technicianOrPic: 'Bayu Pratama, S.Kom.',
-    ratings: { q1: 4, q2: 5, q3: 4 },
-    averageScore: 4.33,
-    feedbackText: 'Tampilan mudah dipahami staf baru; harap ditambahkan fitur tanda tangan QR pada update berikutnya.',
-    submittedAtIso: '2026-11-08T09:40:00.000Z',
-    monthKey: '2026-11'
-  },
-  {
-    id: 'SRV-202610-001',
-    moduleType: 'Incident',
-    entityId: 'TKT-20261015-019',
-    entityTitle: 'Instalasi Ulang PC Laboratorium Komputer 1',
-    respondentName: 'Ahmad Fauzi',
-    respondentEmail: 'fauzi.lab@umc.ac.id',
-    respondentUnit: 'Laboratorium Komputer 1',
-    technicianOrPic: 'Aditiya Ahmad Fadila, S.Kom.',
-    ratings: { q1: 4, q2: 4, q3: 5 },
-    averageScore: 4.33,
-    feedbackText: 'Teknisi komunikatif dan membantu pengecekan seluruh PC sebelum praktikum dimulai.',
-    submittedAtIso: '2026-10-16T15:00:00.000Z',
-    monthKey: '2026-10'
-  }
-];
-
-// 8.2 Tabel 15: Notifikasi (WhatsApp / Email)
-const INITIAL_NOTIFICATIONS: NotificationLog[] = [
-  {
-    id: 'NOTIF-001',
-    tujuan: '081234567890',
-    namaPenerima: 'Hilyah Aulia, S.T.',
-    kanal: 'WhatsApp',
-    jenisNotifikasi: 'Peminjaman Diserahkan',
-    statusKirim: 'sent',
-    timestamp: '2026-11-04 09:05',
-    pesanPreview: 'Pengajuan peminjaman Laptop ThinkPad diserahkan resmi di Ruang PUSDATIN.'
-  },
-  {
-    id: 'NOTIF-002',
-    tujuan: '081223344556',
-    namaPenerima: 'Drs. H. Mulyono, M.Pd.',
-    kanal: 'WhatsApp',
-    jenisNotifikasi: 'Tiket Dibuat',
-    statusKirim: 'sent',
-    timestamp: '2026-11-07 08:31',
-    pesanPreview: 'Laporan kerusakan TKT-20261107-105 telah diterima sistem PAHAM (SLA: 12 Jam).'
-  }
-];
-
-// 8.2 Tabel 16: Audit Trail (Immutable, BR-016)
-const INITIAL_AUDIT_TRAIL: AuditTrailItem[] = [
-  {
-    id: 'AUD-001',
-    entityType: 'Peminjaman Aset',
-    entityId: 'PJM-20261104-1029',
-    statusLama: 'Diajukan',
-    statusBaru: 'Diserahkan',
-    idPengguna: 'USR-ACT-03',
-    namaPengguna: 'Aditiya Ahmad Fadila, S.Kom.',
-    rolePengguna: 'IT Support & Helpdesk Specialist',
-    timestamp: '2026-11-04 09:00',
-    catatan: 'Verifikasi peminjaman disetujui, unit dialokasikan AST-UMC-2026-003, Surat Peminjaman SP-PUSDATIN/2026/XI/1029 dicetak.',
-    ipAddress: '10.20.1.44 (SSO UMC)'
-  },
-  {
-    id: 'AUD-002',
-    entityType: 'Aset TI',
-    entityId: 'AST-UMC-2026-003',
-    statusLama: 'Tersedia',
-    statusBaru: 'Dipinjam',
-    idPengguna: 'USR-ACT-03',
-    namaPengguna: 'Aditiya Ahmad Fadila, S.Kom.',
-    rolePengguna: 'IT Support & Helpdesk Specialist',
-    timestamp: '2026-11-04 09:00',
-    catatan: 'Status aset beralih ke Dipinjam karena diserahkan ke Hilyah Aulia (BAU). Otomatis masuk Buku Pengeluaran Aset OUT-2026-001.',
-    ipAddress: '10.20.1.44 (SSO UMC)'
-  },
-  {
-    id: 'AUD-003',
-    entityType: 'Tiket Helpdesk',
-    entityId: 'TKT-20261107-092',
-    statusLama: 'Open/Unassigned',
-    statusBaru: 'Assigned',
-    idPengguna: 'USR-ACT-03',
-    namaPengguna: 'Aditiya Ahmad Fadila, S.Kom.',
-    rolePengguna: 'IT Support & Helpdesk Specialist',
-    timestamp: '2026-11-07 07:45',
-    catatan: 'Admin mendistribusikan tiket jaringan Wi-Fi FKIP ke PIC Ir. Faisal Hakim, M.T. (Cloud & Infrastructure Engineer).',
-    ipAddress: '10.20.1.44 (SSO UMC)'
-  }
-];
+// Clean Empty Initial Collections (All data cleared except single Admin user)
+const INITIAL_ASSETS: Asset[] = [];
+const INITIAL_BUKU_PENERIMAAN: BukuPenerimaanItem[] = [];
+const INITIAL_BUKU_PENGELUARAN: BukuPengeluaranItem[] = [];
+const INITIAL_LOANS: LoanTicket[] = [];
+const INITIAL_DAMAGES: DamageTicket[] = [];
+const INITIAL_SYSTEM_PROPOSALS: SystemProposal[] = [];
+const INITIAL_SURVEYS: SurveyResponse[] = [];
+const INITIAL_NOTIFICATIONS: NotificationLog[] = [];
+const INITIAL_AUDIT_TRAIL: AuditTrailItem[] = [];
 
 export class AppDatabase {
+  private static isMigrating = false;
+
+  /**
+   * One-time migration to clean v5 empty database (retaining ONLY the single Admin account).
+   */
+  public static ensureCleanDatabase(): void {
+    if (this.isMigrating) return;
+    try {
+      if (localStorage.getItem(CLEAN_DB_VERSION_KEY) === 'true') return;
+      this.isMigrating = true;
+      localStorage.setItem(STORAGE_KEYS.ASSETS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.DAMAGES, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.BUKU_PENERIMAAN, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.BUKU_PENGELUARAN, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROPOSALS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.AUDIT_TRAIL, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.SURVEYS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(SEED_USERS));
+      localStorage.removeItem(STORAGE_KEYS.KEPALA);
+      localStorage.removeItem(STORAGE_KEYS.SIGNATORIES);
+      localStorage.setItem(CLEAN_DB_VERSION_KEY, 'true');
+
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID);
+          sessionStorage.removeItem('pusdatin_sso_logged_in');
+          sessionStorage.removeItem('pusdatin_admin_auth');
+        }
+      } catch {
+        // ignore sessionStorage errors
+      }
+    } catch {
+      // ignore storage errors
+    } finally {
+      this.isMigrating = false;
+    }
+  }
+
   // Storage Helpers
   private static load<T>(key: string, fallback: T): T {
+    this.ensureCleanDatabase();
     try {
       const data = localStorage.getItem(key);
       if (!data) return fallback;
@@ -1024,7 +248,7 @@ export class AppDatabase {
       console.error(e);
     }
     // Default to ACT-03 (Admin / IT Support & Helpdesk Specialist)
-    return users.find(u => u.role === 'ACT-03') || users[2] || SEED_USERS[2];
+    return users.find(u => u.role === 'ACT-03') || users[0] || SEED_USERS[0];
   }
 
   public static addUser(user: AppUser): void {
@@ -1032,6 +256,36 @@ export class AppDatabase {
     if (!users.some(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase())) {
       this.save(STORAGE_KEYS.USERS, [...users, user]);
     }
+  }
+
+  public static upsertUser(user: AppUser): void {
+    const sanitized: AppUser = {
+      ...user,
+      password: undefined,
+      passwordSet: Boolean(user.passwordSet)
+    };
+    const users = this.getUsers();
+    const normalizedEmail = sanitized.email.trim().toLowerCase();
+    const idx = users.findIndex(
+      u => u.id === sanitized.id || u.email.trim().toLowerCase() === normalizedEmail
+    );
+    if (idx >= 0) {
+      const next = [...users];
+      next[idx] = { ...next[idx], ...sanitized };
+      this.save(STORAGE_KEYS.USERS, next);
+    } else {
+      this.save(STORAGE_KEYS.USERS, [...users, sanitized]);
+    }
+  }
+
+  public static replaceUsers(users: AppUser[]): void {
+    if (!Array.isArray(users) || users.length === 0) return;
+    const sanitized = users.map(u => ({
+      ...u,
+      password: undefined,
+      passwordSet: Boolean(u.passwordSet)
+    }));
+    this.save(STORAGE_KEYS.USERS, sanitized);
   }
 
   public static setActiveUser(userId: string): void {
@@ -1076,13 +330,28 @@ export class AppDatabase {
 
   public static authenticateUser(email: string, password?: string): TechnicianUser | null {
     const users = this.getUsers();
-    const found = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (found) {
-      if (!password || !found.password || found.password === password) {
+    const found = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (found && found.statusAkun !== 'Nonaktif') {
+      if (password && found.password && found.passwordSet !== false && found.password === password) {
         return found;
       }
     }
     return null;
+  }
+
+  public static setUserPassword(userId: string, newPassword: string): AppUser | null {
+    const users = this.getUsers();
+    const idx = users.findIndex(u => u.id === userId);
+    if (idx === -1) return null;
+    const trimmed = (newPassword || '').trim();
+    if (!trimmed) return null;
+    users[idx] = {
+      ...users[idx],
+      password: newPassword,
+      passwordSet: true
+    };
+    this.save(STORAGE_KEYS.USERS, users);
+    return users[idx];
   }
 
   public static addTechnician(tech: Partial<AppUser> & { name?: string }): boolean {
@@ -1107,6 +376,7 @@ export class AppDatabase {
       else if (lowerRole.includes('civitas') || lowerRole.includes('dosen') || lowerRole.includes('mahasiswa') || lowerRole.includes('karyawan')) inferredRole = 'ACT-10';
       else inferredRole = 'ACT-04';
     }
+    const explicitPass = tech.password && tech.password.trim() ? tech.password.trim() : undefined;
     const newUser: AppUser = {
       id,
       nama: tech.nama || tech.name || 'Pengguna Baru',
@@ -1118,7 +388,8 @@ export class AppDatabase {
       statusAkun: tech.statusAkun || 'Aktif',
       sumberData: tech.sumberData || 'SSO Google',
       civitasType: tech.civitasType,
-      password: tech.password || 'pusdatin123',
+      password: explicitPass,
+      passwordSet: Boolean(explicitPass),
       specialty: tech.specialty || '',
       isFullAccess: tech.isFullAccess || inferredRole === 'ACT-02' || inferredRole === 'ACT-03',
       level: tech.level
@@ -1132,6 +403,7 @@ export class AppDatabase {
     const idx = users.findIndex(u => u.id === tech.id);
     if (idx === -1) return false;
     const nextEmail = tech.email ? tech.email.trim().toLowerCase() : users[idx].email;
+    const nextPassword = tech.password && tech.password.trim() ? tech.password.trim() : users[idx].password;
     users[idx] = {
       ...users[idx],
       nama: tech.nama || tech.name || users[idx].nama,
@@ -1143,7 +415,8 @@ export class AppDatabase {
       statusAkun: tech.statusAkun || users[idx].statusAkun,
       sumberData: tech.sumberData || users[idx].sumberData,
       civitasType: tech.role && tech.role !== 'ACT-10' ? undefined : (tech.civitasType ?? users[idx].civitasType),
-      password: tech.password || users[idx].password,
+      password: nextPassword,
+      passwordSet: tech.passwordSet ?? Boolean(nextPassword && nextPassword.trim().length > 0),
       specialty: tech.specialty ?? users[idx].specialty,
       isFullAccess: tech.isFullAccess ?? users[idx].isFullAccess,
       level: tech.level ?? users[idx].level
@@ -3837,7 +3110,7 @@ export class AppDatabase {
           catatan: payload.catatan || (setuju ? 'Disetujui untuk pengembangan sprint internal.' : 'Pengajuan ditolak.')
         },
         pengembangan: setuju ? {
-          leadDev: 'Bayu Pratama, S.Kom.',
+          leadDev: 'Hilyah Haula Salsabiila, S.T.',
           progresPersen: 0,
           logProgres: [
             {
@@ -4275,12 +3548,12 @@ export class AppDatabase {
     const legacyKepala = this.load<{ nama?: string; nip?: string } | null>(STORAGE_KEYS.KEPALA, null);
 
     return {
-      pimpinanUnivNama: pimpinanUniv?.nama || 'Prof. Dr. H. Arif Nurudin, M.T.',
+      pimpinanUnivNama: pimpinanUniv?.nama || 'Arif Nurudin, M.T.',
       pimpinanUnivJabatan: pimpinanUniv?.unit || 'Rektor Universitas Muhammadiyah Cirebon',
       pimpinanUnivNip: 'NIDN. 0412057201',
-      kepalaPusdatinNama: legacyKepala?.nama || kepalaPusdatin?.nama || 'Dr. Ir. H. Ahmad Dahlan, M.T.',
+      kepalaPusdatinNama: legacyKepala?.nama || kepalaPusdatin?.nama || 'Agust Isa Martinus, M.T.',
       kepalaPusdatinNip: legacyKepala?.nip || 'NIDN. 0418077501',
-      petugasDefaultNama: petugasAdmin?.nama || 'Aditiya Ahmad Fadila, S.Kom.',
+      petugasDefaultNama: petugasAdmin?.nama || 'Aditiya Ahmad Fadila, S.T.',
       petugasDefaultJabatan: petugasAdmin?.roleName || 'IT Support & Helpdesk Specialist'
     };
   }
@@ -4359,7 +3632,7 @@ export class AppDatabase {
       text.includes('cloud') ||
       text.includes('fiber')
     ) {
-      return { role: 'Cloud & Infrastructure Engineer', name: 'Ir. Faisal Hakim, M.T.' };
+      return { role: 'Cloud & Infrastructure Engineer', name: 'Jeri Maulana, S.T.' };
     }
 
     if (
@@ -4372,7 +3645,7 @@ export class AppDatabase {
       text.includes('mbkm') ||
       text.includes('api')
     ) {
-      return { role: 'System Analyst & Data Governance Specialist', name: 'Novi Andriani, M.Kom.' };
+      return { role: 'System Analyst & Data Governance Specialist', name: 'Ayi Imaduddin, S.Kom.' };
     }
 
     if (
@@ -4385,10 +3658,10 @@ export class AppDatabase {
       text.includes('phishing') ||
       text.includes('firewall')
     ) {
-      return { role: 'Cyber Security Officer', name: 'Rian Hidayat, M.Kom.' };
+      return { role: 'Cyber Security Officer', name: 'Mumun Munawar, S.T.' };
     }
 
-    return { role: 'IT Support & Helpdesk Specialist', name: 'Aditiya Ahmad Fadila, S.Kom.' };
+    return { role: 'IT Support & Helpdesk Specialist', name: 'Aditiya Ahmad Fadila, S.T.' };
   }
 
   // --- SERVICE SLA CONFIG (PEMINJAMAN ASET & PENGAJUAN SISTEM BARU) ---
@@ -4502,9 +3775,17 @@ export class AppDatabase {
 
   // --- RESET & RESTORE ---
   public static resetToDefaultSeed(): void {
+    try {
+      localStorage.setItem(CLEAN_DB_VERSION_KEY, 'true');
+      localStorage.removeItem(STORAGE_KEYS.KEPALA);
+      localStorage.removeItem(STORAGE_KEYS.SIGNATORIES);
+    } catch {
+      // ignore storage errors
+    }
     this.save(STORAGE_KEYS.ASSETS, INITIAL_ASSETS);
     this.save(STORAGE_KEYS.LOANS, INITIAL_LOANS);
     this.save(STORAGE_KEYS.DAMAGES, INITIAL_DAMAGES);
+    this.save(STORAGE_KEYS.LOGS, []);
     this.save(STORAGE_KEYS.BUKU_PENERIMAAN, INITIAL_BUKU_PENERIMAAN);
     this.save(STORAGE_KEYS.BUKU_PENGELUARAN, INITIAL_BUKU_PENGELUARAN);
     this.save(STORAGE_KEYS.SYSTEM_PROPOSALS, INITIAL_SYSTEM_PROPOSALS);

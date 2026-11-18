@@ -125,7 +125,9 @@ export interface AppUser {
   sumberData: 'SSO Google' | 'LDAP' | 'SIAKAD' | 'SDM';
   civitasType?: 'Dosen' | 'Karyawan' | 'Mahasiswa';
   avatar?: string;
+  googleUid?: string;
   password?: string;
+  passwordSet?: boolean;
   specialty?: string;
   isFullAccess?: boolean;
   reportsTo?: string;

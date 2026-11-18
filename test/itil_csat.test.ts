@@ -49,13 +49,11 @@ import {
 } from '../src/services/surveyService';
 import { AccessControlService } from '../src/services/rbac';
 import { PdfReportService } from '../src/services/pdfReportService';
+import { seedTestFixtures } from './testHelpers';
 
 describe('ITIL SLA Scoping, Service Request & Proposal SLA, and Continual Improvement CSAT Suite', () => {
   beforeEach(() => {
-    globalThis.localStorage.clear();
-    globalThis.sessionStorage.clear();
-    AppDatabase.resetToDefaultSeed();
-    AppDatabase.setActiveUser('USR-ACT-03');
+    seedTestFixtures();
   });
 
   it('Req 2 & 3: Technician SLA breakdown scopes tickets per technician and differs across technicians', () => {

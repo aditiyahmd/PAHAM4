@@ -9,8 +9,12 @@ import {
   type ReceiptPrintLine,
   type StickerPrintItem
 } from './src/services/bluetoothPrintService.ts';
+import {
+  defaultServerAuthDb,
+  ServerAuthDatabase
+} from './src/services/serverAuthDb.ts';
 
-export function createApp() {
+export function createApp(authDb: ServerAuthDatabase = defaultServerAuthDb) {
   const app = express();
 
   app.use(express.json({ limit: '1mb' }));
@@ -30,6 +34,44 @@ export function createApp() {
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', service: 'paham-pusdatin-umc' });
+  });
+
+  // --- Authentication API Endpoints (Google OAuth + Hashed Password) ---
+  app.get('/api/auth/users', (_req: Request, res: Response) => {
+    res.json({ ok: true, users: authDb.getAllUsersSanitized() });
+  });
+
+  app.post('/api/auth/google-session', async (req: Request, res: Response) => {
+    const idToken = typeof req.body?.idToken === 'string' ? req.body.idToken : '';
+    const result = await authDb.processGoogleSignIn(idToken);
+    res.status(result.status).json(result);
+  });
+
+  app.post('/api/auth/setup-password', async (req: Request, res: Response) => {
+    const idToken = typeof req.body?.idToken === 'string' ? req.body.idToken : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const confirmPassword =
+      typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
+    const result = await authDb.completeFirstTimePasswordSetup(idToken, password, confirmPassword);
+    res.status(result.status).json(result);
+  });
+
+  app.post('/api/auth/login', (req: Request, res: Response) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const result = authDb.loginWithPassword(email, password);
+    res.status(result.status).json(result);
+  });
+
+  app.post('/api/auth/admin-sync-user', (req: Request, res: Response) => {
+    const result = authDb.adminUpsertUser(req.body || {});
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  app.delete('/api/auth/admin-user/:id', (req: Request, res: Response) => {
+    const id = String(req.params.id || '');
+    const deleted = authDb.adminDeleteUser(id);
+    res.json({ ok: deleted });
   });
 
   /**
@@ -74,6 +116,8 @@ export function createApp() {
       const title = String(req.query.title || 'BUKTI LAYANAN PAHAM');
       const subtitle = req.query.subtitle ? String(req.query.subtitle) : undefined;
       const barcode = req.query.barcode ? String(req.query.barcode) : undefined;
+      const logoUrl = req.query.logoUrl ? String(req.query.logoUrl) : undefined;
+      const htmlContent = req.query.html ? String(req.query.html) : undefined;
 
       let lines: ReceiptPrintLine[] = [];
       const rawLines = typeof req.query.lines === 'string' ? req.query.lines : '';
@@ -91,7 +135,14 @@ export function createApp() {
         }
       }
 
-      const payload = buildReceiptPrintPayload({ title, subtitle, barcode, lines });
+      const payload = buildReceiptPrintPayload({
+        title,
+        subtitle,
+        barcode,
+        lines,
+        logoUrl,
+        htmlContent
+      });
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.send(JSON.stringify(payload));
       return;

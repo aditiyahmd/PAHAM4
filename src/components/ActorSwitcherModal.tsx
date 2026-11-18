@@ -1,7 +1,6 @@
 import React from 'react';
 import { UserCheck, Shield, ChevronRight, Check } from 'lucide-react';
 import { AppDatabase } from '../services/db';
-import { SEED_USERS } from '../services/rbac';
 import { AppUser, ActorCode } from '../types';
 
 interface ActorSwitcherModalProps {
@@ -18,6 +17,7 @@ export const ActorSwitcherModal: React.FC<ActorSwitcherModalProps> = ({
   if (!isOpen) return null;
 
   const activeUser = AppDatabase.getActiveUser();
+  const users = AppDatabase.getUsers();
 
   const handleSelect = (user: AppUser) => {
     AppDatabase.setActiveUser(user.id);
@@ -71,7 +71,7 @@ export const ActorSwitcherModal: React.FC<ActorSwitcherModalProps> = ({
 
         {/* List of 10 Actors */}
         <div className="overflow-y-auto divide-y divide-slate-100 py-2 flex-1 space-y-1">
-          {SEED_USERS.map(user => {
+          {users.map(user => {
             const isSelected = activeUser.id === user.id;
 
             return (

@@ -234,7 +234,7 @@ export const MonthlyReportPdf: React.FC = () => {
                 type="text"
                 value={kepalaNama}
                 onChange={e => setKepalaNama(e.target.value)}
-                placeholder="Dr. Ir. H. Ahmad Dahlan, M.T."
+                placeholder="Agust Isa Martinus, M.T."
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
               />
             </div>
@@ -260,7 +260,7 @@ export const MonthlyReportPdf: React.FC = () => {
                 type="text"
                 value={petugasNama}
                 onChange={e => setPetugasNama(e.target.value)}
-                placeholder="Aditiya Ahmad Fadila, S.Kom."
+                placeholder="Aditiya Ahmad Fadila, S.T."
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
               />
             </div>

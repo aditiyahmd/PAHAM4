@@ -121,7 +121,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
   const [vendorEksternalNama, setVendorEksternalNama] = useState('');
   const [vendorEksternalTiket, setVendorEksternalTiket] = useState('');
   const [workaroundInput, setWorkaroundInput] = useState('');
-  const [targetProblemType, setTargetProblemType] = useState<'Problem' | 'RFC'>('Problem');
+  const [targetProblemType, setTargetProblemType] = useState<'Problem'>('Problem');
   const [problemJudulInput, setProblemJudulInput] = useState('');
   const [problemTargetHoursInput, setProblemTargetHoursInput] = useState<number>(336);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -291,7 +291,11 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       (t.picTeknisi && t.picTeknisi.toLowerCase().includes(searchTerm.toLowerCase())) ||
       t.barcode.includes(searchTerm);
 
-    const matchesTicketType = ticketTypeFilter === 'Semua' || (t.ticketType || 'Incident') === ticketTypeFilter;
+    const matchesTicketType =
+      ticketTypeFilter === 'Semua' ||
+      (ticketTypeFilter === 'Problem'
+        ? t.ticketType === 'Problem' || t.ticketType === 'RFC'
+        : (t.ticketType || 'Incident') === ticketTypeFilter);
 
     let matchesStatus = true;
     if (statusFilter === 'Semua') {
@@ -375,8 +379,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     pendingProcurement: picScopedTickets.filter(t => t.status === 'Pending – Menunggu Suku Cadang' || t.status === 'Pending – Menunggu Vendor Eksternal').length,
     closed: picScopedTickets.filter(t => t.status === 'Resolved' || t.status === 'Closed – Auto' || t.status === 'Closed – Manual').length,
     incidents: picScopedTickets.filter(t => (t.ticketType || 'Incident') === 'Incident').length,
-    problems: picScopedTickets.filter(t => t.ticketType === 'Problem').length,
-    rfcs: picScopedTickets.filter(t => t.ticketType === 'RFC').length
+    problems: picScopedTickets.filter(t => t.ticketType === 'Problem' || t.ticketType === 'RFC').length
   };
 
   const handleOpenSlaPrint = () => {
@@ -541,7 +544,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     setModalError(null);
 
     if (actionType === 'eskalasi-problem-rfc' && !workaroundInput.trim()) {
-      setModalError('Harap isi Workaround (solusi sementara) untuk pengguna sebelum membuat tiket Problem / RFC.');
+      setModalError('Harap isi Workaround (solusi sementara) untuk pengguna sebelum membuat Problem Ticket.');
       return;
     }
 
@@ -823,9 +826,6 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       {/* Top Header Card */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-800 border border-indigo-200 text-[10px] font-bold uppercase tracking-wider mb-1">
-            ITIL Incident &amp; Problem Management
-          </span>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight flex flex-wrap items-center gap-2">
             <span>Laporan Kinerja Layanan Teknis (Helpdesk &amp; SLA)</span>
             <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-slate-100 text-slate-700 rounded-md border border-slate-200">
@@ -1097,12 +1097,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
             )}
           </div>
           <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
-            Problem: {Math.round((slaConfig.Problem?.rtTargetHours || 336) / 24)}h · RFC: {Math.round((slaConfig.RFC?.rtTargetHours || 720) / 24)}h
+            Problem: {Math.round((slaConfig.Problem?.rtTargetHours || 336) / 24)}h
           </div>
         </div>
       </div>
 
-      {/* Filter, Search, Incident/Problem/RFC Tabs & Sorting Controls */}
+      {/* Filter, Search, Incident/Problem Tabs & Sorting Controls */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div className="flex flex-wrap items-center gap-1.5" data-testid="ticket-type-tabs">
@@ -1110,8 +1110,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               [
                 { key: 'Semua', label: `Semua Jenis (${stageCounts.total})` },
                 { key: 'Incident', label: `Insiden Harian (${stageCounts.incidents})` },
-                { key: 'Problem', label: `Problem Ticket (${stageCounts.problems})` },
-                { key: 'RFC', label: `Change Request / RFC (${stageCounts.rfcs})` }
+                { key: 'Problem', label: `Problem Ticket (${stageCounts.problems})` }
               ] as const
             ).map(tab => (
               <button
@@ -1137,7 +1136,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Cari ID tiket (TKT/PRB/RFC), nama barang, pelapor, lokasi..."
+              placeholder="Cari ID tiket (TKT/PRB), nama barang, pelapor, lokasi..."
               className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-600"
             />
           </div>
@@ -1203,14 +1202,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                           <span className="font-mono font-bold text-slate-900">{t.id}</span>
                           <span
                             className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
-                              t.ticketType === 'Problem'
+                              t.ticketType === 'Problem' || t.ticketType === 'RFC'
                                 ? 'bg-purple-100 text-purple-800 border-purple-200'
-                                : t.ticketType === 'RFC'
-                                ? 'bg-indigo-100 text-indigo-800 border-indigo-200'
                                 : 'bg-slate-100 text-slate-700 border-slate-200'
                             }`}
                           >
-                            {t.ticketType || 'Incident'}
+                            {t.ticketType === 'Problem' || t.ticketType === 'RFC' ? 'Problem' : 'Incident'}
                           </span>
                         </div>
                         {(t.linkedProblemTicketId || t.linkedParentTicketId) && (
@@ -1596,7 +1593,7 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                   Tahap 5: Lanjutkan Perbaikan (Aktifkan Kembali SLA)
                 </option>
                 <option value="eskalasi-problem-rfc">
-                  Eskalasi Problem / RFC: Tutup Insiden via Workaround &amp; Buat Tiket Problem/RFC
+                  Eskalasi Problem Ticket: Tutup Insiden via Workaround &amp; Buat Problem Ticket
                 </option>
                 <option value="selesai">
                   Tahap 6: Penyelesaian &amp; Pembaruan Status (Resolved)
@@ -1907,15 +1904,15 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               </div>
             )}
 
-            {/* Sub-form Eskalasi Insiden -> Problem / Request for Change (3d) */}
+            {/* Sub-form Eskalasi Insiden -> Problem Ticket (3d) */}
             {actionType === 'eskalasi-problem-rfc' && (
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
                   <GitBranch className="w-4 h-4 text-indigo-700" />
-                  <span>Tutup Insiden via Workaround &amp; Buat Tiket Problem / RFC</span>
+                  <span>Tutup Insiden via Workaround &amp; Buat Problem Ticket</span>
                 </div>
                 <p className="text-[11px] text-indigo-900 leading-relaxed">
-                  Jika perbaikan memerlukan bongkar arsitektur atau coding ulang aplikasi, berikan <strong>Workaround</strong> (solusi sementara) untuk menutup Insiden harian ini (SLA harian aman), lalu terbitkan tiket jangka panjang bertipe <strong>Problem</strong> atau <strong>RFC</strong>.
+                  Jika perbaikan memerlukan bongkar arsitektur atau perbaikan akar masalah jangka panjang, berikan <strong>Workaround</strong> (solusi sementara) untuk menutup Insiden harian ini (SLA harian aman), lalu terbitkan <strong>Problem Ticket</strong>.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -1926,19 +1923,15 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                     <select
                       data-testid="escalate-target-type"
                       value={targetProblemType}
-                      onChange={e => {
-                        const next = e.target.value as 'Problem' | 'RFC';
-                        setTargetProblemType(next);
+                      onChange={() => {
+                        setTargetProblemType('Problem');
                         setProblemTargetHoursInput(
-                          next === 'RFC'
-                            ? (slaConfig.RFC || DEFAULT_SLA_CONFIG.RFC!).rtTargetHours
-                            : (slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours
+                          (slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours
                         );
                       }}
                       className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg font-bold text-slate-900"
                     >
                       <option value="Problem">Problem Ticket (Akar Masalah Sistem)</option>
-                      <option value="RFC">Request for Change / RFC (Perubahan Sistem)</option>
                     </select>
                   </div>
                   <div>
@@ -2437,12 +2430,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                         </td>
                       </tr>
                     ))}
-                    {(['Problem', 'RFC'] as const).map(longKey => {
+                    {(['Problem'] as const).map(longKey => {
                       const ruleVal = slaDraft[longKey] || DEFAULT_SLA_CONFIG[longKey]!;
                       return (
                         <tr key={longKey} className="bg-indigo-50/40">
                           <td className="px-4 py-2.5 font-bold text-indigo-950">
-                            {longKey === 'Problem' ? 'Problem Ticket' : 'Change Request (RFC)'}
+                            Problem Ticket
                             <span className="block text-[10px] font-normal text-indigo-700">
                               Jangka Panjang ({Math.round(ruleVal.rtTargetHours / 24)} hari)
                             </span>

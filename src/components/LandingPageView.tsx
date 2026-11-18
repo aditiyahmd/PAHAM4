@@ -494,7 +494,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                   Pimpinan Universitas
                 </span>
                 <h4 className="font-extrabold text-sm text-white mt-0.5">Rektor</h4>
-                <p className="text-xs text-slate-300">Prof. Dr. H. Arif Nurudin, M.T.</p>
+                <p className="text-xs text-slate-300">Arif Nurudin, M.T.</p>
               </div>
             </div>
 
@@ -508,7 +508,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                   Bidang Akademik & Sistem Informasi
                 </span>
                 <h4 className="font-extrabold text-sm text-white mt-0.5">Wakil Rektor 1</h4>
-                <p className="text-xs text-slate-300">Dr. Hj. Eni Murniasih, M.Pd.</p>
+                <p className="text-xs text-slate-300">Dr. Badawi, M.Si</p>
               </div>
             </div>
 
@@ -522,7 +522,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                   Kepala Unit Pelaksana Teknis
                 </span>
                 <h4 className="font-black text-base text-white mt-0.5">Pimpinan PUSDATIN</h4>
-                <p className="text-xs font-semibold text-slate-200">Dr. Ir. H. Ahmad Dahlan, M.T.</p>
+                <p className="text-xs font-semibold text-slate-200">Agust Isa Martinus, M.T.</p>
               </div>
             </div>
 
@@ -535,7 +535,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               <div className="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl space-y-2">
                 <span className="text-[10px] font-bold text-red-400 uppercase block">Admin Sistem</span>
                 <h5 className="font-bold text-xs text-white">IT Support & Helpdesk Specialist</h5>
-                <p className="text-[11px] text-slate-300">Aditiya Ahmad Fadila, S.Kom.</p>
+                <p className="text-[11px] text-slate-300">Aditiya Ahmad Fadila, S.T.</p>
                 <div className="pt-2 text-[10px] text-slate-400 border-t border-slate-700/60">
                   Manajemen Aset, Faktur, Helpdesk & Tiket SLA
                 </div>
@@ -545,31 +545,23 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               <div className="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl space-y-2">
                 <span className="text-[10px] font-bold text-cyan-400 uppercase block">Infrastruktur</span>
                 <h5 className="font-bold text-xs text-white">Cloud & Infrastructure Engineer</h5>
-                <p className="text-[11px] text-slate-300">Ir. Faisal Hakim, M.T.</p>
+                <p className="text-[11px] text-slate-300">Jeri Maulana, S.T.</p>
                 <div className="pt-2 text-[10px] text-slate-400 border-t border-slate-700/60">
                   Jaringan Kampus, Server VPS & Cloud NOC
                 </div>
               </div>
 
-              {/* Bidang 3: System Analyst & Developers */}
+              {/* Bidang 3: System Analyst & Lead Developer */}
               <div className="bg-slate-800/90 border border-purple-500/50 p-4 rounded-2xl space-y-2 md:col-span-1">
                 <span className="text-[10px] font-bold text-purple-400 uppercase block">Sistem & Data</span>
                 <h5 className="font-bold text-xs text-white">System Analyst & Data Governance</h5>
-                <p className="text-[11px] text-slate-300">Novi Andriani, M.Kom.</p>
+                <p className="text-[11px] text-slate-300">Ayi Imaduddin, S.Kom.</p>
 
-                {/* Sub-teams: Lead Dev & Programmers */}
+                {/* Sub-team: Lead Dev */}
                 <div className="pt-2 border-t border-slate-700/60 space-y-1.5 text-[10px]">
                   <div className="bg-slate-900/80 p-1.5 rounded border border-slate-700 text-slate-300">
                     <strong className="text-white block">Lead Full Stack Developer:</strong>
-                    Bayu Pratama, S.Kom.
-                  </div>
-                  <div className="bg-slate-900/80 p-1.5 rounded border border-slate-700 text-slate-300">
-                    <strong className="text-white block">Frontend Programmers:</strong>
-                    Dimas Saputra, S.Kom. (UI/UX)
-                  </div>
-                  <div className="bg-slate-900/80 p-1.5 rounded border border-slate-700 text-slate-300">
-                    <strong className="text-white block">Backend Programmers:</strong>
-                    Eko Prasetyo, S.Kom. (API/DB)
+                    Hilyah Haula Salsabiila, S.T.
                   </div>
                 </div>
               </div>
@@ -578,7 +570,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               <div className="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl space-y-2">
                 <span className="text-[10px] font-bold text-emerald-400 uppercase block">Keamanan Siber</span>
                 <h5 className="font-bold text-xs text-white">Cyber Security Officer</h5>
-                <p className="text-[11px] text-slate-300">Rian Hidayat, M.Kom.</p>
+                <p className="text-[11px] text-slate-300">Mumun Munawar, S.T.</p>
                 <div className="pt-2 text-[10px] text-slate-400 border-t border-slate-700/60">
                   Audit Keamanan, Proteksi Data & Enkripsi
                 </div>

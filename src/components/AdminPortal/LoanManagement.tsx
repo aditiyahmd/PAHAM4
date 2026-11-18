@@ -19,6 +19,7 @@ import {
   matchesReportingPeriod,
   ReportingCadence
 } from '../../services/reportGovernanceService';
+import { buildAndroidReceiptSchemeUrl } from '../../services/bluetoothPrintService';
 import {
   Search,
   CheckCircle2,
@@ -46,7 +47,8 @@ import {
   Download,
   MapPin,
   SlidersHorizontal,
-  Gauge
+  Gauge,
+  Smartphone
 } from 'lucide-react';
 
 interface LoanManagementProps {
@@ -1092,6 +1094,29 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                               <Printer className="w-3.5 h-3.5" />
                             </button>
                           )}
+
+                          {(isHandedOver || isReturned) && (
+                            <a
+                              href={buildAndroidReceiptSchemeUrl({
+                                title: 'BUKTI PEMINJAMAN ASET IT',
+                                subtitle: loan.id,
+                                barcode: loan.barcode || undefined,
+                                lines: [
+                                  { label: 'Peminjam', value: loan.peminjam },
+                                  { label: 'Unit Kerja', value: loan.unit },
+                                  { label: 'Perangkat', value: loan.namaBarangT || loan.barangPinjaman },
+                                  { label: 'Jadwal', value: `${loan.tglPinjam} s/d ${loan.tglKembali}` },
+                                  { label: 'Status', value: loan.status },
+                                  { label: 'Petugas', value: loan.petugas || 'Admin PUSDATIN' }
+                                ]
+                              })}
+                              data-testid={`loan-thermal-print-${loan.id}`}
+                              className="inline-flex items-center gap-1 p-1.5 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 rounded-lg border border-emerald-200 transition-colors"
+                              title="Cetak Struk Thermal via Bluetooth Print (Android)"
+                            >
+                              <Smartphone className="w-3.5 h-3.5" />
+                            </a>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1199,6 +1224,28 @@ export const LoanManagement: React.FC<LoanManagementProps> = ({ onDataChanged })
                           >
                             PDF
                           </button>
+                        )}
+                        {(isHandedOver || isReturned) && (
+                          <a
+                            href={buildAndroidReceiptSchemeUrl({
+                              title: 'BUKTI PEMINJAMAN ASET IT',
+                              subtitle: loan.id,
+                              barcode: loan.barcode || undefined,
+                              lines: [
+                                { label: 'Peminjam', value: loan.peminjam },
+                                { label: 'Unit Kerja', value: loan.unit },
+                                { label: 'Perangkat', value: loan.namaBarangT || loan.barangPinjaman },
+                                { label: 'Jadwal', value: `${loan.tglPinjam} s/d ${loan.tglKembali}` },
+                                { label: 'Status', value: loan.status },
+                                { label: 'Petugas', value: loan.petugas || 'Admin PUSDATIN' }
+                              ]
+                            })}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg"
+                            title="Print Thermal Android (Bluetooth Print)"
+                          >
+                            <Smartphone className="w-3.5 h-3.5" />
+                            <span>Thermal</span>
+                          </a>
                         )}
                         <button
                           type="button"

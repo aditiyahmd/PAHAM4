@@ -111,16 +111,23 @@ describe('Android Bluetooth Print (mate.bluetoothprint) Integration', () => {
       const batchBarcodes = Object.values(batchJson).filter((e: any) => e.type === 2);
       assert.equal(batchBarcodes.length, 2);
 
-      // 3. Receipt mode
+      // 3. Receipt mode (with optional type 1 logoUrl & type 4 htmlContent)
       const lines = JSON.stringify([{ k: 'Pelapor', v: 'Budi' }, { k: 'Status', v: 'Resolved' }]);
+      const logoUrl = 'https://umc.ac.id/logo.png';
+      const htmlFooter = '<center><b>PUSDATIN UMC</b></center>';
       const receiptRes = await fetch(
-        `${baseUrl}/api/bluetooth-print?mode=receipt&title=TIKET+HELPDESK&subtitle=TKT-001&barcode=30918274&lines=${encodeURIComponent(lines)}`
+        `${baseUrl}/api/bluetooth-print?mode=receipt&title=TIKET+HELPDESK&subtitle=TKT-001&barcode=30918274&logoUrl=${encodeURIComponent(logoUrl)}&html=${encodeURIComponent(htmlFooter)}&lines=${encodeURIComponent(lines)}`
       );
       assert.equal(receiptRes.status, 200);
       const receiptJson = (await receiptRes.json()) as Record<string, any>;
-      assert.equal(receiptJson['0'].content, 'PUSDATIN UMC');
+      assert.equal(receiptJson['0'].type, 1);
+      assert.equal(receiptJson['0'].path, logoUrl);
+      assert.equal(receiptJson['1'].content, 'PUSDATIN UMC');
       const receiptBarcodes = Object.values(receiptJson).filter((e: any) => e.type === 2);
       assert.equal(receiptBarcodes.length, 1);
+      const receiptHtmls = Object.values(receiptJson).filter((e: any) => e.type === 4);
+      assert.equal(receiptHtmls.length, 1);
+      assert.equal((receiptHtmls[0] as any).content, htmlFooter);
 
       // Verify payload builders match server output keys
       const directBatch = buildBatchStickerPrintPayload([
@@ -129,11 +136,64 @@ describe('Android Bluetooth Print (mate.bluetoothprint) Integration', () => {
       assert.ok(directBatch['0']);
       const directReceipt = buildReceiptPrintPayload({
         title: 'TEST',
+        logoUrl,
+        htmlContent: htmlFooter,
         lines: [{ label: 'Unit', value: 'FT' }]
       });
-      assert.ok(directReceipt['0']);
+      assert.equal(directReceipt['0'].type, 1);
+      const directSchemeWithRich = buildAndroidReceiptSchemeUrl(
+        {
+          title: 'DOKUMEN RESMI',
+          logoUrl,
+          htmlContent: htmlFooter,
+          lines: [{ label: 'Unit', value: 'FT' }]
+        },
+        'https://paham.umc.ac.id'
+      );
+      assert.ok(directSchemeWithRich.includes('logoUrl='));
+      assert.ok(directSchemeWithRich.includes('html='));
     } finally {
       await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it('Detects AI Studio auth-protected preview hosts and supports public domain / Apps Script /exec relay overrides', async () => {
+    const mod = await import('../src/services/bluetoothPrintService.ts');
+    assert.equal(mod.isAiStudioAuthProtectedHost('ais-dev-223ptbhf4z64bkksrc3bsw-435918410777.asia-southeast1.run.app'), true);
+    assert.equal(mod.isAiStudioAuthProtectedHost('ais-pre-223ptbhf4z64bkksrc3bsw-435918410777.asia-southeast1.run.app'), true);
+    assert.equal(mod.isAiStudioAuthProtectedHost('paham.umc.ac.id'), false);
+    assert.equal(mod.isAiStudioAuthProtectedHost('localhost'), false);
+
+    // Mock localStorage in Node test runtime
+    const store = new Map<string, string>();
+    (globalThis as any).localStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => store.delete(k)
+    };
+
+    try {
+      mod.setPublicBluetoothEndpoint('https://paham.umc.ac.id/');
+      const domainUrl = mod.buildAndroidStickerResponseUrl({ code: '12345678' });
+      assert.ok(domainUrl.startsWith('https://paham.umc.ac.id/api/bluetooth-print?'));
+
+      const gasExec = 'https://script.google.com/macros/s/AKfycbTest123/exec';
+      mod.setPublicBluetoothEndpoint(gasExec);
+      const relayUrl = mod.buildAndroidReceiptResponseUrl({
+        title: 'TES RELAY',
+        lines: [{ label: 'Unit', value: 'PUSDATIN' }]
+      });
+      assert.ok(relayUrl.startsWith(`${gasExec}?payload=`));
+      const parsedPayloadParam = new URL(relayUrl).searchParams.get('payload');
+      assert.ok(parsedPayloadParam);
+      const decoded = JSON.parse(parsedPayloadParam);
+      assert.equal(decoded['0'].content, 'PUSDATIN UMC');
+      assert.equal(decoded['1'].content, 'TES RELAY');
+
+      mod.setPublicBluetoothEndpoint('');
+      assert.equal(mod.getPublicBluetoothEndpoint(), '');
+    } finally {
+      delete (globalThis as any).localStorage;
     }
   });
 });

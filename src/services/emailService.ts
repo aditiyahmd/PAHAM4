@@ -1,27 +1,24 @@
 import { LoanTicket, DamageTicket, EmailLog } from '../types';
 
 const STORAGE_EMAIL_LOGS = 'pusdatin_email_logs_v2';
+const STORAGE_EMAIL_CLEAN_V5 = 'pusdatin_email_clean_v5';
 
-const INITIAL_EMAIL_LOGS: EmailLog[] = [
-  {
-    id: 'EML-001',
-    ticketId: 'PJM-20261102-1042',
-    recipientName: 'Hilyah Aulia, S.T.',
-    to: 'hilyah@umc.ac.id',
-    subject: '[PAHAM PUSDATIN UMC] Persetujuan Peminjaman Aset (PJM-20261102-1042)',
-    bodyHtml: `
-      <p>Yth. <strong>Hilyah Aulia, S.T.</strong>,</p>
-      <p>Pengajuan peminjaman perangkat <strong>Laptop Lenovo ThinkPad L14 Gen 3</strong> dengan ID Tiket <code>PJM-20261102-1042</code> telah <strong>DISETUJUI</strong> oleh petugas PUSDATIN UMC.</p>
-      <p>Nomor Barcode Alokasi: <strong>20495812</strong><br>
-      Batas Waktu Pengembalian: <strong>2026-11-04</strong></p>
-      <p>Silakan mengambil unit di Ruang PUSDATIN (Gedung Laboratorium Terpadu Lantai 2, Kampus 2 Jl. Watubelah No 40 Sumber-Cirebon).</p>
-    `,
-    timestamp: '2026-11-02T09:32:00.000Z'
-  }
-];
+const INITIAL_EMAIL_LOGS: EmailLog[] = [];
 
 export class EmailNotificationService {
+  private static ensureCleanLogs(): void {
+    try {
+      if (localStorage.getItem(STORAGE_EMAIL_CLEAN_V5) !== 'true') {
+        localStorage.setItem(STORAGE_EMAIL_LOGS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_EMAIL_CLEAN_V5, 'true');
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+
   public static getLogs(): EmailLog[] {
+    this.ensureCleanLogs();
     try {
       const data = localStorage.getItem(STORAGE_EMAIL_LOGS);
       if (!data) return INITIAL_EMAIL_LOGS;

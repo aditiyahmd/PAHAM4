@@ -36,10 +36,6 @@ export const AuditTrailView: React.FC = () => {
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-md bg-slate-900 text-amber-400 text-xs font-bold font-mono flex items-center gap-1">
-              <Lock className="w-3 h-3" />
-              BR-016: IMMUTABLE AUDIT TRAIL
-            </span>
             <h1 className="text-xl font-bold text-slate-900">Audit Trail Terpadu Seluruh Modul</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">

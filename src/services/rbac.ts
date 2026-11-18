@@ -192,51 +192,13 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
   }
 };
 
-// Initial Seed Users Representing all Actors according to PUSDATIN UMC Organizational Structure
+// Initial Seed Users: Clean empty database with ONLY the single Admin account
 export const SEED_USERS: AppUser[] = [
   {
-    id: 'USR-ACT-01A',
-    nama: 'Prof. Dr. H. Arif Nurudin, M.T.',
-    email: 'rektor@umc.ac.id',
-    role: 'ACT-01',
-    roleName: 'Pimpinan Universitas',
-    unit: 'Rektorat UMC (Rektor)',
-    phone: '081122334401',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Rektor: Kebijakan Strategis, Pengawasan TI & Evaluasi Kinerja PUSDATIN',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-01B',
-    nama: 'Dr. Hj. Eni Murniasih, M.Pd.',
-    email: 'warek1@umc.ac.id',
-    role: 'ACT-01',
-    roleName: 'Pimpinan Universitas',
-    unit: 'Wakil Rektor 1 Bidang Akademik & Sistem Informasi',
-    phone: '081122334402',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Wakil Rektor 1: Pengawasan Infrastruktur Akademik, Aset TI & SLA Layanan',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-02',
-    nama: 'Dr. Ir. H. Ahmad Dahlan, M.T.',
-    email: 'kepala.pusdatin@umc.ac.id',
-    role: 'ACT-02',
-    roleName: 'Kepala PUSDATIN',
-    unit: 'Pimpinan PUSDATIN UMC',
-    phone: '081122334455',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Pimpinan PUSDATIN: Otorisasi Pengadaan, Approval Sistem Baru, Pengesahan Peminjaman & Seluruh Menu',
-    isFullAccess: true
-  },
-  {
     id: 'USR-ACT-03',
-    nama: 'Aditiya Ahmad Fadila, S.Kom.',
-    email: 'aditiya.it@umc.ac.id',
+    nama: 'Aditiya Ahmad Fadila, S.T.',
+    email: 'aditiya.ahmad@umc.ac.id',
+    passwordSet: true,
     role: 'ACT-03',
     roleName: 'IT Support & Helpdesk Specialist',
     unit: 'PUSDATIN UMC',
@@ -245,126 +207,6 @@ export const SEED_USERS: AppUser[] = [
     sumberData: 'SSO Google',
     specialty: 'Admin Sistem: Pengelolaan Aset, Faktur Penerimaan, Distribusi Pengeluaran, Tiket SLA & Seluruh Menu',
     isFullAccess: true
-  },
-  {
-    id: 'USR-ACT-04',
-    nama: 'Ir. Faisal Hakim, M.T.',
-    email: 'faisal.cloud@umc.ac.id',
-    role: 'ACT-04',
-    roleName: 'Cloud & Infrastructure Engineer',
-    unit: 'Divisi Infrastruktur Jaringan & Server PUSDATIN',
-    phone: '081234998877',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Cloud & Infrastructure: Monitoring Jaringan, Server Kampus, Switch & Tiket SLA Delegasi',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-05',
-    nama: 'Novi Andriani, M.Kom.',
-    email: 'novi.analyst@umc.ac.id',
-    role: 'ACT-05',
-    roleName: 'System Analyst & Data Governance Specialist',
-    unit: 'Divisi Sistem & Tata Kelola Data PUSDATIN',
-    phone: '085711223344',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'System Analyst: Analisis Kebutuhan, Tata Kelola Data, Tiket Delegasi & Pengajuan Sistem Baru',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-06',
-    nama: 'Bayu Pratama, S.Kom.',
-    email: 'bayu.dev@umc.ac.id',
-    role: 'ACT-06',
-    roleName: 'Lead Full Stack Developer',
-    unit: 'Divisi Pengembangan Perangkat Lunak PUSDATIN',
-    phone: '085288776655',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Lead Developer: Arsitektur Software, Sprint Planning, Tiket Delegasi & Pengajuan Sistem Baru',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-07',
-    nama: 'Dimas Saputra, S.Kom.',
-    email: 'dimas.frontend@umc.ac.id',
-    role: 'ACT-07',
-    roleName: 'Frontend Programmer',
-    unit: 'Divisi Pengembangan Perangkat Lunak PUSDATIN',
-    phone: '087833445566',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Frontend Programmer: Pengembangan Antarmuka Web, UI/UX, Tiket Delegasi & Pengajuan Sistem Baru',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-08',
-    nama: 'Eko Prasetyo, S.Kom.',
-    email: 'eko.backend@umc.ac.id',
-    role: 'ACT-08',
-    roleName: 'Backend Programmer',
-    unit: 'Divisi Pengembangan Perangkat Lunak PUSDATIN',
-    phone: '089912345678',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Backend Programmer: REST API, Database Relasional, Tiket Delegasi & Pengajuan Sistem Baru',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-09',
-    nama: 'Rian Hidayat, M.Kom.',
-    email: 'rian.sec@umc.ac.id',
-    role: 'ACT-09',
-    roleName: 'Cyber Security Officer',
-    unit: 'Divisi Keamanan Siber PUSDATIN',
-    phone: '081399887766',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Cyber Security Officer: Keamanan Informasi, Audit Kerentanan, Tiket Delegasi & Review Pengajuan Sistem',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-10A',
-    nama: 'Dr. Hendra Wijaya, M.Pd.',
-    email: 'hendra.dosen@umc.ac.id',
-    role: 'ACT-10',
-    roleName: 'User (Civitas Akademika)',
-    civitasType: 'Dosen',
-    unit: 'Fakultas Keguruan dan Ilmu Pendidikan (FKIP)',
-    phone: '081234567890',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Dosen: Peminjaman Aset, Lapor Kerusakan & Ajukan Sistem Baru',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-10B',
-    nama: 'Siti Rahmawati, S.AP.',
-    email: 'siti.tendik@umc.ac.id',
-    role: 'ACT-10',
-    roleName: 'User (Civitas Akademika)',
-    civitasType: 'Karyawan',
-    unit: 'Biro Administrasi Akademik (BAA)',
-    phone: '081298765432',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Karyawan / Tendik: Peminjaman Aset, Lapor Kerusakan & Ajukan Sistem Baru',
-    isFullAccess: false
-  },
-  {
-    id: 'USR-ACT-10C',
-    nama: 'Muhammad Rizki Pratama',
-    email: 'm.rizki@student.umc.ac.id',
-    role: 'ACT-10',
-    roleName: 'User (Civitas Akademika)',
-    civitasType: 'Mahasiswa',
-    unit: 'Teknik Informatika - Fakultas Teknik',
-    phone: '085712345678',
-    statusAkun: 'Aktif',
-    sumberData: 'SSO Google',
-    specialty: 'Mahasiswa: Peminjaman Aset, Lapor Kerusakan (Tidak ada menu Ajukan Sistem Baru)',
-    isFullAccess: false
   }
 ];
 

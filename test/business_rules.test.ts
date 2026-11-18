@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 
 // Mock storage for Node test environment
@@ -26,12 +26,17 @@ if (typeof globalThis.sessionStorage === 'undefined') {
   } as any;
 }
 
-import { AccessControlService, SEED_USERS } from '../src/services/rbac';
+import { AccessControlService } from '../src/services/rbac';
 import { AppDatabase } from '../src/services/db';
+import { seedTestFixtures } from './testHelpers';
 
 describe('PAHAM System Pusdatin UMC - Business Rules & RBAC Verification', () => {
+  before(() => {
+    seedTestFixtures();
+  });
+
   it('RBAC: ACT-01 (Pimpinan Universitas) has view access to dashboard and inventory, but cannot create tickets', () => {
-    const pimpinanUniv = SEED_USERS.find(u => u.role === 'ACT-01')!;
+    const pimpinanUniv = AppDatabase.getUsers().find(u => u.role === 'ACT-01')!;
     assert.strictEqual(AccessControlService.can(pimpinanUniv, 'dashboard_ringkasan', 'view'), true);
     assert.strictEqual(AccessControlService.can(pimpinanUniv, 'buku_inventaris', 'view'), true);
     assert.strictEqual(AccessControlService.can(pimpinanUniv, 'buat_tiket', 'propose'), false);
@@ -39,21 +44,21 @@ describe('PAHAM System Pusdatin UMC - Business Rules & RBAC Verification', () =>
   });
 
   it('RBAC: ACT-02 (Pimpinan PUSDATIN) can approve new system proposals and sign off loans', () => {
-    const kepalaPusdatin = SEED_USERS.find(u => u.role === 'ACT-02')!;
+    const kepalaPusdatin = AppDatabase.getUsers().find(u => u.role === 'ACT-02')!;
     assert.strictEqual(AccessControlService.can(kepalaPusdatin, 'pengajuan_sistem', 'approve'), true);
     assert.strictEqual(AccessControlService.can(kepalaPusdatin, 'peminjaman_aset', 'approve'), true);
     assert.strictEqual(AccessControlService.can(kepalaPusdatin, 'buku_penerimaan', 'verify'), true);
   });
 
   it('RBAC: ACT-03 (Admin / IT Support) can manage Buku Penerimaan, Pengeluaran, and Tickets', () => {
-    const admin = SEED_USERS.find(u => u.role === 'ACT-03')!;
+    const admin = AppDatabase.getUsers().find(u => u.role === 'ACT-03')!;
     assert.strictEqual(AccessControlService.can(admin, 'buku_penerimaan', 'manage'), true);
     assert.strictEqual(AccessControlService.can(admin, 'buku_pengeluaran', 'manage'), true);
     assert.strictEqual(AccessControlService.can(admin, 'distribusi_tiket', 'manage'), true);
   });
 
   it('RBAC: ACT-10 (User / Civitas) can create ticket, propose loan, and propose system, but cannot access admin modules', () => {
-    const civitas = SEED_USERS.find(u => u.role === 'ACT-10')!;
+    const civitas = AppDatabase.getUsers().find(u => u.role === 'ACT-10')!;
     assert.strictEqual(AccessControlService.can(civitas, 'buat_tiket', 'propose'), true);
     assert.strictEqual(AccessControlService.can(civitas, 'peminjaman_aset', 'propose'), true);
     assert.strictEqual(AccessControlService.can(civitas, 'pengajuan_sistem', 'propose'), true);

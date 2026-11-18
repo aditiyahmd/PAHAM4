@@ -212,9 +212,6 @@ export const SparePartsManagementView: React.FC<SparePartsManagementViewProps> =
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
                 Laporan Analisis Kesenjangan (Gap Analysis) &amp; Suku Cadang
               </h2>
-              <span className="px-2 py-0.5 text-[10px] font-bold bg-red-100 text-red-700 rounded-md border border-red-200 whitespace-nowrap shrink-0">
-                Capacity &amp; Demand ITIL
-              </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
               Proyeksi kebutuhan aset &amp; suku cadang unit kerja dibandingkan stok gudang PUSDATIN serta pembaruan status pengadaan.

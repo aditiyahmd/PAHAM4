@@ -201,9 +201,6 @@ export const SystemProposalManagement: React.FC<SystemProposalManagementProps> =
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-md bg-cyan-100 text-cyan-800 text-xs font-bold font-mono">
-              MODUL 5.4 &amp; RFC 5-TAHAP
-            </span>
             <h1 className="text-xl font-bold text-slate-900">Laporan Alur 5-Tahap RFC &amp; Pengembangan Sistem Baru</h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">

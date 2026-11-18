@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppDatabase } from '../../services/db';
 import { TechnicianUser, TechnicianRole, ActorCode, DocumentSignatories } from '../../types';
 import { isAllowedInstitutionalEmail, inferCivitasTypeFromEmail } from '../../services/authValidation';
@@ -17,8 +17,6 @@ import {
   Key,
   Mail,
   Phone,
-  Eye,
-  EyeOff,
   Edit2,
   Lock,
   UserCheck,
@@ -66,7 +64,25 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
   // User Form & Modal States
   const [showTechModal, setShowTechModal] = useState(false);
   const [editingTech, setEditingTech] = useState<TechnicianUser | null>(null);
-  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/auth/users')
+      .then(res => (res.ok ? res.json() : null))
+      .then((data: { ok?: boolean; users?: TechnicianUser[] } | null) => {
+        if (active && data?.ok && Array.isArray(data.users) && data.users.length > 0) {
+          AppDatabase.replaceUsers(data.users);
+          setTechnicians(AppDatabase.getUsers());
+        }
+      })
+      .catch(() => {
+        // fallback to localStorage if server is unavailable in isolated unit mode
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // User Form Inputs
   const [techName, setTechName] = useState('');
@@ -86,10 +102,6 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
     setTimeout(() => setFeedbackMsg(null), 4000);
   };
 
-  const togglePasswordVisibility = (id: string) => {
-    setShowPasswords(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
   // User Form Handlers
   const openAddTechModal = () => {
     setEditingTech(null);
@@ -99,7 +111,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
     setTechCivitasType('Dosen');
     setTechUnit('Fakultas Teknik UMC');
     setTechEmail('');
-    setTechPassword('umc123');
+    setTechPassword('');
     setTechPhone('081234567890');
     setTechSpecialty('');
     setTechIsFullAccess(false);
@@ -115,7 +127,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
     setTechCivitasType(tech.civitasType || inferCivitasTypeFromEmail(tech.email));
     setTechUnit(tech.unit || 'PUSDATIN UMC');
     setTechEmail(tech.email);
-    setTechPassword(tech.password || 'admin');
+    setTechPassword('');
     setTechPhone(tech.phone || '');
     setTechSpecialty(tech.specialty || '');
     setTechIsFullAccess(Boolean(tech.isFullAccess));
@@ -123,11 +135,30 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
     setShowTechModal(true);
   };
 
+  const syncUserToServer = async (payload: Record<string, unknown>) => {
+    try {
+      const res = await fetch('/api/auth/admin-sync-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { ok?: boolean; user?: TechnicianUser };
+        if (data.ok && data.user) {
+          AppDatabase.upsertUser(data.user);
+          setTechnicians(AppDatabase.getUsers());
+        }
+      }
+    } catch {
+      // ignore offline error
+    }
+  };
+
   const handleSaveTechnician = (e: React.FormEvent) => {
     e.preventDefault();
     const normalizedEmail = techEmail.trim().toLowerCase();
-    if (!techName.trim() || !techRole.trim() || !normalizedEmail || !techPassword.trim()) {
-      showFeedback('error', 'Nama, Peran / Bidang, Email Institusi, dan Password wajib diisi!');
+    if (!techName.trim() || !techRole.trim() || !normalizedEmail) {
+      showFeedback('error', 'Nama, Peran / Bidang, dan Email Institusi wajib diisi!');
       return;
     }
 
@@ -137,7 +168,10 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
     }
 
     if (editingTech) {
-      const success = AppDatabase.updateTechnician({
+      const hasPasswordAfterEdit = Boolean(
+        techPassword.trim() || editingTech.passwordSet || editingTech.password
+      );
+      const updatedPayload = {
         ...editingTech,
         nama: techName.trim(),
         name: techName.trim(),
@@ -146,14 +180,17 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
         civitasType: techActorCode === 'ACT-10' ? techCivitasType : undefined,
         unit: techUnit.trim() || 'PUSDATIN UMC',
         email: normalizedEmail,
-        password: techPassword.trim(),
+        password: techPassword.trim() || undefined,
+        passwordSet: hasPasswordAfterEdit,
         phone: techPhone.trim(),
         specialty: techSpecialty.trim(),
         isFullAccess: techIsFullAccess || techActorCode === 'ACT-02' || techActorCode === 'ACT-03',
         level: techLevel
-      });
+      };
+      const success = AppDatabase.updateTechnician(updatedPayload);
 
       if (success) {
+        void syncUserToServer(updatedPayload);
         setTechnicians(AppDatabase.getUsers());
         setShowTechModal(false);
         onDataChanged();
@@ -162,7 +199,8 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
         showFeedback('error', 'Gagal memperbarui data akun.');
       }
     } else {
-      const created = AppDatabase.addTechnician({
+      const newPayload = {
+        id: `USR-${Date.now()}`,
         nama: techName.trim(),
         name: techName.trim(),
         role: techActorCode,
@@ -170,15 +208,17 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
         civitasType: techActorCode === 'ACT-10' ? techCivitasType : undefined,
         unit: techUnit.trim() || 'PUSDATIN UMC',
         email: normalizedEmail,
-        password: techPassword.trim(),
+        password: techPassword.trim() || undefined,
         phone: techPhone.trim(),
         specialty: techSpecialty.trim(),
         isFullAccess: techIsFullAccess || techActorCode === 'ACT-02' || techActorCode === 'ACT-03',
         level: techLevel,
-        statusAkun: 'Aktif'
-      });
+        statusAkun: 'Aktif' as const
+      };
+      const created = AppDatabase.addTechnician(newPayload);
 
       if (created) {
+        void syncUserToServer(newPayload);
         setTechnicians(AppDatabase.getUsers());
         setShowTechModal(false);
         onDataChanged();
@@ -196,6 +236,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
     }
     const updated = AppDatabase.toggleUserStatus(tech.id);
     if (updated) {
+      void syncUserToServer(updated as unknown as Record<string, unknown>);
       setTechnicians(AppDatabase.getUsers());
       onDataChanged();
       showFeedback(
@@ -210,17 +251,26 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
       showFeedback('error', 'Akun Kepala PUSDATIN utama tidak boleh dihapus demi keamanan sistem.');
       return;
     }
+    if (tech.id === 'USR-ACT-03') {
+      showFeedback('error', 'Akun Admin sistem utama tidak dapat dihapus.');
+      return;
+    }
+
+    if (confirmDeleteUserId !== tech.id) {
+      setConfirmDeleteUserId(tech.id);
+      return;
+    }
 
     const displayName = tech.nama || tech.name || tech.email;
-    if (confirm(`Apakah Anda yakin ingin menghapus akun "${displayName}" (${tech.email})?`)) {
-      const success = AppDatabase.deleteTechnician(tech.id);
-      if (success) {
-        setTechnicians(AppDatabase.getUsers());
-        onDataChanged();
-        showFeedback('success', `Akun "${displayName}" telah dihapus.`);
-      } else {
-        showFeedback('error', 'Akun ini tidak dapat dihapus.');
-      }
+    const success = AppDatabase.deleteTechnician(tech.id);
+    setConfirmDeleteUserId(null);
+    if (success) {
+      void fetch(`/api/auth/admin-user/${encodeURIComponent(tech.id)}`, { method: 'DELETE' }).catch(() => {});
+      setTechnicians(AppDatabase.getUsers());
+      onDataChanged();
+      showFeedback('success', `Akun "${displayName}" telah dihapus.`);
+    } else {
+      showFeedback('error', 'Akun ini tidak dapat dihapus.');
     }
   };
 
@@ -460,8 +510,10 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {technicians.map(t => {
-                    const isPassVisible = showPasswords[t.id];
                     const isActive = t.statusAkun !== 'Nonaktif';
+                    const hasPasswordConfigured = Boolean(
+                      t.passwordSet === true || (t.password && t.password.trim().length > 0 && t.passwordSet !== false)
+                    );
 
                     return (
                       <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
@@ -492,20 +544,17 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                             <span>{t.email}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 font-mono">
-                          <div className="flex items-center gap-1.5">
-                            <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-700 font-bold">
-                              {isPassVisible ? t.password : '••••••••'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => togglePasswordVisibility(t.id)}
-                              className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                              title={isPassVisible ? 'Sembunyikan password' : 'Lihat password'}
-                            >
-                              {isPassVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                              hasPasswordConfigured
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}
+                          >
+                            <Lock className="w-3 h-3" />
+                            <span>{hasPasswordConfigured ? 'Sudah diatur (Hash)' : 'Belum diatur'}</span>
+                          </span>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="space-y-1">
@@ -553,14 +602,24 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                               <Edit2 className="w-3 h-3" />
                               <span>Edit</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTechnician(t)}
-                              className="p-1 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
-                              title="Hapus Akun"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {confirmDeleteUserId === t.id ? (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTechnician(t)}
+                                className="px-2 py-1 text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
+                              >
+                                Konfirmasi Hapus
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTechnician(t)}
+                                className="p-1 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus Akun"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -603,7 +662,7 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
                       required
                       value={techName}
                       onChange={e => setTechName(e.target.value)}
-                      placeholder="Contoh: Dimas Saputra, S.Kom."
+                      placeholder="Contoh: Hilyah Haula Salsabiila, S.T."
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
                     />
                   </div>
@@ -721,14 +780,13 @@ export const MasterDataManagement: React.FC<MasterDataManagementProps> = ({ onDa
 
                     <div>
                       <label className="block font-bold text-slate-700 mb-1">
-                        Password / PIN Lokal: <span className="text-red-600">*</span>
+                        Password / PIN Lokal: <span className="text-slate-400 font-normal">(Opsional)</span>
                       </label>
                       <input
                         type="text"
-                        required
                         value={techPassword}
                         onChange={e => setTechPassword(e.target.value)}
-                        placeholder="cth: admin / umc123"
+                        placeholder="Kosongkan agar user atur saat login pertama"
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
                       />
                     </div>

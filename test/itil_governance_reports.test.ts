@@ -40,12 +40,11 @@ import {
 } from '../src/services/reportGovernanceService';
 import { PdfReportService } from '../src/services/pdfReportService';
 import { DEFAULT_SERVICE_SLA_CONFIG, DEFAULT_SLA_CONFIG } from '../src/services/slaService';
+import { seedTestFixtures } from './testHelpers';
 
 describe('ITIL Reporting Governance, Operational & Executive Dashboards, and Export Suite', () => {
   beforeEach(() => {
-    globalThis.localStorage.clear();
-    globalThis.sessionStorage.clear();
-    AppDatabase.resetToDefaultSeed();
+    seedTestFixtures();
     AppDatabase.setActiveUser('USR-ACT-02');
   });
 

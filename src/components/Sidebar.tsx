@@ -15,7 +15,8 @@ import {
   BarChart3,
   Users,
   X,
-  Star
+  Star,
+  Barcode
 } from 'lucide-react';
 import { AppDatabase } from '../services/db';
 
@@ -177,6 +178,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         id: 'audit-trail',
         label: 'Audit Terpadu',
         icon: LockKeyhole
+      },
+      {
+        id: 'cetak-barcode',
+        label: 'Cetak Thermal & Barcode',
+        icon: Barcode
       },
       {
         id: 'kelola-master',

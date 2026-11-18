@@ -61,6 +61,8 @@ export interface ReceiptPrintParams {
   subtitle?: string;
   barcode?: string;
   lines: ReceiptPrintLine[];
+  logoUrl?: string;
+  htmlContent?: string;
 }
 
 export const BLUETOOTH_PRINT_SCHEME = 'my.bluetoothprint.scheme://';
@@ -198,6 +200,14 @@ export function buildBatchStickerPrintPayload(items: StickerPrintItem[]): Blueto
 export function buildReceiptPrintPayload(params: ReceiptPrintParams): BluetoothPrintResponseMap {
   const entries: BluetoothPrintEntry[] = [];
 
+  if (params.logoUrl && /^https?:\/\//i.test(params.logoUrl.trim())) {
+    entries.push({
+      type: 1,
+      path: params.logoUrl.trim(),
+      align: 1
+    });
+  }
+
   entries.push({
     type: 0,
     content: 'PUSDATIN UMC',
@@ -277,13 +287,20 @@ export function buildReceiptPrintPayload(params: ReceiptPrintParams): BluetoothP
     format: 0
   });
 
-  entries.push({
-    type: 0,
-    content: 'PAHAM - PUSDATIN UMC CIREBON',
-    bold: 0,
-    align: 1,
-    format: 4
-  });
+  if (params.htmlContent && params.htmlContent.trim()) {
+    entries.push({
+      type: 4,
+      content: params.htmlContent.trim().slice(0, 320)
+    });
+  } else {
+    entries.push({
+      type: 0,
+      content: 'PAHAM - PUSDATIN UMC CIREBON',
+      bold: 0,
+      align: 1,
+      format: 4
+    });
+  }
 
   entries.push({
     type: 0,
@@ -303,11 +320,73 @@ export function buildReceiptPrintPayload(params: ReceiptPrintParams): BluetoothP
   return toForceObjectMap(entries);
 }
 
+export const BLUETOOTH_PUBLIC_ENDPOINT_STORAGE_KEY = 'pusdatin_bt_public_endpoint_v1';
+
+/**
+ * Detects Google AI Studio authenticated preview hostnames (`ais-dev-*` / `ais-pre-*`)
+ * where external native Android apps receive an HTML auth-check redirect (`/__cookie_check.html`)
+ * instead of raw JSON unless a public endpoint or deployed URL is used.
+ */
+export function isAiStudioAuthProtectedHost(explicitHostname?: string): boolean {
+  const host =
+    explicitHostname !== undefined
+      ? explicitHostname
+      : typeof window !== 'undefined' && window.location?.hostname
+      ? window.location.hostname
+      : '';
+  return /^ais-(dev|pre)-/i.test(host.trim());
+}
+
+export function getPublicBluetoothEndpoint(): string {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return (localStorage.getItem(BLUETOOTH_PUBLIC_ENDPOINT_STORAGE_KEY) || '').trim();
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return '';
+}
+
+export function setPublicBluetoothEndpoint(url: string): string {
+  const normalized = url.trim().replace(/\/+$/, '');
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (normalized) {
+        localStorage.setItem(BLUETOOTH_PUBLIC_ENDPOINT_STORAGE_KEY, normalized);
+      } else {
+        localStorage.removeItem(BLUETOOTH_PUBLIC_ENDPOINT_STORAGE_KEY);
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return normalized;
+}
+
+function isAppsScriptRelayUrl(endpoint: string): boolean {
+  return /\/exec(\?.*)?$/i.test(endpoint.trim());
+}
+
+function buildAppsScriptRelayResponseUrl(
+  relayUrl: string,
+  payload: BluetoothPrintResponseMap
+): string {
+  const cleanBase = relayUrl.trim().split('?')[0];
+  const qs = new URLSearchParams();
+  qs.set('payload', JSON.stringify(payload));
+  return `${cleanBase}?${qs.toString()}`;
+}
+
 /**
  * Resolves the active base origin for generating `<RESPONSEURL>` links.
  */
 export function getActiveOrigin(explicitOrigin?: string): string {
   if (explicitOrigin) return explicitOrigin.replace(/\/+$/, '');
+  const publicEndpoint = getPublicBluetoothEndpoint();
+  if (publicEndpoint && !isAppsScriptRelayUrl(publicEndpoint)) {
+    return publicEndpoint.replace(/\/api\/bluetooth-print.*$/i, '').replace(/\/+$/, '');
+  }
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin.replace(/\/+$/, '');
   }
@@ -318,6 +397,12 @@ export function buildAndroidStickerResponseUrl(
   item: StickerPrintItem,
   explicitOrigin?: string
 ): string {
+  if (!explicitOrigin) {
+    const publicEndpoint = getPublicBluetoothEndpoint();
+    if (publicEndpoint && isAppsScriptRelayUrl(publicEndpoint)) {
+      return buildAppsScriptRelayResponseUrl(publicEndpoint, buildStickerPrintPayload(item));
+    }
+  }
   const origin = getActiveOrigin(explicitOrigin);
   const qs = new URLSearchParams();
   qs.set('mode', 'sticker');
@@ -339,6 +424,12 @@ export function buildAndroidBatchResponseUrl(
   items: StickerPrintItem[],
   explicitOrigin?: string
 ): string {
+  if (!explicitOrigin) {
+    const publicEndpoint = getPublicBluetoothEndpoint();
+    if (publicEndpoint && isAppsScriptRelayUrl(publicEndpoint)) {
+      return buildAppsScriptRelayResponseUrl(publicEndpoint, buildBatchStickerPrintPayload(items));
+    }
+  }
   const origin = getActiveOrigin(explicitOrigin);
   const compact = items.slice(0, 20).map(it => ({
     c: (it.code || 'AST-000').trim(),
@@ -363,12 +454,24 @@ export function buildAndroidReceiptResponseUrl(
   params: ReceiptPrintParams,
   explicitOrigin?: string
 ): string {
+  if (!explicitOrigin) {
+    const publicEndpoint = getPublicBluetoothEndpoint();
+    if (publicEndpoint && isAppsScriptRelayUrl(publicEndpoint)) {
+      return buildAppsScriptRelayResponseUrl(publicEndpoint, buildReceiptPrintPayload(params));
+    }
+  }
   const origin = getActiveOrigin(explicitOrigin);
   const qs = new URLSearchParams();
   qs.set('mode', 'receipt');
   qs.set('title', params.title.trim().slice(0, 48));
   if (params.subtitle) qs.set('subtitle', params.subtitle.trim().slice(0, 48));
   if (params.barcode) qs.set('barcode', params.barcode.trim().slice(0, 32));
+  if (params.logoUrl && /^https?:\/\//i.test(params.logoUrl.trim())) {
+    qs.set('logoUrl', params.logoUrl.trim());
+  }
+  if (params.htmlContent && params.htmlContent.trim()) {
+    qs.set('html', params.htmlContent.trim().slice(0, 320));
+  }
   const compactLines = (params.lines || []).slice(0, 14).map(l => ({
     k: l.label.trim().slice(0, 20),
     v: (l.value || '-').trim().slice(0, 56)

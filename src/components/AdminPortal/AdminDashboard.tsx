@@ -90,8 +90,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ stats, onNavigat
       <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-            <span className="font-mono uppercase tracking-wider text-slate-700">ITIL Operations Command</span>
-            <span aria-hidden="true">·</span>
             <span>Pemantauan Real-Time Harian</span>
           </div>
           <h1 className="text-xl font-bold text-slate-900 mt-0.5">

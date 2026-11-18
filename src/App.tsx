@@ -22,9 +22,11 @@ import { SparePartsManagementView } from './components/AdminPortal/SparePartsMan
 import { SystemProposalManagement } from './components/AdminPortal/SystemProposalManagement';
 import { SurveyRecapView } from './components/AdminPortal/SurveyRecapView';
 import { AuditTrailView } from './components/AdminPortal/AuditTrailView';
+import { BarcodeScannerThermal } from './components/AdminPortal/BarcodeScannerThermal';
 import { AdminLoginModal } from './components/Modals/AdminLoginModal';
 import { EmailNotificationModal } from './components/Modals/EmailNotificationModal';
 import { ActorSwitcherModal } from './components/ActorSwitcherModal';
+import { signOutFirebaseSession } from './firebase';
 import { AppUser } from './types';
 
 export default function App() {
@@ -89,11 +91,11 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    void signOutFirebaseSession();
     sessionStorage.removeItem('pusdatin_sso_logged_in');
     sessionStorage.removeItem('pusdatin_admin_auth');
+    sessionStorage.removeItem('pusdatin_active_user_id_v4');
     setIsLoggedIn(false);
-    const civitas = AppDatabase.getUsers().find(u => u.role === 'ACT-10');
-    if (civitas) AppDatabase.setActiveUser(civitas.id);
     setIsMobileSidebarOpen(false);
     setPageMode('landing');
   };
@@ -360,6 +362,10 @@ export default function App() {
 
                 {activeTab === 'kelola-master' && (
                   <MasterDataManagement onDataChanged={refreshData} />
+                )}
+
+                {activeTab === 'cetak-barcode' && (
+                  <BarcodeScannerThermal />
                 )}
 
                 {activeTab === 'rekap-survei' && (

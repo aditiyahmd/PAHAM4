@@ -17,6 +17,7 @@ export interface SsoLoginValidationResult {
   ok: boolean;
   user?: AppUser;
   isNewUser?: boolean;
+  requiresPasswordSetup?: boolean;
   error?: string;
 }
 
@@ -34,13 +35,23 @@ export function formatDisplayNameFromEmail(email: string): string {
 }
 
 /**
- * Validates institutional SSO login:
- * 1. Domain must end with @umc.ac.id or @student.umc.ac.id (all others rejected)
- * 2. If registered in Master Pengguna: must have statusAkun === 'Aktif'
- * 3. If not yet in Master Pengguna: auto-provisions an active Civitas (ACT-10) account
- *    (@student.umc.ac.id -> Mahasiswa, @umc.ac.id -> Dosen/Pegawai)
+ * Checks whether an AppUser already has a configured password.
  */
-export function validateRegisteredSsoLogin(
+export function hasUserConfiguredPassword(user?: AppUser): boolean {
+  if (!user) return false;
+  if (user.passwordSet === true) return true;
+  if (user.passwordSet === false) return false;
+  return Boolean(user.password && user.password.trim().length > 0);
+}
+
+/**
+ * Google Sign-In / First-Time Email Verification:
+ * - Only @umc.ac.id and @student.umc.ac.id are allowed.
+ * - Active registered users WITH a configured password log in immediately (no re-setup required).
+ * - Unregistered institutional emails OR registered users WITHOUT a configured password
+ *   are marked `requiresPasswordSetup: true` so the user must create a password first.
+ */
+export function validateGoogleLogin(
   email: string,
   registeredUsers: AppUser[]
 ): SsoLoginValidationResult {
@@ -70,10 +81,12 @@ export function validateRegisteredSsoLogin(
       };
     }
 
+    const hasPwd = hasUserConfiguredPassword(found);
     return {
       ok: true,
       user: found,
-      isNewUser: false
+      isNewUser: false,
+      requiresPasswordSetup: !hasPwd
     };
   }
 
@@ -89,6 +102,8 @@ export function validateRegisteredSsoLogin(
     phone: '',
     statusAkun: 'Aktif',
     sumberData: 'SSO Google',
+    password: undefined,
+    passwordSet: false,
     specialty:
       civitasType === 'Mahasiswa'
         ? 'Mahasiswa: Peminjaman Aset & Lapor Kerusakan'
@@ -99,6 +114,106 @@ export function validateRegisteredSsoLogin(
   return {
     ok: true,
     user: autoUser,
-    isNewUser: true
+    isNewUser: true,
+    requiresPasswordSetup: true
   };
+}
+
+/**
+ * Standard Email + Password login:
+ * - Only works for users who already registered and configured their password
+ *   (or pre-configured accounts like Admin aditiya.ahmad@umc.ac.id).
+ * - Unregistered or passwordless users are instructed to log in first using "Masuk dengan Google".
+ */
+export function validatePasswordLogin(
+  email: string,
+  password: string,
+  registeredUsers: AppUser[]
+): SsoLoginValidationResult {
+  const normalized = (email || '').trim().toLowerCase();
+
+  if (!normalized) {
+    return {
+      ok: false,
+      error: 'Harap masukkan email instansi UMC Anda.'
+    };
+  }
+
+  if (!isAllowedInstitutionalEmail(normalized)) {
+    return {
+      ok: false,
+      error:
+        'Akses ditolak! Hanya email resmi Universitas Muhammadiyah Cirebon (@umc.ac.id atau @student.umc.ac.id) yang diizinkan masuk.'
+    };
+  }
+
+  if (!password || !password.trim()) {
+    return {
+      ok: false,
+      error: 'Harap masukkan password Anda.'
+    };
+  }
+
+  const found = registeredUsers.find(u => u.email.trim().toLowerCase() === normalized);
+  if (!found || !hasUserConfiguredPassword(found)) {
+    return {
+      ok: false,
+      error:
+        'Akun belum terdaftar atau belum mengatur password. Silakan klik "Masuk dengan Google" terlebih dahulu untuk login pertama kali dan membuat password.'
+    };
+  }
+
+  if (found.statusAkun === 'Nonaktif') {
+    return {
+      ok: false,
+      error: `Akun "${normalized}" saat ini berstatus Nonaktif. Hubungi Administrator PUSDATIN UMC.`
+    };
+  }
+
+  if (found.password !== password) {
+    return {
+      ok: false,
+      error: 'Email atau password salah. Silakan periksa kembali kredensial Anda.'
+    };
+  }
+
+  return {
+    ok: true,
+    user: found,
+    isNewUser: false,
+    requiresPasswordSetup: false
+  };
+}
+
+/**
+ * Validates new password creation during first-time login setup.
+ */
+export function validateNewPasswordSetup(
+  password: string,
+  confirmPassword: string
+): { ok: boolean; error?: string } {
+  const trimmed = (password || '').trim();
+  if (!trimmed || trimmed.length < 6) {
+    return {
+      ok: false,
+      error: 'Password baru minimal harus terdiri dari 6 karakter.'
+    };
+  }
+  if (password !== confirmPassword) {
+    return {
+      ok: false,
+      error: 'Konfirmasi password tidak cocok. Silakan ketik ulang dengan benar.'
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Backward-compatible alias for SSO validation callers.
+ */
+export function validateRegisteredSsoLogin(
+  email: string,
+  registeredUsers: AppUser[]
+): SsoLoginValidationResult {
+  return validateGoogleLogin(email, registeredUsers);
 }
