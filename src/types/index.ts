@@ -382,10 +382,22 @@ export interface DamageTicket {
   reopenedAtIso?: string;
   reopenCount?: number;
   reopenReason?: string;
-  // 3d: Workaround & Problem / RFC Escalation
+  // 3d: Workaround & Problem / RFC Escalation + Approval Atasan/Admin
   workaround?: string;
   linkedProblemTicketId?: string;
   linkedParentTicketId?: string;
+  problemApprovalStatus?: 'Menunggu Approval' | 'Disetujui' | 'Ditolak';
+  problemApprovalRequestedBy?: string;
+  problemApprovalRequestedAtIso?: string;
+  problemApprovalRequestNote?: string;
+  problemPendingType?: 'Problem' | 'RFC';
+  problemPendingTitle?: string;
+  problemPendingWorkaround?: string;
+  problemPendingTargetHours?: number;
+  problemPendingPicTeknisi?: TechnicianRole;
+  problemApprovedBy?: string;
+  problemApprovedAtIso?: string;
+  problemApprovalDecisionNote?: string;
   catatanAdmin?: string;
   metodePerbaikan?: 'Di Lokasi' | 'Dibawa ke PUSDATIN';
   jenisAset?: 'Fisik' | 'Non-Fisik';

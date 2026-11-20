@@ -1854,6 +1854,8 @@ export class AppDatabase {
       | 'vendor-eksternal'
       | 'lanjut-perbaikan'
       | 'eskalasi-problem-rfc'
+      | 'approve-problem-escalation'
+      | 'reject-problem-escalation'
       | 'selesai-perbaikan'
       | 're-open'
       | 'tutup-manual'
@@ -2419,18 +2421,98 @@ export class AppDatabase {
       };
     }
 
-    // 3d: Eskalasi Insiden -> Problem / Request for Change (RFC) dengan Workaround
-    if (effAction === 'eskalasi-problem-rfc') {
-      const targetType: 'Problem' | 'RFC' = options.targetTicketType || 'Problem';
-      const workaroundText = (options.workaround || options.resolusiAkhir || '').trim();
-      if (!workaroundText) {
+    // 3d: Tolak Pengajuan Eskalasi Problem Ticket oleh Atasan (ACT-02) / Admin (ACT-03)
+    if (effAction === 'reject-problem-escalation') {
+      if (!AccessControlService.isAdminOrPusdatinLead(active.role)) {
         return {
           success: false,
-          message: 'Harap isi solusi sementara (Workaround) sebelum menutup Insiden dan menerbitkan tiket Problem/RFC.'
+          message:
+            'Penolakan eskalasi Problem Ticket hanya dapat dilakukan oleh Atasan (Kepala PUSDATIN) atau Admin.'
+        };
+      }
+      if (ticket.problemApprovalStatus !== 'Menunggu Approval') {
+        return {
+          success: false,
+          message: 'Tiket ini tidak memiliki pengajuan eskalasi Problem Ticket yang menunggu persetujuan.'
         };
       }
 
       const resumed = settleActivePause(ticket);
+      const rejectNote =
+        (options.catatanAdmin || options.catatan || '').trim() ||
+        'Pengajuan eskalasi Problem Ticket ditolak oleh Atasan/Admin. Harap lanjutkan penanganan sebagai Insiden reguler.';
+
+      const nextStatus: DamageStatus = ticket.slaStartedAtIso ? 'In Progress' : 'Assigned';
+      tickets[index] = {
+        ...ticket,
+        ...firstResponseStamp,
+        ...resumed,
+        status: nextStatus,
+        problemApprovalStatus: 'Ditolak',
+        problemApprovedBy: operator,
+        problemApprovedAtIso: nowIso,
+        problemApprovalDecisionNote: rejectNote,
+        catatanAdmin: rejectNote,
+        riwayatStatus: [
+          ...(ticket.riwayatStatus || []),
+          {
+            status: nextStatus,
+            timestamp: nowStr,
+            catatan: `Pengajuan Problem Ticket ditolak oleh ${operator}: ${rejectNote}`,
+            petugas: operator
+          }
+        ]
+      };
+
+      this.save(STORAGE_KEYS.DAMAGES, tickets);
+      this.addAuditTrail({
+        entityType: 'Tiket Helpdesk',
+        entityId: ticket.id,
+        statusLama,
+        statusBaru: nextStatus,
+        catatan: `Approval Eskalasi Problem Ticket DITOLAK oleh ${operator}. Alasan: ${rejectNote}`,
+        idPengguna: active.id,
+        namaPengguna: active.nama,
+        rolePengguna: active.roleName
+      });
+
+      return {
+        success: true,
+        message: `Pengajuan Problem Ticket untuk ${ticket.id} ditolak. Tiket dikembalikan ke status ${nextStatus}.`,
+        ticket: tickets[index]
+      };
+    }
+
+    // 3d: Eskalasi Insiden -> Problem Ticket dengan Approval Atasan (ACT-02) atau Admin (ACT-03)
+    if (effAction === 'eskalasi-problem-rfc' || effAction === 'approve-problem-escalation') {
+      const isApprover = AccessControlService.isAdminOrPusdatinLead(active.role);
+
+      if (effAction === 'approve-problem-escalation' && !isApprover) {
+        return {
+          success: false,
+          message:
+            'Persetujuan Problem Ticket hanya dapat dilakukan oleh Atasan (Kepala PUSDATIN) atau Admin.'
+        };
+      }
+
+      const targetType: 'Problem' | 'RFC' =
+        effAction === 'approve-problem-escalation'
+          ? ticket.problemPendingType || options.targetTicketType || 'Problem'
+          : options.targetTicketType || 'Problem';
+
+      const workaroundText =
+        effAction === 'approve-problem-escalation'
+          ? (options.workaround || ticket.problemPendingWorkaround || options.resolusiAkhir || '').trim()
+          : (options.workaround || options.resolusiAkhir || '').trim();
+
+      if (!workaroundText) {
+        return {
+          success: false,
+          message:
+            'Harap isi solusi sementara (Workaround) sebelum menutup Insiden dan menerbitkan tiket Problem.'
+        };
+      }
+
       const problemRule = getRuleForTicket(
         {
           ticketType: targetType,
@@ -2439,22 +2521,97 @@ export class AppDatabase {
         },
         slaConfig
       );
-      const customRtHours = options.problemTargetHours && options.problemTargetHours > 0
-        ? options.problemTargetHours
-        : problemRule.rtTargetHours;
+      const pendingOrInputHours =
+        effAction === 'approve-problem-escalation'
+          ? options.problemTargetHours || ticket.problemPendingTargetHours
+          : options.problemTargetHours;
+      const customRtHours =
+        pendingOrInputHours && pendingOrInputHours > 0
+          ? pendingOrInputHours
+          : problemRule.rtTargetHours;
 
+      const resolvedTitle =
+        effAction === 'approve-problem-escalation'
+          ? (options.problemJudul || ticket.problemPendingTitle || `[${targetType}] ${ticket.namaBarang}`).trim()
+          : (options.problemJudul?.trim() || `[${targetType}] ${ticket.namaBarang}`);
+
+      // Jika pemohon adalah Teknisi (bukan Atasan/Admin), ajukan untuk Approval terlebih dahulu & jeda SLA RT Insiden
+      if (!isApprover) {
+        const requestNote =
+          (options.catatanAdmin || options.catatan || '').trim() ||
+          `Memerlukan perbaikan arsitektur / akar masalah jangka panjang (${Math.round(customRtHours / 24)} hari).`;
+        const pauseReason = 'Menunggu Approval Problem Ticket oleh Atasan/Admin';
+        const pausePatch = ticket.slaPausedAtIso
+          ? {}
+          : {
+              slaPausedAtIso: nowIso,
+              slaPauseReason: pauseReason,
+              slaPauseHistory: [
+                ...(ticket.slaPauseHistory || []),
+                { reason: pauseReason, pausedAtIso: nowIso }
+              ]
+            };
+
+        tickets[index] = {
+          ...ticket,
+          ...firstResponseStamp,
+          ...pausePatch,
+          problemApprovalStatus: 'Menunggu Approval',
+          problemApprovalRequestedBy: operator,
+          problemApprovalRequestedAtIso: nowIso,
+          problemApprovalRequestNote: requestNote,
+          problemPendingType: targetType,
+          problemPendingTitle: resolvedTitle,
+          problemPendingWorkaround: workaroundText,
+          problemPendingTargetHours: customRtHours,
+          problemPendingPicTeknisi: options.picTeknisiBaru || ticket.picTeknisi || 'Lead Full Stack Developer',
+          riwayatStatus: [
+            ...(ticket.riwayatStatus || []),
+            {
+              status: ticket.status,
+              timestamp: nowStr,
+              catatan: `Teknisi (${operator}) mengajukan eskalasi ke ${targetType} ("${resolvedTitle}") dengan Workaround: ${workaroundText}. Menunggu Approval Atasan/Admin.`,
+              petugas: operator
+            }
+          ]
+        };
+
+        this.save(STORAGE_KEYS.DAMAGES, tickets);
+        this.addAuditTrail({
+          entityType: 'Tiket Helpdesk',
+          entityId: ticket.id,
+          statusLama,
+          statusBaru: 'Menunggu Approval Problem Ticket',
+          catatan: `Pengajuan eskalasi ke ${targetType} oleh ${operator} menunggu persetujuan Atasan/Admin.`,
+          idPengguna: active.id,
+          namaPengguna: active.nama,
+          rolePengguna: active.roleName
+        });
+
+        return {
+          success: true,
+          message: `Pengajuan eskalasi ${targetType} untuk ${ticket.id} berhasil dikirim! Menunggu persetujuan Atasan (Kepala PUSDATIN) atau Admin (SLA RT terjeda sementara).`,
+          ticket: tickets[index]
+        };
+      }
+
+      // Disetujui oleh Atasan (ACT-02) atau Admin (ACT-03) -> tutup Insiden via Workaround & terbitkan Problem Ticket
+      const resumed = settleActivePause(ticket);
       const prefix = targetType === 'RFC' ? 'RFC' : 'PRB';
       const dateCode = nowIso.split('T')[0].replace(/-/g, '');
       const rand = Math.floor(100 + Math.random() * 900);
       const newProblemId = `${prefix}-${dateCode}-${rand}`;
       const problemDeadlineIso = new Date(nowMs + customRtHours * 3600000).toISOString();
+      const decisionNote =
+        (options.catatanAdmin || options.catatan || '').trim() ||
+        `Disetujui oleh ${operator} (${active.roleName}) untuk penanganan akar masalah jangka panjang.`;
 
       const newProblemTicket: DamageTicket = {
         id: newProblemId,
         ticketType: targetType,
         kodeUnikAset: ticket.kodeUnikAset,
         barcode: ticket.barcode,
-        namaBarang: options.problemJudul?.trim() || `[${targetType}] ${ticket.namaBarang}`,
+        namaBarang: resolvedTitle,
         pelapor: ticket.pelapor,
         kontakPelapor: ticket.kontakPelapor,
         emailPelapor: ticket.emailPelapor,
@@ -2464,6 +2621,7 @@ export class AppDatabase {
         lokasi: ticket.lokasi,
         lokasiAwal: ticket.lokasiAwal,
         deskripsi:
+          ticket.problemApprovalRequestNote ||
           options.catatan?.trim() ||
           `Eskalasi akar masalah dari Insiden ${ticket.id}. Membutuhkan perbaikan arsitektur / coding ulang sistem. Workaround awal: ${workaroundText}`,
         tanggalLapor: nowStr,
@@ -2479,23 +2637,37 @@ export class AppDatabase {
         slaStatus: 'On Track',
         status: 'Assigned',
         jenisAset: ticket.jenisAset || 'Non-Fisik',
-        picTeknisi: options.picTeknisiBaru || ticket.picTeknisi || 'Lead Full Stack Developer',
-        namaPicTeknisi: options.namaPicBaru || ticket.namaPicTeknisi || operator,
+        picTeknisi:
+          options.picTeknisiBaru ||
+          ticket.problemPendingPicTeknisi ||
+          ticket.picTeknisi ||
+          'Lead Full Stack Developer',
+        namaPicTeknisi:
+          options.namaPicBaru ||
+          ticket.problemApprovalRequestedBy ||
+          ticket.namaPicTeknisi ||
+          operator,
         tanggalDitugaskan: nowIso,
         linkedParentTicketId: ticket.id,
         workaround: workaroundText,
-        catatanAdmin: `Tiket ${targetType} diterbitkan dari Insiden ${ticket.id} dengan target penyelesaian jangka panjang (${customRtHours} jam / ${Math.round(customRtHours / 24)} hari).`,
+        problemApprovalStatus: 'Disetujui',
+        problemApprovalRequestedBy: ticket.problemApprovalRequestedBy || operator,
+        problemApprovalRequestedAtIso: ticket.problemApprovalRequestedAtIso || nowIso,
+        problemApprovedBy: operator,
+        problemApprovedAtIso: nowIso,
+        problemApprovalDecisionNote: decisionNote,
+        catatanAdmin: `Tiket ${targetType} diterbitkan dari Insiden ${ticket.id} (disetujui oleh ${operator}) dengan target penyelesaian jangka panjang (${customRtHours} jam / ${Math.round(customRtHours / 24)} hari).`,
         riwayatStatus: [
           {
             status: 'Assigned',
             timestamp: nowStr,
-            catatan: `Tiket ${targetType} dibuat otomatis dari eskalasi Insiden ${ticket.id}. Target SLA: ${customRtHours} jam.`,
+            catatan: `Tiket ${targetType} disetujui oleh ${operator} dari eskalasi Insiden ${ticket.id}. Target SLA: ${customRtHours} jam.`,
             petugas: operator
           }
         ]
       };
 
-      const closingNote = `Workaround diterapkan agar layanan tetap berjalan: ${workaroundText}. Akar masalah dieskalasi ke tiket ${targetType} (${newProblemId}).`;
+      const closingNote = `Workaround diterapkan agar layanan tetap berjalan: ${workaroundText}. Akar masalah dieskalasi ke tiket ${targetType} (${newProblemId}) [Disetujui oleh ${operator}].`;
       tickets[index] = {
         ...ticket,
         ...firstResponseStamp,
@@ -2503,6 +2675,10 @@ export class AppDatabase {
         status: 'Resolved',
         workaround: workaroundText,
         linkedProblemTicketId: newProblemId,
+        problemApprovalStatus: 'Disetujui',
+        problemApprovedBy: operator,
+        problemApprovedAtIso: nowIso,
+        problemApprovalDecisionNote: decisionNote,
         waktuSelesai: nowStr,
         resolvedAt: nowIso,
         resolvedAtIso: nowIso,
@@ -2513,7 +2689,7 @@ export class AppDatabase {
           {
             status: 'Resolved',
             timestamp: nowStr,
-            catatan: `Insiden ditutup (Resolved) via Workaround & dieskalasi menjadi ${targetType} ${newProblemId}.`,
+            catatan: `Insiden ditutup (Resolved) via Workaround & eskalasi menjadi ${targetType} ${newProblemId} disetujui oleh ${operator}.`,
             petugas: operator
           }
         ]
@@ -2526,7 +2702,7 @@ export class AppDatabase {
         entityId: ticket.id,
         statusLama,
         statusBaru: 'Resolved',
-        catatan: `Insiden diselesaikan dengan Workaround & dibuatkan tiket ${targetType} ${newProblemId}`,
+        catatan: `Insiden diselesaikan dengan Workaround & pembuatan tiket ${targetType} ${newProblemId} disetujui oleh ${operator}`,
         idPengguna: active.id,
         namaPengguna: active.nama,
         rolePengguna: active.roleName
@@ -2534,7 +2710,7 @@ export class AppDatabase {
 
       return {
         success: true,
-        message: `Insiden ${ticket.id} ditutup dengan Workaround (SLA harian aman) & tiket ${targetType} baru (${newProblemId}) berhasil dibuat!`,
+        message: `Insiden ${ticket.id} ditutup dengan Workaround (SLA harian aman) & tiket ${targetType} baru (${newProblemId}) resmi disetujui oleh ${operator}!`,
         ticket: tickets[index],
         createdProblemTicket: newProblemTicket
       };

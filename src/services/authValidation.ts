@@ -1,4 +1,4 @@
-import { AppUser } from '../types';
+import type { AppUser } from '../types/index.ts';
 
 const ALLOWED_INSTITUTIONAL_EMAIL_REGEX = /^[a-z0-9._%+-]+@(umc\.ac\.id|student\.umc\.ac\.id)$/i;
 

@@ -103,6 +103,8 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     | 'vendor-eksternal'
     | 'lanjut-perbaikan'
     | 'eskalasi-problem-rfc'
+    | 'approve-problem-escalation'
+    | 'reject-problem-escalation'
     | 'rusak-total'
     | 'selesai'
     | 'ubah-pic'
@@ -465,6 +467,8 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     let defaultAction: typeof actionType = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     if (specificAction) {
       defaultAction = specificAction;
+    } else if (t.problemApprovalStatus === 'Menunggu Approval' && canAccessTahap2) {
+      defaultAction = 'approve-problem-escalation';
     } else if (t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened') {
       defaultAction = canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi';
     } else if (t.status === 'Need More Info') {
@@ -495,10 +499,12 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     setRepairCategory(t.kategoriPerbaikan || 'Suku Cadang (Stok Ada)');
     setVendorEksternalNama(t.vendorEksternalNama || '');
     setVendorEksternalTiket(t.vendorEksternalTiket || '');
-    setWorkaroundInput(t.workaround || '');
+    setWorkaroundInput(t.problemPendingWorkaround || t.workaround || '');
     setTargetProblemType('Problem');
-    setProblemJudulInput(`[Problem] ${t.namaBarang}`);
-    setProblemTargetHoursInput((slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours);
+    setProblemJudulInput(t.problemPendingTitle || `[Problem] ${t.namaBarang}`);
+    setProblemTargetHoursInput(
+      t.problemPendingTargetHours || (slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours
+    );
 
     // Populate multiple components if existing
     if (t.sukuCadangList && t.sukuCadangList.length > 0) {
@@ -543,13 +549,17 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     if (!selectedTicket) return;
     setModalError(null);
 
-    if (actionType === 'eskalasi-problem-rfc' && !workaroundInput.trim()) {
-      setModalError('Harap isi Workaround (solusi sementara) untuk pengguna sebelum membuat Problem Ticket.');
+    if (
+      (actionType === 'eskalasi-problem-rfc' || actionType === 'approve-problem-escalation') &&
+      !workaroundInput.trim()
+    ) {
+      setModalError('Harap isi Workaround (solusi sementara) untuk pengguna sebelum melanjutkan proses Problem Ticket.');
       return;
     }
 
     setIsProcessing(true);
 
+    const isProblemSubmit = actionType === 'eskalasi-problem-rfc' || actionType === 'approve-problem-escalation';
     const res = AppDatabase.processDamageTicket(selectedTicket.id, actionType, {
       catatanAdmin,
       catatan: catatanAdmin,
@@ -564,15 +574,18 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
       kategoriPerbaikan: actionType === 'suku-cadang' ? repairCategory : actionType === 'rusak-total' ? 'Rusak Total (Afkir)' : undefined,
       komponenList: actionType === 'suku-cadang' ? komponenList : undefined,
       namaSukuCadang: actionType === 'suku-cadang' ? komponenList.join(', ') : undefined,
-      picTeknisiBaru: actionType === 'ubah-pic' || actionType === 'verifikasi-delegasi' || actionType === 'eskalasi-problem-rfc' ? reassignedPic : undefined,
+      picTeknisiBaru:
+        actionType === 'ubah-pic' || actionType === 'verifikasi-delegasi' || isProblemSubmit
+          ? reassignedPic
+          : undefined,
       targetTechnicianId: actionType === 'delegasikan' ? targetDelegasiId : undefined,
       urgensiBaru: modalUrgency,
       vendorEksternalNama: actionType === 'vendor-eksternal' ? vendorEksternalNama : undefined,
       vendorEksternalTiket: actionType === 'vendor-eksternal' ? vendorEksternalTiket : undefined,
-      workaround: actionType === 'eskalasi-problem-rfc' ? workaroundInput : undefined,
-      targetTicketType: actionType === 'eskalasi-problem-rfc' ? targetProblemType : undefined,
-      problemJudul: actionType === 'eskalasi-problem-rfc' ? problemJudulInput : undefined,
-      problemTargetHours: actionType === 'eskalasi-problem-rfc' ? problemTargetHoursInput : undefined
+      workaround: isProblemSubmit ? workaroundInput : undefined,
+      targetTicketType: isProblemSubmit ? targetProblemType : undefined,
+      problemJudul: isProblemSubmit ? problemJudulInput : undefined,
+      problemTargetHours: isProblemSubmit ? problemTargetHoursInput : undefined
     });
 
     if (!res.success) {
@@ -588,8 +601,15 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
     else if (actionType === 'perbaikan' || actionType === 'lanjut-perbaikan') displayStatusLabel = 'In Progress (SLA Aktif)';
     else if (actionType === 'suku-cadang') displayStatusLabel = 'Pending Suku Cadang (SLA Terjeda)';
     else if (actionType === 'vendor-eksternal') displayStatusLabel = 'Pending Vendor Eksternal (SLA Terjeda)';
-    else if (actionType === 'eskalasi-problem-rfc') displayStatusLabel = `Resolved via Workaround & ${targetProblemType}`;
-    else if (actionType === 'rusak-total') displayStatusLabel = 'Closed (Rusak Total / Afkir)';
+    else if (actionType === 'eskalasi-problem-rfc') {
+      displayStatusLabel = canAccessTahap2
+        ? `Resolved via Workaround & ${targetProblemType}`
+        : `Menunggu Approval ${targetProblemType} (Atasan/Admin)`;
+    } else if (actionType === 'approve-problem-escalation') {
+      displayStatusLabel = `Problem Ticket Disetujui & Diterbitkan`;
+    } else if (actionType === 'reject-problem-escalation') {
+      displayStatusLabel = `Pengajuan Problem Ticket Ditolak`;
+    } else if (actionType === 'rusak-total') displayStatusLabel = 'Closed (Rusak Total / Afkir)';
     else if (actionType === 'selesai') displayStatusLabel = 'Resolved (Konfirmasi 1x24j)';
 
     const waNote = catatanAdmin || resolusiAkhirModal || workaroundInput || `Status tiket diperbarui menjadi: ${displayStatusLabel}`;
@@ -1215,6 +1235,16 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                             {t.linkedProblemTicketId ? `↳ Eskalasi: ${t.linkedProblemTicketId}` : `↳ Induk: ${t.linkedParentTicketId}`}
                           </div>
                         )}
+                        {t.problemApprovalStatus === 'Menunggu Approval' && (
+                          <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-[9px] font-bold text-amber-900">
+                            Menunggu Approval Problem
+                          </div>
+                        )}
+                        {t.problemApprovalStatus === 'Ditolak' && (
+                          <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-[9px] font-bold text-rose-800">
+                            Problem Ditolak
+                          </div>
+                        )}
                         <div className="mt-1 flex items-center gap-1">
                           {canEditUrgency ? (
                             <select
@@ -1383,7 +1413,17 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
 
                       {/* Contextual SOP Action Button */}
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        {t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened' ? (
+                        {t.problemApprovalStatus === 'Menunggu Approval' && canAccessTahap2 ? (
+                          <button
+                            type="button"
+                            data-testid={`review-problem-approval-${t.id}`}
+                            onClick={() => openProcessModal(t, 'approve-problem-escalation')}
+                            className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors flex items-center gap-1 ml-auto cursor-pointer"
+                          >
+                            <GitBranch className="w-3.5 h-3.5" />
+                            <span>Review Approval Problem</span>
+                          </button>
+                        ) : t.status === 'Open/Unassigned' || t.status === 'Open' || t.status === 'Baru' || t.status === 'Re-opened' ? (
                           <button
                             type="button"
                             onClick={() => openProcessModal(t, canAccessTahap2 ? 'verifikasi-delegasi' : 'jadwalkan-inspeksi')}
@@ -1592,8 +1632,20 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
                 <option value="lanjut-perbaikan">
                   Tahap 5: Lanjutkan Perbaikan (Aktifkan Kembali SLA)
                 </option>
+                {selectedTicket.problemApprovalStatus === 'Menunggu Approval' && canAccessTahap2 && (
+                  <option value="approve-problem-escalation">
+                    Approval Problem: Setujui Eskalasi → Tutup Insiden &amp; Terbitkan Problem Ticket
+                  </option>
+                )}
+                {selectedTicket.problemApprovalStatus === 'Menunggu Approval' && canAccessTahap2 && (
+                  <option value="reject-problem-escalation">
+                    Approval Problem: Tolak Eskalasi → Kembalikan ke Perbaikan Insiden
+                  </option>
+                )}
                 <option value="eskalasi-problem-rfc">
-                  Eskalasi Problem Ticket: Tutup Insiden via Workaround &amp; Buat Problem Ticket
+                  {canAccessTahap2
+                    ? 'Eskalasi Problem Ticket: Setujui Langsung, Tutup Insiden via Workaround & Buat Problem Ticket'
+                    : 'Ajukan Eskalasi Problem Ticket (Menunggu Approval Atasan / Admin)'}
                 </option>
                 <option value="selesai">
                   Tahap 6: Penyelesaian &amp; Pembaruan Status (Resolved)
@@ -1904,80 +1956,115 @@ export const DamageTicketManagement: React.FC<DamageTicketManagementProps> = ({ 
               </div>
             )}
 
-            {/* Sub-form Eskalasi Insiden -> Problem Ticket (3d) */}
-            {actionType === 'eskalasi-problem-rfc' && (
+            {/* Sub-form Eskalasi Insiden -> Problem Ticket + Approval Atasan / Admin (3d) */}
+            {(actionType === 'eskalasi-problem-rfc' ||
+              actionType === 'approve-problem-escalation' ||
+              actionType === 'reject-problem-escalation') && (
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
                   <GitBranch className="w-4 h-4 text-indigo-700" />
-                  <span>Tutup Insiden via Workaround &amp; Buat Problem Ticket</span>
+                  <span>
+                    {actionType === 'approve-problem-escalation'
+                      ? 'Approval Atasan/Admin: Setujui Eskalasi & Terbitkan Problem Ticket'
+                      : actionType === 'reject-problem-escalation'
+                      ? 'Approval Atasan/Admin: Tolak Pengajuan Problem Ticket'
+                      : canAccessTahap2
+                      ? 'Tutup Insiden via Workaround & Terbitkan Problem Ticket (Auto-Approved)'
+                      : 'Ajukan Eskalasi Insiden ke Problem Ticket (Approval Atasan / Admin)'}
+                  </span>
                 </div>
-                <p className="text-[11px] text-indigo-900 leading-relaxed">
-                  Jika perbaikan memerlukan bongkar arsitektur atau perbaikan akar masalah jangka panjang, berikan <strong>Workaround</strong> (solusi sementara) untuk menutup Insiden harian ini (SLA harian aman), lalu terbitkan <strong>Problem Ticket</strong>.
-                </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      Jenis Tiket Baru: <span className="text-red-600">*</span>
-                    </label>
-                    <select
-                      data-testid="escalate-target-type"
-                      value={targetProblemType}
-                      onChange={() => {
-                        setTargetProblemType('Problem');
-                        setProblemTargetHoursInput(
-                          (slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours
-                        );
-                      }}
-                      className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg font-bold text-slate-900"
-                    >
-                      <option value="Problem">Problem Ticket (Akar Masalah Sistem)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      Target SLA Panjang (Jam):
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={24}
-                        value={problemTargetHoursInput}
-                        onChange={e => setProblemTargetHoursInput(Math.max(24, Number(e.target.value) || 336))}
-                        className="w-28 px-3 py-2 bg-white border border-indigo-300 rounded-lg font-mono font-bold text-slate-900"
-                      />
-                      <span className="text-[11px] text-indigo-800 font-semibold">
-                        ≈ {Math.round((problemTargetHoursInput / 24) * 10) / 10} hari
-                      </span>
+                {selectedTicket.problemApprovalStatus === 'Menunggu Approval' && (
+                  <div className="p-3 bg-white border border-amber-300 rounded-lg text-[11px] text-slate-800 space-y-1">
+                    <div className="font-bold text-amber-900">
+                      Detail Pengajuan dari Teknisi ({selectedTicket.problemApprovalRequestedBy || '-'})
+                    </div>
+                    <div>
+                      <strong>Workaround Diajukan:</strong>{' '}
+                      {selectedTicket.problemPendingWorkaround || '-'}
+                    </div>
+                    <div>
+                      <strong>Alasan Teknis:</strong>{' '}
+                      {selectedTicket.problemApprovalRequestNote || '-'}
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Workaround / Solusi Sementara untuk Pengguna: <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    data-testid="workaround-input"
-                    value={workaroundInput}
-                    onChange={e => setWorkaroundInput(e.target.value)}
-                    placeholder="Contoh: Gunakan portal cadangan atau export CSV manual sementara modul SIAKAD direfaktor..."
-                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs text-slate-900"
-                  />
-                </div>
+                <p className="text-[11px] text-indigo-900 leading-relaxed">
+                  {actionType === 'reject-problem-escalation'
+                    ? 'Jika ditolak, jam SLA Insiden akan aktif kembali dan teknisi wajib melanjutkan penanganan sebagai Insiden reguler. Tuliskan alasan penolakan di kolom Catatan di bawah.'
+                    : canAccessTahap2
+                    ? 'Persetujuan Atasan (Kepala PUSDATIN) atau Admin akan langsung menutup tiket Insiden harian dengan Workaround (SLA harian aman) dan menerbitkan Problem Ticket berjangka panjang.'
+                    : 'Pengajuan oleh Teknisi akan menjeda timer SLA Insiden sementara dan menunggu persetujuan Atasan (Kepala PUSDATIN) atau Admin sebelum Problem Ticket diterbitkan.'}
+                </p>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Judul Tiket {targetProblemType}:
-                  </label>
-                  <input
-                    type="text"
-                    value={problemJudulInput}
-                    onChange={e => setProblemJudulInput(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-semibold text-slate-900"
-                  />
-                </div>
+                {actionType !== 'reject-problem-escalation' && (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">
+                          Jenis Tiket Baru: <span className="text-red-600">*</span>
+                        </label>
+                        <select
+                          data-testid="escalate-target-type"
+                          value={targetProblemType}
+                          onChange={() => {
+                            setTargetProblemType('Problem');
+                            setProblemTargetHoursInput(
+                              (slaConfig.Problem || DEFAULT_SLA_CONFIG.Problem!).rtTargetHours
+                            );
+                          }}
+                          className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg font-bold text-slate-900"
+                        >
+                          <option value="Problem">Problem Ticket (Akar Masalah Sistem)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">
+                          Target SLA Panjang (Jam):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={24}
+                            value={problemTargetHoursInput}
+                            onChange={e => setProblemTargetHoursInput(Math.max(24, Number(e.target.value) || 336))}
+                            className="w-28 px-3 py-2 bg-white border border-indigo-300 rounded-lg font-mono font-bold text-slate-900"
+                          />
+                          <span className="text-[11px] text-indigo-800 font-semibold">
+                            ≈ {Math.round((problemTargetHoursInput / 24) * 10) / 10} hari
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Workaround / Solusi Sementara untuk Pengguna: <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        data-testid="workaround-input"
+                        value={workaroundInput}
+                        onChange={e => setWorkaroundInput(e.target.value)}
+                        placeholder="Contoh: Gunakan portal cadangan atau export CSV manual sementara modul SIAKAD direfaktor..."
+                        className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs text-slate-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Judul Tiket {targetProblemType}:
+                      </label>
+                      <input
+                        type="text"
+                        value={problemJudulInput}
+                        onChange={e => setProblemJudulInput(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

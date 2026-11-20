@@ -115,6 +115,32 @@ describe('ITIL Reporting Governance, Operational & Executive Dashboards, and Exp
     }
   });
 
+  it('Gap Analysis returns 0 deficits, Aman (Terpenuhi), and Rp 0 RAPBU when categories have no data', () => {
+    globalThis.localStorage.clear();
+    globalThis.sessionStorage.clear();
+    AppDatabase.resetToDefaultSeed();
+
+    const emptyGapRows = computeAssetGapAnalysis(
+      AppDatabase.getAssets(),
+      AppDatabase.getBukuAsetInventarisRekap(),
+      AppDatabase.getAllSpareParts(),
+      2
+    );
+    assert.ok(emptyGapRows.length >= 7);
+    for (const row of emptyGapRows) {
+      assert.strictEqual(row.readyStockCount, 0);
+      assert.strictEqual(row.demandSparePartsCount, 0);
+      assert.strictEqual(row.damagedReplacementCount, 0);
+      assert.strictEqual(row.totalDemandCount, 0);
+      assert.strictEqual(row.netGap, 0);
+      assert.strictEqual(row.estimatedUnitCostRp, 0);
+      assert.strictEqual(row.estimatedBudgetRp, 0);
+      assert.strictEqual(row.priority, 'Aman (Terpenuhi)');
+    }
+    const totalRapbu = emptyGapRows.reduce((sum, r) => sum + r.estimatedBudgetRp, 0);
+    assert.strictEqual(totalRapbu, 0);
+  });
+
   it('Operational Dashboard metrics cover all 4 ITIL operational modules with overdue loan detection', () => {
     // Inject an explicit overdue loan for deterministic test verification
     const overdueLoan = AppDatabase.addLoan({

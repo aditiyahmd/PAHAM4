@@ -114,7 +114,7 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     buku_inventaris: 'none',
     buat_tiket: 'none',
     distribusi_tiket: 'execute',
-    tindakan_perbaikan: 'none',
+    tindakan_perbaikan: 'execute',
     peminjaman_aset: 'none',
     pengajuan_sistem: 'manage', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
@@ -131,7 +131,7 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     buku_inventaris: 'none',
     buat_tiket: 'none',
     distribusi_tiket: 'execute',
-    tindakan_perbaikan: 'none',
+    tindakan_perbaikan: 'execute',
     peminjaman_aset: 'none',
     pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',
@@ -148,7 +148,7 @@ export const RBAC_MATRIX: Record<ActorCode, Record<ModulePermission, AccessLevel
     buku_inventaris: 'none',
     buat_tiket: 'none',
     distribusi_tiket: 'execute',
-    tindakan_perbaikan: 'none',
+    tindakan_perbaikan: 'execute',
     peminjaman_aset: 'none',
     pengajuan_sistem: 'execute', // Pengajuan Sistem Baru
     dashboard_pimpinan: 'none',

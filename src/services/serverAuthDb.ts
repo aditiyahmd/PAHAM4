@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { AppUser, ActorCode, TechnicianRole } from '../types/index.ts';
+import type { AppUser, ActorCode, TechnicianRole } from '../types/index.ts';
 import {
   isAllowedInstitutionalEmail,
   inferCivitasTypeFromEmail,

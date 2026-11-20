@@ -479,6 +479,95 @@ describe('PAHAM Refinements Suite - SLA, SSO Domain & Registered Users, One-Step
     assert.strictEqual(escRes.ticket?.linkedProblemTicketId, escRes.createdProblemTicket?.id);
   });
 
+  it('ITIL SLA 3d-approval: Technician Problem escalation waits for Atasan/Admin approval, blocks self-approval, supports reject & approve', () => {
+    AppDatabase.setActiveUser('USR-ACT-03');
+    const t0 = new Date('2026-11-18T08:00:00.000Z').getTime();
+
+    const incident = AppDatabase.addDamageTicket({
+      kodeUnikAset: 'AST-SIAKAD-02',
+      barcode: '88005577',
+      namaBarang: 'Portal Nilai Akademik',
+      pelapor: 'BAAK UMC',
+      kontakPelapor: '0812000334',
+      lokasi: 'Cloud Server UMC',
+      kategoriMasalah: 'Software',
+      prioritas: 'Kritis',
+      deskripsi: 'Deadlock transaksi database saat input nilai serentak',
+      customNowMs: t0
+    });
+
+    AppDatabase.processDamageTicket(incident.id, 'verifikasi-delegasi', {
+      urgensiBaru: 'Kritis',
+      targetTechnicianId: 'USR-ACT-06',
+      customNowMs: t0 + 10 * 60000
+    });
+
+    // 1. Teknisi (USR-ACT-06) mengajukan eskalasi ke Problem Ticket -> Menunggu Approval & SLA terjeda
+    AppDatabase.setActiveUser('USR-ACT-06');
+    const techReq = AppDatabase.processDamageTicket(incident.id, 'eskalasi-problem-rfc', {
+      targetTicketType: 'Problem',
+      workaround: 'Sementara input nilai dilakukan bertahap per prodi',
+      problemJudul: '[Problem] Perbaikan Deadlock Database Portal Nilai',
+      problemTargetHours: 336,
+      catatan: 'Butuh optimasi query index & locking transaksi',
+      customNowMs: t0 + 40 * 60000
+    });
+
+    assert.strictEqual(techReq.success, true);
+    assert.strictEqual(techReq.ticket?.problemApprovalStatus, 'Menunggu Approval');
+    assert.ok(techReq.ticket?.slaPausedAtIso);
+    assert.notStrictEqual(techReq.ticket?.status, 'Resolved');
+    assert.strictEqual(techReq.createdProblemTicket, undefined);
+
+    // 2. Teknisi dilarang menyetujui atau menolak pengajuannya sendiri
+    const selfApprove = AppDatabase.processDamageTicket(incident.id, 'approve-problem-escalation', {
+      customNowMs: t0 + 50 * 60000
+    });
+    assert.strictEqual(selfApprove.success, false);
+    assert.ok(selfApprove.message.includes('Atasan'));
+
+    const selfReject = AppDatabase.processDamageTicket(incident.id, 'reject-problem-escalation', {
+      customNowMs: t0 + 55 * 60000
+    });
+    assert.strictEqual(selfReject.success, false);
+
+    // 3. Atasan (ACT-02) menolak pengajuan -> Insiden kembali In Progress & SLA aktif lagi
+    AppDatabase.setActiveUser('USR-ACT-02');
+    const rejected = AppDatabase.processDamageTicket(incident.id, 'reject-problem-escalation', {
+      catatanAdmin: 'Coba restart connection pool dulu sebelum buat Problem Ticket',
+      customNowMs: t0 + 70 * 60000
+    });
+    assert.strictEqual(rejected.success, true);
+    assert.strictEqual(rejected.ticket?.problemApprovalStatus, 'Ditolak');
+    assert.strictEqual(rejected.ticket?.status, 'In Progress');
+    assert.strictEqual(rejected.ticket?.slaPausedAtIso, undefined);
+
+    // 4. Teknisi mengajukan ulang lalu disetujui oleh Atasan (ACT-02) -> Insiden Resolved & PRB terbit
+    AppDatabase.setActiveUser('USR-ACT-06');
+    const reRequest = AppDatabase.processDamageTicket(incident.id, 'eskalasi-problem-rfc', {
+      targetTicketType: 'Problem',
+      workaround: 'Antrean upload nilai per fakultas diaktifkan',
+      problemJudul: '[Problem] Refactor Locking Portal Nilai',
+      problemTargetHours: 336,
+      catatan: 'Connection pool sudah direstart tetapi deadlock tetap berulang',
+      customNowMs: t0 + 90 * 60000
+    });
+    assert.strictEqual(reRequest.ticket?.problemApprovalStatus, 'Menunggu Approval');
+
+    AppDatabase.setActiveUser('USR-ACT-02');
+    const approved = AppDatabase.processDamageTicket(incident.id, 'approve-problem-escalation', {
+      catatanAdmin: 'Disetujui Kepala PUSDATIN untuk refactor kuartal ini',
+      customNowMs: t0 + 120 * 60000
+    });
+    assert.strictEqual(approved.success, true);
+    assert.strictEqual(approved.ticket?.status, 'Resolved');
+    assert.strictEqual(approved.ticket?.problemApprovalStatus, 'Disetujui');
+    assert.ok(approved.ticket?.problemApprovedBy);
+    assert.ok(approved.createdProblemTicket?.id.startsWith('PRB-'));
+    assert.strictEqual(approved.createdProblemTicket?.linkedParentTicketId, incident.id);
+    assert.strictEqual(approved.createdProblemTicket?.rtTargetHours, 336);
+  });
+
   it('ITIL SLA 3e: Need More Info halts RT SLA, resumes on user reply, and auto-closes as Closed – Auto after 3x24 hours', () => {
     AppDatabase.setActiveUser('USR-ACT-03');
     const t0 = new Date('2026-11-19T09:00:00.000Z').getTime();

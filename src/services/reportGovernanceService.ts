@@ -277,6 +277,28 @@ export function computeAssetGapAnalysis(
     ).length;
 
     const damagedReplacement = rk.rincianStatus.tidakLayak || 0;
+    const hasCategoryActivity =
+      catAssets.length > 0 ||
+      rk.totalMasuk > 0 ||
+      unfulfilledPartsForCat > 0 ||
+      damagedReplacement > 0;
+
+    if (!hasCategoryActivity) {
+      rows.push({
+        categoryOrItem: rk.kategori,
+        readyStockCount: 0,
+        demandSparePartsCount: 0,
+        damagedReplacementCount: 0,
+        totalDemandCount: 0,
+        netGap: 0,
+        priority: 'Aman (Terpenuhi)',
+        estimatedUnitCostRp: 0,
+        estimatedBudgetRp: 0,
+        recommendation: 'Belum ada data aset atau pengajuan kebutuhan pada kategori ini.'
+      });
+      return;
+    }
+
     const safetyBufferDeficit = rk.stokTersedia <= criticalThreshold ? criticalThreshold - rk.stokTersedia + 1 : 0;
     const totalDemand = Math.max(unfulfilledPartsForCat + damagedReplacement, safetyBufferDeficit);
     const netGap = Math.max(0, totalDemand - Math.max(0, rk.stokTersedia - 1));
